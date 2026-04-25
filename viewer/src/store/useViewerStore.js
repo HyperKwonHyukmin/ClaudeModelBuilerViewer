@@ -62,6 +62,12 @@ export const useViewerStore = create((set, get) => ({
   setPickedEntity: (entity) => set({ pickedEntity: entity }),
 
   // Beam/node color mode
-  colorMode: 'category',   // 'category' | 'propertyId' | 'shapeType' | 'freeNode'
+  colorMode: 'category',   // 'category' | 'freeNode'
   setColorMode: (mode) => set({ colorMode: mode }),
+
+  // Free Node 필터 (colorMode === 'freeNode' 일 때 사용)
+  freeNodeFilters: { normal: true, free: true, orphan: true },
+  toggleFreeNodeFilter: (key) => {
+    set(s => ({ freeNodeFilters: { ...s.freeNodeFilters, [key]: !s.freeNodeFilters[key] } }))
+  },
 }))

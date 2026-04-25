@@ -2,6 +2,7 @@ import { useRef, useEffect, useCallback, useState } from 'react'
 import * as THREE from 'three'
 import { TrackballControls } from 'three/addons/controls/TrackballControls.js'
 import { buildScene, disposeScene } from '../three/SceneBuilder.js'
+import { applyFreeNodeFilters } from '../three/NodePoints.js'
 
 const LAYER_KEYS = ['structure', 'pipe', 'nodes', 'rigids', 'masses', 'boundaries', 'diagnostics']
 const DRAG_THRESHOLD = 3  // px — moves less than this are treated as a click
@@ -23,7 +24,7 @@ const DAMPING_TAIL = 800  // ms to keep rendering after drag ends (for inertia)
  *
  * Bottom-left corner: live XYZ axes indicator.
  */
-export default function ThreeViewport({ stageData, layers, onReady, onPick, colorMode = 'category' }) {
+export default function ThreeViewport({ stageData, layers, onReady, onPick, colorMode = 'category', freeNodeFilters }) {
   const [sceneError, setSceneError] = useState(null)
   const containerRef = useRef(null)
   const rendererRef  = useRef(null)
@@ -294,6 +295,13 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, colo
     applyLayers(sceneDataRef.current.layers, layers)
     requestRender()
   }, [layers, requestRender])
+
+  // ── Free Node filters ────────────────────────────────────────────────
+  useEffect(() => {
+    if (!sceneDataRef.current || !freeNodeFilters) return
+    applyFreeNodeFilters(sceneDataRef.current.pickables?.nodes, freeNodeFilters)
+    requestRender()
+  }, [freeNodeFilters, requestRender])
 
   return (
     <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden' }}>

@@ -5,20 +5,25 @@ const NODE_RADIUS = 0.056  // 56 mm (80 % of original 70 mm)
 const _dummy = new THREE.Object3D()
 
 // freeNode 모드 색상
-const COLOR_NORMAL   = new THREE.Color(COLORS.node)   // 정상 (2+ 연결) — 빨강
-const COLOR_FREE_END = new THREE.Color(0xFFDD00)       // 자유단 (1 연결) — 노란색
-const COLOR_ORPHAN   = new THREE.Color(0xCC44FF)       // 고립 (0 연결) — 보라색
+const COLOR_NORMAL   = new THREE.Color(COLORS.node)   // 다중 요소 Node (2+) — 빨강
+const COLOR_FREE_END = new THREE.Color(0xFFDD00)       // Free Node (1 연결) — 노란색
+const COLOR_ORPHAN   = new THREE.Color(0xCC44FF)       // 고립 Node (0 연결) — 보라색
 
 /**
  * Builds an InstancedMesh of shaded spheres, one per node.
  *
  * colorMode 'freeNode': per-instance colors based on element connection count
- *   - 0 connections → purple (orphan)
- *   - 1 connection  → yellow (free end / dangling)
- *   - 2+            → normal red
+ *   - 0 connections → purple (고립 Node)
+ *   - 1 connection  → yellow (Free Node)
+ *   - 2+            → red    (다중 요소 Node)
+ *
+ * userData includes:
+ *   nodeIds        — instanceId → node id
+ *   nodeCategories — instanceId → 'normal' | 'free' | 'orphan'
+ *   nodePositions  — instanceId → THREE.Vector3 (for filter re-matrix)
  *
  * @param {import('../data/StageData.js').StageData} stageData
- * @param {'category'|'propertyId'|'shapeType'|'freeNode'} [colorMode='category']
+ * @param {'category'|'freeNode'} [colorMode='category']
  * @returns {THREE.InstancedMesh}
  */
 export function buildNodePoints(stageData, colorMode = 'category') {
@@ -40,29 +45,61 @@ export function buildNodePoints(stageData, colorMode = 'category') {
     }
   }
 
-  const nodeIds = []   // instanceId → node id
+  const nodeIds        = []
+  const nodeCategories = []   // 'normal' | 'free' | 'orphan'
+  const nodePositions  = []   // THREE.Vector3 — for applyFreeNodeFilters
 
   for (const id of ids) {
     const pos = stageData.getNodePos(id)
     if (!pos) continue
-    nodeIds[mesh.count] = id
-    _dummy.position.copy(pos)
-    _dummy.updateMatrix()
-    mesh.setMatrixAt(mesh.count, _dummy.matrix)
+    const i = mesh.count
 
+    nodeIds[i]        = id
+    nodePositions[i]  = pos.clone()
+
+    let cat = 'normal'
     if (usageMap) {
       const cnt = usageMap.get(id) ?? 0
-      const col = cnt === 0 ? COLOR_ORPHAN : cnt === 1 ? COLOR_FREE_END : COLOR_NORMAL
-      mesh.setColorAt(mesh.count, col)
-    } else {
-      mesh.setColorAt(mesh.count, COLOR_NORMAL)
+      cat = cnt === 0 ? 'orphan' : cnt === 1 ? 'free' : 'normal'
     }
+    nodeCategories[i] = cat
+
+    _dummy.position.copy(pos)
+    _dummy.scale.setScalar(1)
+    _dummy.updateMatrix()
+    mesh.setMatrixAt(i, _dummy.matrix)
+
+    const col = cat === 'orphan' ? COLOR_ORPHAN : cat === 'free' ? COLOR_FREE_END : COLOR_NORMAL
+    mesh.setColorAt(i, col)
 
     mesh.count++
   }
 
   mesh.instanceMatrix.needsUpdate = true
   if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
-  mesh.userData = { nodeIds }
+  mesh.userData = { nodeIds, nodeCategories, nodePositions }
   return mesh
+}
+
+/**
+ * Shows/hides node instances based on freeNode filter toggles.
+ * Hidden instances are scaled to near-zero; shown instances restored to scale 1.
+ *
+ * @param {THREE.InstancedMesh} mesh
+ * @param {{ normal: boolean, free: boolean, orphan: boolean }} filters
+ */
+export function applyFreeNodeFilters(mesh, filters) {
+  if (!mesh?.userData?.nodeCategories) return
+  const { nodeCategories, nodePositions } = mesh.userData
+  for (let i = 0; i < mesh.count; i++) {
+    const cat     = nodeCategories[i]
+    const visible = cat === 'normal' ? filters.normal
+                  : cat === 'free'   ? filters.free
+                  : filters.orphan
+    _dummy.position.copy(nodePositions[i])
+    _dummy.scale.setScalar(visible ? 1 : 0.0001)
+    _dummy.updateMatrix()
+    mesh.setMatrixAt(i, _dummy.matrix)
+  }
+  mesh.instanceMatrix.needsUpdate = true
 }
