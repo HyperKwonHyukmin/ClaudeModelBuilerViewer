@@ -29,8 +29,9 @@ export default function ThreeViewport({ stageData, layers, onReady }) {
     renderScheduled.current = true
     requestAnimationFrame(() => {
       renderScheduled.current = false
-      if (rendererRef.current && sceneRef.current && cameraRef.current) {
-        rendererRef.current.render(sceneRef.current, cameraRef.current)
+      const renderer = rendererRef.current
+      if (renderer && sceneRef.current && cameraRef.current && renderer.domElement.isConnected) {
+        renderer.render(sceneRef.current, cameraRef.current)
       }
     })
   }, [])
@@ -143,5 +144,7 @@ function fitCamera(stageData, camera, controls) {
   camera.near = dist * 0.001
   camera.far = dist * 100
   camera.updateProjectionMatrix()
+  controls.minDistance = dist * 0.01
+  controls.maxDistance = dist * 50
   controls.update()
 }

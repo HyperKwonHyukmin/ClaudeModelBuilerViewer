@@ -87,7 +87,11 @@ export default function ViewportContainer() {
 
               {viewports.length > 1 && (
                 <button
-                  onClick={e => { e.stopPropagation(); removeViewport(vp.id) }}
+                  onClick={e => {
+                    e.stopPropagation()
+                    delete viewportApiRefs.current[vp.id]
+                    removeViewport(vp.id)
+                  }}
                   style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', fontSize: 14, padding: '0 2px', lineHeight: 1 }}
                   title="뷰포트 닫기"
                 >×</button>

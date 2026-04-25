@@ -36,6 +36,13 @@ export const useViewerStore = create((set, get) => ({
     }))
   },
 
+  // Called when new stages are loaded — clamp all viewports to index 0
+  resetViewportStages: () => {
+    set(s => ({
+      viewports: s.viewports.map(v => ({ ...v, stageIndex: 0 })),
+    }))
+  },
+
   // Active viewport (for inspector panel)
   activeViewportId: 1,
   setActiveViewport: (id) => set({ activeViewportId: id }),

@@ -41,8 +41,14 @@ export function disposeScene(root) {
   root.traverse(obj => {
     if (obj.geometry) obj.geometry.dispose()
     if (obj.material) {
-      if (Array.isArray(obj.material)) obj.material.forEach(m => m.dispose())
-      else obj.material.dispose()
+      const mats = Array.isArray(obj.material) ? obj.material : [obj.material]
+      mats.forEach(m => {
+        // Dispose any textures on the material (future-proof for textured stages)
+        Object.values(m).forEach(v => {
+          if (v && typeof v.dispose === 'function' && v.isTexture) v.dispose()
+        })
+        m.dispose()
+      })
     }
   })
 }

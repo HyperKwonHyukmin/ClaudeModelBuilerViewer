@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useStageStore } from '../store/useStageStore.js'
 import { useViewerStore } from '../store/useViewerStore.js'
 
@@ -10,6 +10,9 @@ export default function InspectorPanel() {
   const [tracePage, setTracePage] = useState(0)
   const { stages } = useStageStore()
   const { viewports, activeViewportId } = useViewerStore()
+
+  // Reset trace page when active viewport (and thus stage) changes
+  useEffect(() => { setTracePage(0) }, [activeViewportId])
 
   const activeVp = viewports.find(v => v.id === activeViewportId)
   const stage = activeVp ? stages[activeVp.stageIndex] : null
