@@ -15,7 +15,7 @@ import useCameraSync from '../hooks/useCameraSync.js'
  * LayerPanel floats over the grid (bottom-left overlay).
  */
 export default function ViewportContainer() {
-  const { viewports, removeViewport, setViewportStage, setActiveViewport, activeViewportId, layers, cameraLinked, setPickedEntity, colorMode, freeNodeFilters } = useViewerStore()
+  const { viewports, removeViewport, setViewportStage, setActiveViewport, activeViewportId, layers, cameraLinked, setPickedEntity, pickedEntity, colorMode, freeNodeFilters } = useViewerStore()
   const { stages } = useStageStore()
 
   const viewportApiRefs = useRef({})
@@ -119,6 +119,7 @@ export default function ViewportContainer() {
                   onPick={handlePick}
                   colorMode={colorMode}
                   freeNodeFilters={freeNodeFilters}
+                  selectedEntity={pickedEntity}
                 />
               </div>
             </div>

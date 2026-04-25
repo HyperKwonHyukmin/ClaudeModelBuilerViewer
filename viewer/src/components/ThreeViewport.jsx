@@ -3,6 +3,7 @@ import * as THREE from 'three'
 import { TrackballControls } from 'three/addons/controls/TrackballControls.js'
 import { buildScene, disposeScene } from '../three/SceneBuilder.js'
 import { applyFreeNodeFilters } from '../three/NodePoints.js'
+import { buildElementsHighlight, buildNodesHighlight } from '../three/SelectionHighlight.js'
 
 const LAYER_KEYS = ['structure', 'pipe', 'nodes', 'rigids', 'masses', 'boundaries']
 const DRAG_THRESHOLD = 3  // px — moves less than this are treated as a click
@@ -24,7 +25,7 @@ const DAMPING_TAIL = 800  // ms to keep rendering after drag ends (for inertia)
  *
  * Bottom-left corner: live XYZ axes indicator.
  */
-export default function ThreeViewport({ stageData, layers, onReady, onPick, colorMode = 'category', freeNodeFilters }) {
+export default function ThreeViewport({ stageData, layers, onReady, onPick, colorMode = 'category', freeNodeFilters, selectedEntity }) {
   const [sceneError, setSceneError] = useState(null)
   const containerRef = useRef(null)
   const rendererRef  = useRef(null)
@@ -36,9 +37,10 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, colo
   const sceneDataRef = useRef(null)   // { root, layers, pickables }
   const renderScheduled = useRef(false)
   const animRafRef   = useRef(null)
-  const raycasterRef = useRef(new THREE.Raycaster())
-  const pointerDownRef = useRef(null)  // { x, y } at pointerdown
-  const fitStateRef  = useRef(null)    // { position, target, up } saved by fitCamera
+  const raycasterRef   = useRef(new THREE.Raycaster())
+  const pointerDownRef = useRef(null)   // { x, y } at pointerdown
+  const fitStateRef    = useRef(null)   // { position, target, up } saved by fitCamera
+  const highlightRef   = useRef(null)   // current selection highlight Group
 
   // ── Core render: main scene + axes indicator ──────────────────────────
   const doRender = useCallback(() => {
@@ -259,6 +261,11 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, colo
     const scene = sceneRef.current
     if (!scene) return
 
+    if (highlightRef.current) {
+      scene.remove(highlightRef.current)
+      disposeScene(highlightRef.current)
+      highlightRef.current = null
+    }
     if (sceneDataRef.current) {
       scene.remove(sceneDataRef.current.root)
       disposeScene(sceneDataRef.current.root)
@@ -302,6 +309,40 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, colo
     applyFreeNodeFilters(sceneDataRef.current.pickables?.nodes, freeNodeFilters)
     requestRender()
   }, [freeNodeFilters, requestRender])
+
+  // ── Selection highlight ───────────────────────────────────────────────
+  useEffect(() => {
+    const scene = sceneRef.current
+    if (!scene) return
+
+    // Remove previous highlight
+    if (highlightRef.current) {
+      scene.remove(highlightRef.current)
+      disposeScene(highlightRef.current)
+      highlightRef.current = null
+    }
+
+    if (!selectedEntity || !stageData) { requestRender(); return }
+
+    let group = null
+    if (selectedEntity.type === 'node') {
+      // Node selected → highlight all connected elements
+      const connected = stageData.elements.filter(
+        e => e.startNode === selectedEntity.nodeId || e.endNode === selectedEntity.nodeId
+      )
+      group = buildElementsHighlight(connected.map(e => e.id), stageData)
+    } else if (selectedEntity.type === 'element') {
+      // Element selected → highlight its two endpoint nodes
+      const nodeIds = [selectedEntity.startNode, selectedEntity.endNode].filter(Boolean)
+      group = buildNodesHighlight(nodeIds, stageData)
+    }
+
+    if (group) {
+      scene.add(group)
+      highlightRef.current = group
+    }
+    requestRender()
+  }, [selectedEntity, stageData, requestRender]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden' }}>
