@@ -127,14 +127,14 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, colo
 
     // ── TrackballControls — unlimited 3D rotation ─────────────────────
     const controls = new TrackballControls(camera, renderer.domElement)
-    controls.rotateSpeed = 4.0
-    controls.zoomSpeed   = 1.2
-    controls.panSpeed    = 0.5
-    controls.staticMoving   = false   // enable inertia
-    controls.dynamicDampingFactor = 0.15
+    controls.rotateSpeed = 1.5             // was 4.0 — finer control
+    controls.zoomSpeed   = 0.7             // was 1.2
+    controls.panSpeed    = 0.25            // was 0.5
+    controls.staticMoving   = false        // keep inertia
+    controls.dynamicDampingFactor = 0.2   // slightly more damping for crispness
     controls.mouseButtons = {
       LEFT:   THREE.MOUSE.ROTATE,
-      MIDDLE: THREE.MOUSE.ROTATE,
+      MIDDLE: THREE.MOUSE.DOLLY,   // middle button = zoom (less accidental pan)
       RIGHT:  THREE.MOUSE.PAN,
     }
     controlsRef.current = controls
@@ -164,6 +164,13 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, colo
 
     controls.addEventListener('start', onStart)
     controls.addEventListener('end',   onEnd)
+
+    // ── Double-click: restore to last fitCamera view (rotation center fix) ──
+    const onDblClick = () => {
+      controls.reset()   // restores position/target saved by controls.saveState()
+      requestRender()
+    }
+    renderer.domElement.addEventListener('dblclick', onDblClick)
 
     // ── ResizeObserver ────────────────────────────────────────────────
     const ro = new ResizeObserver(() => {
@@ -230,6 +237,7 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, colo
       controls.removeEventListener('start', onStart)
       controls.removeEventListener('end',   onEnd)
       controls.dispose()
+      renderer.domElement.removeEventListener('dblclick',    onDblClick)
       renderer.domElement.removeEventListener('pointerdown', onPointerDown)
       renderer.domElement.removeEventListener('pointerup',   onPointerUp)
       renderer.dispose()
@@ -292,16 +300,28 @@ function fitCamera(stageData, camera, controls) {
   const dz = (bbox.maxZ - bbox.minZ) / 1000
   const size = Math.max(dx, dy, dz, 1)
 
+  // Target is always the model centre in scene space (0,0,0 after centring)
   controls.target.set(0, 0, 0)
+
   const fov  = camera.fov * (Math.PI / 180)
   const dist = (size / 2) / Math.tan(fov / 2) * 1.5
   camera.position.set(dist, dist * 0.6, dist)
+
+  // Explicitly orient the camera towards the rotation centre so TrackballControls
+  // initialises its internal _eye vector correctly.
+  camera.lookAt(controls.target)
+
   camera.near = dist * 0.001
   camera.far  = dist * 100
   camera.updateProjectionMatrix()
+
   controls.minDistance = dist * 0.01
   controls.maxDistance = dist * 50
   controls.update()
+
+  // Save this view so double-click can restore it after the target drifts due
+  // to panning.
+  controls.saveState()
 }
 
 function _makeLabel(text, color, x, y, z) {

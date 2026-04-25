@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { COLORS } from '../utils/colors.js'
 
-const NODE_RADIUS = 0.07   // 70 mm — large enough to read as spheres, not dots
+const NODE_RADIUS = 0.056  // 56 mm (80 % of original 70 mm)
 const _dummy = new THREE.Object3D()
 
 /**
