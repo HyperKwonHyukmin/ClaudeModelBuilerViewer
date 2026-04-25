@@ -336,9 +336,12 @@ function fitCamera(stageData, camera, controls) {
   controls.maxDistance = dist * 50
   controls.update()
 
-  // Save this view so double-click can restore it after the target drifts due
-  // to panning.
-  controls.saveState()
+  // TrackballControls stores the reset-state in target0/position0/up0.
+  // Manually syncing them here so controls.reset() (double-click) always
+  // returns to this fit-camera view, even after the user has panned.
+  controls.target0.copy(controls.target)
+  controls.position0.copy(camera.position)
+  controls.up0.copy(camera.up)
 }
 
 function _makeLabel(text, color, x, y, z) {
