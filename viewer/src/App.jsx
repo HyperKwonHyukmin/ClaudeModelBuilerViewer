@@ -5,7 +5,10 @@ import { loadFiles } from './data/fileLoader.js'
 export default function App() {
   const [stages, setStages] = useState([])
   const [activeIndex, setActiveIndex] = useState(0)
-  const [layers, setLayers] = useState({ structure: true, pipe: true })
+  const [layers, setLayers] = useState({
+    structure: true, pipe: true, nodes: false,
+    rigids: true, masses: true, boundaries: true, welds: true,
+  })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
 
@@ -72,6 +75,11 @@ export default function App() {
           {[
             { key: 'structure', label: '구조', color: '#4682B4' },
             { key: 'pipe', label: '배관', color: '#FF8C00' },
+            { key: 'nodes', label: '노드', color: '#888888' },
+            { key: 'rigids', label: 'RBE', color: '#FF00FF' },
+            { key: 'masses', label: '질량', color: '#FFD700' },
+            { key: 'boundaries', label: '경계', color: '#00AA00' },
+            { key: 'welds', label: '용접', color: '#FF4444' },
           ].map(({ key, label, color }) => (
             <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer', fontSize: 13 }}>
               <input
