@@ -37,6 +37,7 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, colo
   const animRafRef   = useRef(null)
   const raycasterRef = useRef(new THREE.Raycaster())
   const pointerDownRef = useRef(null)  // { x, y } at pointerdown
+  const fitStateRef  = useRef(null)    // { position, target, up } saved by fitCamera
 
   // ── Core render: main scene + axes indicator ──────────────────────────
   const doRender = useCallback(() => {
@@ -166,9 +167,15 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, colo
     controls.addEventListener('start', onStart)
     controls.addEventListener('end',   onEnd)
 
-    // ── Double-click: restore to last fitCamera view (rotation center fix) ──
+    // ── Double-click: restore to last fitCamera view ─────────────────
     const onDblClick = () => {
-      controls.reset()   // restores position/target saved by controls.saveState()
+      const s = fitStateRef.current
+      if (s) {
+        camera.position.copy(s.position)
+        camera.up.copy(s.up)
+        controls.target.copy(s.target)
+        controls.update()
+      }
       requestRender()
     }
     renderer.domElement.addEventListener('dblclick', onDblClick)
@@ -267,6 +274,12 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, colo
       if (layers) applyLayers(sceneData.layers, layers)
 
       fitCamera(stageData, cameraRef.current, controlsRef.current)
+      // Save state so double-click can restore this exact view
+      fitStateRef.current = {
+        position: cameraRef.current.position.clone(),
+        target:   controlsRef.current.target.clone(),
+        up:       cameraRef.current.up.clone(),
+      }
       setSceneError(null)
       requestRender()
     } catch (err) {
@@ -335,13 +348,6 @@ function fitCamera(stageData, camera, controls) {
   controls.minDistance = dist * 0.01
   controls.maxDistance = dist * 50
   controls.update()
-
-  // TrackballControls stores the reset-state in target0/position0/up0.
-  // Manually syncing them here so controls.reset() (double-click) always
-  // returns to this fit-camera view, even after the user has panned.
-  controls.target0.copy(controls.target)
-  controls.position0.copy(camera.position)
-  controls.up0.copy(camera.up)
 }
 
 function _makeLabel(text, color, x, y, z) {

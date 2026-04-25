@@ -1,0 +1,66 @@
+- generic [ref=e3]:
+  - generic [ref=e4]:
+    - generic [ref=e5] [cursor=pointer]: 📂 폴더 열기
+    - button "+ 뷰포트" [disabled] [ref=e6] [cursor=pointer]
+    - button "🔗 동기화 OFF" [ref=e7] [cursor=pointer]
+  - generic [ref=e8]:
+    - generic [ref=e9]:
+      - generic [ref=e10]:
+        - paragraph [ref=e11]: 레이어
+        - generic [ref=e12] [cursor=pointer]:
+          - checkbox "구조" [checked] [ref=e13]
+          - generic [ref=e14]: 구조
+        - generic [ref=e15] [cursor=pointer]:
+          - checkbox "배관" [checked] [ref=e16]
+          - generic [ref=e17]: 배관
+        - generic [ref=e18] [cursor=pointer]:
+          - checkbox "노드" [ref=e19]
+          - generic [ref=e20]: 노드
+        - generic [ref=e21] [cursor=pointer]:
+          - checkbox "RBE" [checked] [ref=e22]
+          - generic [ref=e23]: RBE
+        - generic [ref=e24] [cursor=pointer]:
+          - checkbox "질량" [checked] [ref=e25]
+          - generic [ref=e26]: 질량
+        - generic [ref=e27] [cursor=pointer]:
+          - checkbox "경계" [checked] [ref=e28]
+          - generic [ref=e29]: 경계
+        - generic [ref=e30] [cursor=pointer]:
+          - checkbox "용접" [checked] [ref=e31]
+          - generic [ref=e32]: 용접
+      - generic [ref=e37]:
+        - paragraph [ref=e38]: 단계 정보
+        - paragraph [ref=e39]: 4개 단계 로드됨
+    - generic [ref=e33]:
+      - generic [ref=e41]:
+        - combobox [ref=e42]:
+          - option "01 SanityPreprocess" [selected]
+          - option "02 CollinearNodeMerge"
+          - option "03 GroupConnect"
+          - option "04 FinalValidation"
+        - generic [ref=e43]: N:4,093 E:2,297
+        - button "×" [ref=e47] [cursor=pointer]
+      - generic [ref=e49]:
+        - combobox [ref=e50]:
+          - option "01 SanityPreprocess"
+          - option "02 CollinearNodeMerge" [selected]
+          - option "03 GroupConnect"
+          - option "04 FinalValidation"
+        - generic [ref=e51]: N:4,927 E:2,990
+        - button "×" [ref=e52] [cursor=pointer]
+      - generic [ref=e57]:
+        - combobox [ref=e58]:
+          - option "01 SanityPreprocess"
+          - option "02 CollinearNodeMerge"
+          - option "03 GroupConnect" [selected]
+          - option "04 FinalValidation"
+        - generic [ref=e59]: N:4,927 E:3,911
+        - button "×" [ref=e60] [cursor=pointer]
+      - generic [ref=e65]:
+        - combobox [ref=e66]:
+          - option "01 SanityPreprocess"
+          - option "02 CollinearNodeMerge"
+          - option "03 GroupConnect"
+          - option "04 FinalValidation" [selected]
+        - generic [ref=e67]: N:4,996 E:3,982
+        - button "×" [ref=e68] [cursor=pointer]

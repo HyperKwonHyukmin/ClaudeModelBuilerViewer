@@ -1,0 +1,35 @@
+- generic [ref=e3]:
+  - generic [ref=e4]:
+    - generic [ref=e5] [cursor=pointer]: 📂 폴더 열기
+    - combobox [ref=e18]:
+      - option "01 SanityPreprocess"
+      - option "02 Meshing"
+      - option "03 NodeEquivalence"
+      - option "04 Intersection"
+      - option "05 DanglingShortRemove"
+      - option "06 CollinearNodeMerge"
+      - option "07 ExtendToIntersect"
+      - option "08 SplitByExistingNodes"
+      - option "09 GroupConnect"
+      - option "10 SplitByExistingNodes"
+      - option "11 UboltRbe"
+      - option "12 SplitByExistingNodes"
+      - option "13 FinalValidation" [selected]
+    - generic [ref=e6]:
+      - generic [ref=e7] [cursor=pointer]:
+        - checkbox "구조" [checked] [ref=e8]
+        - generic [ref=e9]: 구조
+      - generic [ref=e10] [cursor=pointer]:
+        - checkbox "배관" [checked] [ref=e11]
+        - generic [ref=e12]: 배관
+  - generic [ref=e21]:
+    - generic [ref=e22]:
+      - text: "단계:"
+      - strong [ref=e23]: FinalValidation
+    - generic [ref=e24]:
+      - text: "노드:"
+      - strong [ref=e25]: 4,996
+    - generic [ref=e26]:
+      - text: "요소:"
+      - strong [ref=e27]: 3,982
+    - generic [ref=e28]: "단위: mm"

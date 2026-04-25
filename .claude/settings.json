@@ -1,4 +1,9 @@
 {
+  "permissions": {
+    "allow": [],
+    "deny": []
+  },
+  "enableAllProjectMcpServers": true,
   "enabledPlugins": {
     "agent-skills@addy-agent-skills": true,
     "superpowers@claude-plugins-official": true

@@ -1,0 +1,39 @@
+- generic [ref=e3]:
+  - generic [ref=e4]:
+    - generic [ref=e5] [cursor=pointer]: 📂 폴더 열기
+    - combobox [ref=e33]:
+      - option "01 UboltRbe" [selected]
+      - option "02 FinalValidation"
+    - generic [ref=e6]:
+      - generic [ref=e7] [cursor=pointer]:
+        - checkbox "구조" [checked] [ref=e8]
+        - generic [ref=e9]: 구조
+      - generic [ref=e10] [cursor=pointer]:
+        - checkbox "배관" [checked] [ref=e11]
+        - generic [ref=e12]: 배관
+      - generic [ref=e13] [cursor=pointer]:
+        - checkbox "노드" [ref=e14]
+        - generic [ref=e15]: 노드
+      - generic [ref=e16] [cursor=pointer]:
+        - checkbox "RBE" [checked] [ref=e17]
+        - generic [ref=e18]: RBE
+      - generic [ref=e19] [cursor=pointer]:
+        - checkbox "질량" [checked] [ref=e20]
+        - generic [ref=e21]: 질량
+      - generic [ref=e22] [cursor=pointer]:
+        - checkbox "경계" [checked] [ref=e23]
+        - generic [ref=e24]: 경계
+      - generic [ref=e25] [cursor=pointer]:
+        - checkbox "용접" [checked] [ref=e26]
+        - generic [ref=e27]: 용접
+  - generic [ref=e36]:
+    - generic [ref=e37]:
+      - text: "단계:"
+      - strong [ref=e38]: UboltRbe
+    - generic [ref=e39]:
+      - text: "노드:"
+      - strong [ref=e40]: 4,996
+    - generic [ref=e41]:
+      - text: "요소:"
+      - strong [ref=e42]: 3,913
+    - generic [ref=e43]: "단위: mm"

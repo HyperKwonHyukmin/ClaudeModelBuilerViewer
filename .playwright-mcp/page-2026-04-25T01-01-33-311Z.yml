@@ -1,0 +1,14 @@
+- generic [ref=e3]:
+  - generic [ref=e4]:
+    - generic [ref=e5] [cursor=pointer]: 📂 폴더 열기
+    - generic [ref=e6]:
+      - generic [ref=e7] [cursor=pointer]:
+        - checkbox "구조" [checked] [ref=e8]
+        - generic [ref=e9]: 구조
+      - generic [ref=e10] [cursor=pointer]:
+        - checkbox "배관" [checked] [ref=e11]
+        - generic [ref=e12]: 배관
+  - generic [ref=e14]:
+    - generic [ref=e15]: 🏗️
+    - paragraph [ref=e16]: 파이프라인 JSON 폴더를 선택하세요
+    - paragraph [ref=e17]: csv/01/20260424_172924/ 와 같은 단계별 JSON 폴더
