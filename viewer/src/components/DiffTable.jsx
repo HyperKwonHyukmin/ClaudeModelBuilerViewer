@@ -1,13 +1,28 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useStageStore } from '../store/useStageStore.js'
+import { useViewerStore } from '../store/useViewerStore.js'
 import { stageDiff } from '../data/stageDiff.js'
 
 export default function DiffTable() {
   const { stages } = useStageStore()
+  const { viewports } = useViewerStore()
   const [open, setOpen] = useState(false)
   const [idxA, setIdxA] = useState(0)
   const [idxB, setIdxB] = useState(stages.length > 1 ? stages.length - 1 : 0)
   const [rows, setRows] = useState(null)
+
+  const isLinked = viewports.length >= 2
+
+  // Auto-sync: when 2+ viewports exist, mirror their stage selections and run diff
+  useEffect(() => {
+    if (!isLinked || stages.length < 2) return
+    const a = viewports[0].stageIndex
+    const b = viewports[1].stageIndex
+    setIdxA(a)
+    setIdxB(b)
+    setOpen(true)
+    setRows(stageDiff(stages[a], stages[b]))
+  }, [isLinked, viewports, stages]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (stages.length < 2) return null
 
@@ -21,16 +36,22 @@ export default function DiffTable() {
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 12px' }}>
         <button onClick={() => setOpen(o => !o)} style={hdrBtn}>{open ? '▼' : '▶'} 단계 비교</button>
         {open && (
-          <>
-            <select value={idxA} onChange={e => { setIdxA(+e.target.value); setRows(null) }} style={selStyle}>
-              {stages.map((s, i) => <option key={i} value={i}>{String(i+1).padStart(2,'0')} {s.meta?.stageName}</option>)}
-            </select>
-            <span style={{ color: '#555', fontSize: 12 }}>vs</span>
-            <select value={idxB} onChange={e => { setIdxB(+e.target.value); setRows(null) }} style={selStyle}>
-              {stages.map((s, i) => <option key={i} value={i}>{String(i+1).padStart(2,'0')} {s.meta?.stageName}</option>)}
-            </select>
-            <button onClick={runDiff} style={{ ...hdrBtn, background: '#4682B4' }}>비교</button>
-          </>
+          isLinked ? (
+            <span style={{ color: '#4fc3f7', fontSize: 11 }}>
+              VP1 ({stages[idxA]?.meta?.stageName ?? idxA+1}) ↔ VP2 ({stages[idxB]?.meta?.stageName ?? idxB+1}) 자동 동기화
+            </span>
+          ) : (
+            <>
+              <select value={idxA} onChange={e => { setIdxA(+e.target.value); setRows(null) }} style={selStyle}>
+                {stages.map((s, i) => <option key={i} value={i}>{String(i+1).padStart(2,'0')} {s.meta?.stageName}</option>)}
+              </select>
+              <span style={{ color: '#555', fontSize: 12 }}>vs</span>
+              <select value={idxB} onChange={e => { setIdxB(+e.target.value); setRows(null) }} style={selStyle}>
+                {stages.map((s, i) => <option key={i} value={i}>{String(i+1).padStart(2,'0')} {s.meta?.stageName}</option>)}
+              </select>
+              <button onClick={runDiff} style={{ ...hdrBtn, background: '#4682B4' }}>비교</button>
+            </>
+          )
         )}
       </div>
 
