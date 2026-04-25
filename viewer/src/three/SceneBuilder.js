@@ -4,7 +4,6 @@ import { buildNodePoints } from './NodePoints.js'
 import { buildRigidMesh } from './RigidMesh.js'
 import { buildMassMarkers } from './MassMarkers.js'
 import { buildBoundaryMarkers } from './BoundaryMarkers.js'
-import { buildDiagnosticOverlay } from './DiagnosticOverlay.js'
 
 /**
  * Builds a complete scene graph for one pipeline stage.
@@ -15,7 +14,7 @@ import { buildDiagnosticOverlay } from './DiagnosticOverlay.js'
  *   pickables — { structure, pipe, nodes } for raycaster
  *
  * @param {import('../data/StageData.js').StageData} stageData
- * @param {'category'|'propertyId'|'shapeType'|'freeNode'} [colorMode='category']
+ * @param {'category'|'freeNode'} [colorMode='category']
  * @returns {{ root: THREE.Group, layers: object, pickables: object }}
  */
 export function buildScene(stageData, colorMode = 'category') {
@@ -24,15 +23,13 @@ export function buildScene(stageData, colorMode = 'category') {
   const rigids = buildRigidMesh(stageData)
   const masses = buildMassMarkers(stageData)
   const boundaries = buildBoundaryMarkers(stageData)
-  const diagnostics = buildDiagnosticOverlay(stageData)
-  diagnostics.visible = false   // off by default
 
   const root = new THREE.Group()
-  root.add(structure, pipe, nodes, rigids, masses, boundaries, diagnostics)
+  root.add(structure, pipe, nodes, rigids, masses, boundaries)
 
   return {
     root,
-    layers: { structure, pipe, nodes, rigids, masses, boundaries, diagnostics },
+    layers: { structure, pipe, nodes, rigids, masses, boundaries },
     pickables: { structure, pipe, nodes },
   }
 }

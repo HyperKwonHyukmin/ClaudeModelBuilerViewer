@@ -51,7 +51,8 @@ const SHAPE_FALLBACK = new THREE.Color(0x888888)
 export function buildBeamMesh(stageData, colorMode = 'category') {
   const elements = stageData.elements ?? []
 
-  if (colorMode === 'category') {
+  // category and freeNode both use per-category meshes for independent toggling
+  if (colorMode === 'category' || colorMode === 'freeNode') {
     return {
       structure: _buildRods(elements, 'Structure', STRUCT_R, COLORS.structure, stageData, null),
       pipe:      _buildRods(elements, 'Pipe',      PIPE_R,   COLORS.pipe,      stageData, null),
