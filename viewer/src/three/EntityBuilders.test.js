@@ -31,18 +31,18 @@ const makeJson = (overrides = {}) => ({
 
 // ── NodePoints ────────────────────────────────────────────────
 describe('buildNodePoints', () => {
-  it('returns a Points object', () => {
+  it('returns an InstancedMesh (red spheres)', () => {
     const stage = new StageData(makeJson())
-    const pts = buildNodePoints(stage)
-    expect(pts).toBeInstanceOf(THREE.Points)
-    pts.geometry.dispose(); pts.material.dispose()
+    const mesh = buildNodePoints(stage)
+    expect(mesh).toBeInstanceOf(THREE.InstancedMesh)
+    mesh.material.dispose()
   })
 
-  it('has one vertex per node', () => {
+  it('has count equal to number of nodes', () => {
     const stage = new StageData(makeJson())
-    const pts = buildNodePoints(stage)
-    expect(pts.geometry.attributes.position.count).toBe(4)
-    pts.geometry.dispose(); pts.material.dispose()
+    const mesh = buildNodePoints(stage)
+    expect(mesh.count).toBe(4)
+    mesh.material.dispose()
   })
 })
 

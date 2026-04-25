@@ -4,7 +4,7 @@ import { useStageStore } from '../store/useStageStore.js'
 const LAYER_DEFS = [
   { key: 'structure',  label: '구조',  color: '#4682B4' },
   { key: 'pipe',       label: '배관',  color: '#FF8C00' },
-  { key: 'nodes',      label: '노드',  color: '#888888' },
+  { key: 'nodes',      label: '노드',  color: '#FF2222' },
   { key: 'rigids',     label: 'RBE',   color: '#FF00FF' },
   { key: 'masses',     label: '질량',  color: '#FFD700' },
   { key: 'boundaries', label: '경계',  color: '#00AA00' },

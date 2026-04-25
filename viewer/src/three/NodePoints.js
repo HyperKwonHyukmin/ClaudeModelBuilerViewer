@@ -1,19 +1,32 @@
 import * as THREE from 'three'
 import { COLORS } from '../utils/colors.js'
 
+const NODE_RADIUS = 0.04   // metres (40 mm radius in scene units)
+const _geo = new THREE.SphereGeometry(NODE_RADIUS, 6, 4)
+const _dummy = new THREE.Object3D()
+
 /**
- * Builds a Points object for all nodes in the stage.
+ * Builds an InstancedMesh of red spheres, one per node.
+ * Using InstancedMesh instead of Points gives reliable depth and visibility.
+ *
  * @param {import('../data/StageData.js').StageData} stageData
- * @returns {THREE.Points}
+ * @returns {THREE.InstancedMesh}
  */
 export function buildNodePoints(stageData) {
-  const verts = []
-  for (const [id] of stageData.nodeMap) {
+  const ids = [...stageData.nodeMap.keys()]
+  const mesh = new THREE.InstancedMesh(
+    _geo,
+    new THREE.MeshBasicMaterial({ color: COLORS.node }),
+    ids.length,
+  )
+  mesh.count = 0
+  for (const id of ids) {
     const pos = stageData.getNodePos(id)
-    if (pos) verts.push(pos.x, pos.y, pos.z)
+    if (!pos) continue
+    _dummy.position.copy(pos)
+    _dummy.updateMatrix()
+    mesh.setMatrixAt(mesh.count++, _dummy.matrix)
   }
-  const geo = new THREE.BufferGeometry()
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3))
-  const mat = new THREE.PointsMaterial({ color: COLORS.node, size: 0.03, sizeAttenuation: true })
-  return new THREE.Points(geo, mat)
+  mesh.instanceMatrix.needsUpdate = true
+  return mesh
 }
