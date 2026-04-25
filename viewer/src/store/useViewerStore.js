@@ -1,13 +1,14 @@
 import { create } from 'zustand'
 
 const DEFAULT_LAYERS = {
-  structure:  true,
-  pipe:       true,
-  nodes:      false,
-  rigids:     true,
-  masses:     true,
-  boundaries: true,
-  welds:      true,
+  structure:   true,
+  pipe:        true,
+  nodes:       false,
+  rigids:      true,
+  masses:      true,
+  boundaries:  true,
+  welds:       true,
+  diagnostics: false,
 }
 
 let nextId = 1

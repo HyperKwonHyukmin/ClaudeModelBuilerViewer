@@ -3,7 +3,7 @@ import * as THREE from 'three'
 import { TrackballControls } from 'three/addons/controls/TrackballControls.js'
 import { buildScene, disposeScene } from '../three/SceneBuilder.js'
 
-const LAYER_KEYS = ['structure', 'pipe', 'nodes', 'rigids', 'masses', 'boundaries', 'welds']
+const LAYER_KEYS = ['structure', 'pipe', 'nodes', 'rigids', 'masses', 'boundaries', 'welds', 'diagnostics']
 const DRAG_THRESHOLD = 3  // px — moves less than this are treated as a click
 const AXES_PX      = 90   // corner indicator size (CSS px)
 const AXES_MARGIN  = 10   // margin from bottom-left corner

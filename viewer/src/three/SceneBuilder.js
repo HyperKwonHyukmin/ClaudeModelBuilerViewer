@@ -5,6 +5,7 @@ import { buildRigidMesh } from './RigidMesh.js'
 import { buildMassMarkers } from './MassMarkers.js'
 import { buildBoundaryMarkers } from './BoundaryMarkers.js'
 import { buildWeldMarkers } from './WeldMarkers.js'
+import { buildDiagnosticOverlay } from './DiagnosticOverlay.js'
 
 /**
  * Builds a complete scene graph for one pipeline stage.
@@ -25,13 +26,15 @@ export function buildScene(stageData, colorMode = 'category') {
   const masses = buildMassMarkers(stageData)
   const boundaries = buildBoundaryMarkers(stageData)
   const welds = buildWeldMarkers(stageData)
+  const diagnostics = buildDiagnosticOverlay(stageData)
+  diagnostics.visible = false   // off by default
 
   const root = new THREE.Group()
-  root.add(structure, pipe, nodes, rigids, masses, boundaries, welds)
+  root.add(structure, pipe, nodes, rigids, masses, boundaries, welds, diagnostics)
 
   return {
     root,
-    layers: { structure, pipe, nodes, rigids, masses, boundaries, welds },
+    layers: { structure, pipe, nodes, rigids, masses, boundaries, welds, diagnostics },
     pickables: { structure, pipe, nodes },
   }
 }

@@ -9,6 +9,7 @@ const LAYER_DEFS = [
   { key: 'masses',     label: '질량',  color: '#FFD700' },
   { key: 'boundaries', label: '경계',  color: '#00AA00' },
   { key: 'welds',      label: '용접',  color: '#FF4444' },
+  { key: 'diagnostics', label: '진단', color: '#FF6B6B' },
 ]
 
 export default function Sidebar() {
