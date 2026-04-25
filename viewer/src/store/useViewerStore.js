@@ -3,11 +3,10 @@ import { create } from 'zustand'
 const DEFAULT_LAYERS = {
   structure:   true,
   pipe:        true,
-  nodes:       false,
+  nodes:       true,
   rigids:      true,
-  masses:      true,
+  masses:      false,
   boundaries:  true,
-  welds:       true,
   diagnostics: false,
 }
 
@@ -62,7 +61,7 @@ export const useViewerStore = create((set, get) => ({
   pickedEntity: null,
   setPickedEntity: (entity) => set({ pickedEntity: entity }),
 
-  // Beam color mode
-  colorMode: 'category',   // 'category' | 'propertyId' | 'shapeType'
+  // Beam/node color mode
+  colorMode: 'category',   // 'category' | 'propertyId' | 'shapeType' | 'freeNode'
   setColorMode: (mode) => set({ colorMode: mode }),
 }))

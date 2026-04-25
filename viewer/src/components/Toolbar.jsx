@@ -100,11 +100,21 @@ export default function Toolbar() {
           onChange={e => setColorMode(e.target.value)}
           style={{ background: '#1a1a3a', color: '#e0e0e0', border: '1px solid #333', borderRadius: 4, padding: '3px 6px', fontSize: 11 }}
         >
-          <option value="category">카테고리</option>
+          <option value="category">모델 확인</option>
           <option value="propertyId">속성 ID</option>
           <option value="shapeType">단면 형상</option>
+          <option value="freeNode">Free Node 확인</option>
         </select>
       </div>
+
+      {/* Free Node 범례 */}
+      {colorMode === 'freeNode' && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: '#ccc' }}>
+          <span style={{ color: '#FF2222' }}>● 정상</span>
+          <span style={{ color: '#FFDD00' }}>● 자유단(1)</span>
+          <span style={{ color: '#CC44FF' }}>● 고립(0)</span>
+        </div>
+      )}
 
       {loading && <span style={{ fontSize: 12, color: '#aaa', marginLeft: 4 }}>로딩 중...</span>}
       {error && <span style={{ fontSize: 12, color: '#FF4444', marginLeft: 4 }}>{error}</span>}

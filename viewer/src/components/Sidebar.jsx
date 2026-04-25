@@ -2,14 +2,13 @@ import { useViewerStore } from '../store/useViewerStore.js'
 import { useStageStore } from '../store/useStageStore.js'
 
 const LAYER_DEFS = [
-  { key: 'structure',  label: '구조',  color: '#4682B4' },
-  { key: 'pipe',       label: '배관',  color: '#FF8C00' },
-  { key: 'nodes',      label: '노드',  color: '#FF2222' },
-  { key: 'rigids',     label: 'RBE',   color: '#FF00FF' },
-  { key: 'masses',     label: '질량',  color: '#FFD700' },
-  { key: 'boundaries', label: '경계',  color: '#00AA00' },
-  { key: 'welds',      label: '용접',  color: '#FF4444' },
-  { key: 'diagnostics', label: '진단', color: '#FF6B6B' },
+  { key: 'structure',   label: '구조',    color: '#4682B4' },
+  { key: 'pipe',        label: '배관',    color: '#FF8C00' },
+  { key: 'nodes',       label: '노드',    color: '#FF2222' },
+  { key: 'rigids',      label: 'RBE',     color: '#FF00FF' },
+  { key: 'masses',      label: '질량',    color: '#FFD700' },
+  { key: 'boundaries',  label: '경계조건', color: '#00AA00' },
+  { key: 'diagnostics', label: '진단',    color: '#FF6B6B' },
 ]
 
 export default function Sidebar() {

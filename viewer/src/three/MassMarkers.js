@@ -1,17 +1,17 @@
 import * as THREE from 'three'
 import { COLORS } from '../utils/colors.js'
 
-const MASS_RADIUS = 0.05
+const MASS_SIZE = 0.09   // cube half-extent → 90 mm side length
 
 /**
- * Builds an InstancedMesh of spheres for point masses.
+ * Builds an InstancedMesh of cubes for point masses.
  * @param {import('../data/StageData.js').StageData} stageData
  * @returns {THREE.InstancedMesh}
  */
 export function buildMassMarkers(stageData) {
   const masses = stageData.pointMasses
-  const geo = new THREE.IcosahedronGeometry(MASS_RADIUS, 1)
-  const mat = new THREE.MeshBasicMaterial({ color: COLORS.mass })
+  const geo = new THREE.BoxGeometry(MASS_SIZE, MASS_SIZE, MASS_SIZE)
+  const mat = new THREE.MeshPhongMaterial({ color: COLORS.mass, shininess: 60 })
   const mesh = new THREE.InstancedMesh(geo, mat, masses.length)
   mesh.count = 0
 

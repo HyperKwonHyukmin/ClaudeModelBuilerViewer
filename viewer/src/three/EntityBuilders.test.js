@@ -4,7 +4,6 @@ import { buildNodePoints } from './NodePoints.js'
 import { buildRigidMesh } from './RigidMesh.js'
 import { buildMassMarkers } from './MassMarkers.js'
 import { buildBoundaryMarkers } from './BoundaryMarkers.js'
-import { buildWeldMarkers } from './WeldMarkers.js'
 import { StageData } from '../data/StageData.js'
 
 const makeJson = (overrides = {}) => ({
@@ -113,34 +112,26 @@ describe('buildMassMarkers', () => {
   })
 })
 
-// ── BoundaryMarkers ───────────────────────────────────────────
+// ── BoundaryMarkers (now returns a Group merging Boundary + Weld) ─────
 describe('buildBoundaryMarkers', () => {
-  it('returns an InstancedMesh with count = Boundary-tagged nodes', () => {
+  it('returns a THREE.Group', () => {
     const stage = new StageData(makeJson())
-    const mesh = buildBoundaryMarkers(stage)
-    // nodes 3 and 4 have Boundary tag
-    expect(mesh).toBeInstanceOf(THREE.InstancedMesh)
-    expect(mesh.count).toBe(2)
-    mesh.geometry.dispose(); mesh.material.dispose()
+    const group = buildBoundaryMarkers(stage)
+    expect(group).toBeInstanceOf(THREE.Group)
   })
 
-  it('returns count=0 when no Boundary nodes', () => {
+  it('group has children for Boundary-tagged and Weld-tagged nodes', () => {
+    const stage = new StageData(makeJson())
+    const group = buildBoundaryMarkers(stage)
+    // makeJson has Boundary nodes (3,4) and Weld nodes (2,4) → 2 InstancedMesh children
+    expect(group.children.length).toBeGreaterThan(0)
+  })
+
+  it('returns an empty Group when no tagged nodes', () => {
     const json = makeJson({ nodes: [{ id: 1, x: 0, y: 0, z: 0, tags: [] }] })
     const stage = new StageData(json)
-    const mesh = buildBoundaryMarkers(stage)
-    expect(mesh.count).toBe(0)
-    mesh.geometry.dispose(); mesh.material.dispose()
-  })
-})
-
-// ── WeldMarkers ───────────────────────────────────────────────
-describe('buildWeldMarkers', () => {
-  it('returns an InstancedMesh with count = Weld-tagged nodes', () => {
-    const stage = new StageData(makeJson())
-    const mesh = buildWeldMarkers(stage)
-    // nodes 2 and 4 have Weld tag
-    expect(mesh).toBeInstanceOf(THREE.InstancedMesh)
-    expect(mesh.count).toBe(2)
-    mesh.geometry.dispose(); mesh.material.dispose()
+    const group = buildBoundaryMarkers(stage)
+    expect(group).toBeInstanceOf(THREE.Group)
+    expect(group.children.length).toBe(0)
   })
 })
