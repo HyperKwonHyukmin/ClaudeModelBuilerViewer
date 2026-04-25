@@ -29,74 +29,63 @@ const makeElem = (id, startNode, endNode, category) => ({
 describe('buildBeamMesh', () => {
   const collected = []
   afterEach(() => {
-    // Dispose geometries/materials to avoid leaks in test
     for (const { structure, pipe } of collected) {
-      structure.geometry.dispose()
-      structure.material.dispose()
-      pipe.geometry.dispose()
-      pipe.material.dispose()
+      structure.geometry.dispose(); structure.material.dispose()
+      pipe.geometry.dispose();      pipe.material.dispose()
     }
     collected.length = 0
   })
 
-  it('returns structure and pipe LineSegments objects', () => {
-    const json = makeStageJson([
+  it('returns structure and pipe InstancedMesh objects', () => {
+    const stage = new StageData(makeStageJson([
       makeElem(1, 1, 2, 'Structure'),
       makeElem(2, 3, 4, 'Pipe'),
-    ])
-    const stage = new StageData(json)
+    ]))
     const result = buildBeamMesh(stage)
     collected.push(result)
 
-    expect(result.structure).toBeInstanceOf(THREE.LineSegments)
-    expect(result.pipe).toBeInstanceOf(THREE.LineSegments)
+    expect(result.structure).toBeInstanceOf(THREE.InstancedMesh)
+    expect(result.pipe).toBeInstanceOf(THREE.InstancedMesh)
   })
 
-  it('structure has correct vertex count (2 per element)', () => {
-    const json = makeStageJson([
+  it('structure count equals number of valid Structure elements', () => {
+    const stage = new StageData(makeStageJson([
       makeElem(1, 1, 2, 'Structure'),
       makeElem(2, 2, 3, 'Structure'),
-    ])
-    const stage = new StageData(json)
+    ]))
     const { structure, pipe } = buildBeamMesh(stage)
     collected.push({ structure, pipe })
 
-    const positions = structure.geometry.attributes.position
-    expect(positions.count).toBe(4) // 2 elements × 2 vertices
-    // pipe should have 0 vertices
-    expect(pipe.geometry.attributes.position.count).toBe(0)
+    expect(structure.count).toBe(2)
+    expect(pipe.count).toBe(0)
   })
 
-  it('pipe has correct vertex count', () => {
-    const json = makeStageJson([
+  it('pipe count equals number of valid Pipe elements', () => {
+    const stage = new StageData(makeStageJson([
       makeElem(1, 1, 2, 'Pipe'),
       makeElem(2, 3, 4, 'Pipe'),
       makeElem(3, 2, 3, 'Pipe'),
-    ])
-    const stage = new StageData(json)
+    ]))
     const { structure, pipe } = buildBeamMesh(stage)
     collected.push({ structure, pipe })
 
-    expect(pipe.geometry.attributes.position.count).toBe(6) // 3 × 2
-    expect(structure.geometry.attributes.position.count).toBe(0)
+    expect(pipe.count).toBe(3)
+    expect(structure.count).toBe(0)
   })
 
   it('skips elements whose startNode or endNode is missing', () => {
-    const json = makeStageJson([
-      makeElem(1, 1, 2, 'Structure'),
-      makeElem(2, 1, 99, 'Structure'), // node 99 does not exist
-    ])
-    const stage = new StageData(json)
-    const { structure } = buildBeamMesh(stage)
-    collected.push({ structure, pipe: structure }) // reuse for cleanup
+    const stage = new StageData(makeStageJson([
+      makeElem(1, 1, 2,  'Structure'),
+      makeElem(2, 1, 99, 'Structure'),  // node 99 does not exist
+    ]))
+    const { structure, pipe } = buildBeamMesh(stage)
+    collected.push({ structure, pipe })
 
-    // Only 1 valid element → 2 vertices
-    expect(structure.geometry.attributes.position.count).toBe(2)
+    expect(structure.count).toBe(1)   // only 1 valid element
   })
 
   it('uses correct colors for structure and pipe materials', () => {
-    const json = makeStageJson([makeElem(1, 1, 2, 'Structure')])
-    const stage = new StageData(json)
+    const stage = new StageData(makeStageJson([makeElem(1, 1, 2, 'Structure')]))
     const { structure, pipe } = buildBeamMesh(stage)
     collected.push({ structure, pipe })
 

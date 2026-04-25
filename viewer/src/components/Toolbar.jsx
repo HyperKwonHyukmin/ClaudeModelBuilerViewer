@@ -20,7 +20,7 @@ export default function Toolbar() {
       {/* File loader */}
       <label style={btnStyle('#4682B4', loading)}>
         📂 폴더 열기
-        <input type="file" accept=".json" multiple onChange={handleFileChange} style={{ display: 'none' }} />
+        <input type="file" accept=".json" multiple webkitdirectory="" onChange={handleFileChange} style={{ display: 'none' }} />
       </label>
 
       {/* Add viewport */}

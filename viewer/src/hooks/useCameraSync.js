@@ -36,8 +36,8 @@ export default function useCameraSync(viewportApiRefs, cameraLinked, viewports) 
             if (api === sourceApi) continue
             api.camera.position.copy(srcCam.position)
             api.camera.quaternion.copy(srcCam.quaternion)
+            api.camera.up.copy(srcCam.up)   // TrackballControls modifies camera.up
             api.controls.target.copy(srcCtrl.target)
-            api.controls.update()
             api.requestRender()
           }
 

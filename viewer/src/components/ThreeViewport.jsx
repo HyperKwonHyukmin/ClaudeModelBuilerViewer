@@ -1,40 +1,40 @@
 import { useRef, useEffect, useCallback } from 'react'
 import * as THREE from 'three'
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+import { TrackballControls } from 'three/addons/controls/TrackballControls.js'
 import { buildScene, disposeScene } from '../three/SceneBuilder.js'
 
 const LAYER_KEYS = ['structure', 'pipe', 'nodes', 'rigids', 'masses', 'boundaries', 'welds']
-const AXES_PX = 90        // corner indicator size in CSS pixels
-const AXES_MARGIN = 10    // margin from corner
-const DAMPING_TAIL_MS = 700  // how long to keep rendering after drag ends
+const AXES_PX      = 90   // corner indicator size (CSS px)
+const AXES_MARGIN  = 10   // margin from bottom-left corner
+const DAMPING_TAIL = 800  // ms to keep rendering after drag ends (for inertia)
 
 /**
  * Single Three.js viewport.
  *
- * Camera controls (HyperMesh style):
- *   Left / Middle drag → Rotate
+ * Camera controls (full 3D, no polar-angle limit):
+ *   Left / Middle drag → Rotate  (any axis, unlimited)
  *   Right drag         → Pan
  *   Scroll wheel       → Zoom
  *
  * Rendering is on-demand:
- *   - During and after interaction: animation loop with damping
- *   - Layer toggle / stage change / camera sync: single rAF via requestRender()
+ *   Drag interaction + inertia tail → animation loop
+ *   Layer toggle / stage change / sync → single rAF via requestRender()
  *
- * Bottom-left corner shows a live XYZ axes indicator.
+ * Bottom-left corner: live XYZ axes indicator.
  */
 export default function ThreeViewport({ stageData, layers, onReady }) {
-  const containerRef  = useRef(null)
-  const rendererRef   = useRef(null)
-  const cameraRef     = useRef(null)
-  const controlsRef   = useRef(null)
-  const sceneRef      = useRef(null)
-  const axesSceneRef  = useRef(null)
-  const axesCamRef    = useRef(null)
-  const sceneDataRef  = useRef(null)   // { root, layers }
+  const containerRef = useRef(null)
+  const rendererRef  = useRef(null)
+  const cameraRef    = useRef(null)
+  const controlsRef  = useRef(null)
+  const sceneRef     = useRef(null)
+  const axesSceneRef = useRef(null)
+  const axesCamRef   = useRef(null)
+  const sceneDataRef = useRef(null)   // { root, layers }
   const renderScheduled = useRef(false)
-  const animRafRef    = useRef(null)
+  const animRafRef   = useRef(null)
 
-  // ── Core render (main scene + axes indicator) ──────────────────────────
+  // ── Core render: main scene + axes indicator ──────────────────────────
   const doRender = useCallback(() => {
     const renderer = rendererRef.current
     const scene    = sceneRef.current
@@ -46,24 +46,22 @@ export default function ThreeViewport({ stageData, layers, onReady }) {
 
     renderer.setScissorTest(true)
 
-    // ── Main scene ─────────────────────────────────────────────────────
+    // Main scene
     renderer.setViewport(0, 0, w, h)
     renderer.setScissor(0, 0, w, h)
     renderer.setClearColor(0x1a1a2e, 1)
     renderer.clear()
     renderer.render(scene, camera)
 
-    // ── Axes indicator (bottom-left corner) ────────────────────────────
+    // Axes indicator — bottom-left corner
     const ax = AXES_PX
     const am = AXES_MARGIN
     renderer.setViewport(am, am, ax, ax)
     renderer.setScissor(am, am, ax, ax)
     renderer.setClearColor(0x0d0d1a, 1)
     renderer.clear()
-
     const axesCam = axesCamRef.current
     if (axesCam && axesSceneRef.current) {
-      // Sync orientation only — axes cam always looks at origin
       axesCam.quaternion.copy(camera.quaternion)
       _camDir.set(0, 0, 2.5).applyQuaternion(camera.quaternion)
       axesCam.position.copy(_camDir)
@@ -74,7 +72,7 @@ export default function ThreeViewport({ stageData, layers, onReady }) {
     renderer.setScissorTest(false)
   }, [])
 
-  // ── requestRender: for non-interactive updates (layer toggle, sync…) ──
+  // ── requestRender: non-interactive updates (layer toggle, sync…) ──────
   const requestRender = useCallback(() => {
     if (renderScheduled.current) return
     renderScheduled.current = true
@@ -84,7 +82,7 @@ export default function ThreeViewport({ stageData, layers, onReady }) {
     })
   }, [doRender])
 
-  // ── Init renderer / camera / controls / axes ──────────────────────────
+  // ── Init ──────────────────────────────────────────────────────────────
   useEffect(() => {
     const container = containerRef.current
     if (!container) return
@@ -93,37 +91,44 @@ export default function ThreeViewport({ stageData, layers, onReady }) {
     const renderer = new THREE.WebGLRenderer({ antialias: true })
     renderer.setPixelRatio(window.devicePixelRatio)
     renderer.setSize(container.clientWidth, container.clientHeight)
-    renderer.autoClear = false  // we manage clear manually
+    renderer.autoClear = false
     container.appendChild(renderer.domElement)
     rendererRef.current = renderer
 
-    // Main camera
+    // Camera
     const camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.01, 10000)
     camera.position.set(20, 15, 30)
     cameraRef.current = camera
 
     // Main scene
     const scene = new THREE.Scene()
-    scene.add(new THREE.AmbientLight(0xffffff, 0.8))
+    scene.add(new THREE.AmbientLight(0xffffff, 0.45))
+    // Headlight: attached to camera so it always illuminates from the viewer direction.
+    // Camera must be in the scene for its children to receive matrix updates.
+    const headLight = new THREE.DirectionalLight(0xffffff, 0.85)
+    headLight.position.set(0.5, 1, 0.5)   // relative to camera
+    camera.add(headLight)
+    scene.add(camera)
     sceneRef.current = scene
 
-    // ── Axes indicator scene ─────────────────────────────────────────
+    // Axes indicator scene
     const axesScene = new THREE.Scene()
     axesScene.add(new THREE.AxesHelper(0.7))
-    // Sprite labels for X / Y / Z
-    axesScene.add(makeLabel('X', '#FF4444', 0.88, 0, 0))
-    axesScene.add(makeLabel('Y', '#44CC44', 0, 0.88, 0))
-    axesScene.add(makeLabel('Z', '#4488FF', 0, 0, 0.88))
+    axesScene.add(_makeLabel('X', '#FF4444', 0.88, 0,    0))
+    axesScene.add(_makeLabel('Y', '#44CC44', 0,    0.88, 0))
+    axesScene.add(_makeLabel('Z', '#4488FF', 0,    0,    0.88))
     axesSceneRef.current = axesScene
 
     const axesCam = new THREE.PerspectiveCamera(50, 1, 0.1, 10)
     axesCamRef.current = axesCam
 
-    // ── OrbitControls — HyperMesh style ─────────────────────────────
-    const controls = new OrbitControls(camera, renderer.domElement)
-    controls.enableDamping = true
-    controls.dampingFactor = 0.10
-    controls.screenSpacePanning = true
+    // ── TrackballControls — unlimited 3D rotation ─────────────────────
+    const controls = new TrackballControls(camera, renderer.domElement)
+    controls.rotateSpeed = 4.0
+    controls.zoomSpeed   = 1.2
+    controls.panSpeed    = 0.5
+    controls.staticMoving   = false   // enable inertia
+    controls.dynamicDampingFactor = 0.15
     controls.mouseButtons = {
       LEFT:   THREE.MOUSE.ROTATE,
       MIDDLE: THREE.MOUSE.ROTATE,
@@ -131,14 +136,14 @@ export default function ThreeViewport({ stageData, layers, onReady }) {
     }
     controlsRef.current = controls
 
-    // ── Animation loop (active during drag + damping tail) ───────────
-    let active = false
+    // ── Animation loop for interaction + inertia ─────────────────────
+    let active  = false
     let endTime = 0
 
     const animate = () => {
-      controls.update()   // applies damping; fires 'change' events → camera sync
+      controls.update()   // applies inertia; fires 'change' for camera sync
       doRender()
-      if (active || Date.now() - endTime < DAMPING_TAIL_MS) {
+      if (active || Date.now() - endTime < DAMPING_TAIL) {
         animRafRef.current = requestAnimationFrame(animate)
       } else {
         animRafRef.current = null
@@ -157,13 +162,14 @@ export default function ThreeViewport({ stageData, layers, onReady }) {
     controls.addEventListener('start', onStart)
     controls.addEventListener('end',   onEnd)
 
-    // ── ResizeObserver ───────────────────────────────────────────────
+    // ── ResizeObserver ────────────────────────────────────────────────
     const ro = new ResizeObserver(() => {
       const w = container.clientWidth
       const h = container.clientHeight
       renderer.setSize(w, h)
       camera.aspect = w / h
       camera.updateProjectionMatrix()
+      controls.handleResize()   // TrackballControls needs explicit resize notification
       requestRender()
     })
     ro.observe(container)
@@ -205,7 +211,7 @@ export default function ThreeViewport({ stageData, layers, onReady }) {
     requestRender()
   }, [stageData]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Layer visibility changes ──────────────────────────────────────────
+  // ── Layer visibility ─────────────────────────────────────────────────
   useEffect(() => {
     if (!sceneDataRef.current || !layers) return
     applyLayers(sceneDataRef.current.layers, layers)
@@ -222,7 +228,6 @@ export default function ThreeViewport({ stageData, layers, onReady }) {
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
-// Reusable vector — avoids per-frame allocation in doRender
 const _camDir = new THREE.Vector3()
 
 function applyLayers(threeLayerMap, layerState) {
@@ -250,8 +255,7 @@ function fitCamera(stageData, camera, controls) {
   controls.update()
 }
 
-/** Creates a canvas-texture sprite label for the axes indicator. */
-function makeLabel(text, color, x, y, z) {
+function _makeLabel(text, color, x, y, z) {
   const canvas = document.createElement('canvas')
   canvas.width = 64; canvas.height = 64
   const ctx = canvas.getContext('2d')
