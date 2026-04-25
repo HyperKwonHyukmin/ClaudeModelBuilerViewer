@@ -3,7 +3,7 @@ import { useViewerStore } from '../store/useViewerStore.js'
 
 export default function Toolbar() {
   const { loading, error, loadStages } = useStageStore()
-  const { viewports, addViewport, cameraLinked, toggleCameraLink, colorMode, setColorMode } = useViewerStore()
+  const { viewports, addViewport, cameraLinked, toggleCameraLink } = useViewerStore()
 
   // showDirectoryPicker API (Chrome/Edge ≥ 86) — no fallback input needed
   const handleFolderClick = async () => {
@@ -46,19 +46,7 @@ export default function Toolbar() {
         {cameraLinked ? '🔗 동기화 ON' : '🔗 동기화 OFF'}
       </button>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-        <span style={{ fontSize: 11, color: '#888' }}>모델 확인</span>
-        <select
-          value={colorMode}
-          onChange={e => setColorMode(e.target.value)}
-          style={{ background: '#1a1a3a', color: '#e0e0e0', border: '1px solid #333', borderRadius: 4, padding: '3px 6px', fontSize: 11 }}
-        >
-          <option value="category">모델 확인</option>
-          <option value="freeNode">Free Node 확인</option>
-        </select>
-      </div>
-
-      {loading && <span style={{ fontSize: 12, color: '#aaa', marginLeft: 4 }}>로딩 중...</span>}
+{loading && <span style={{ fontSize: 12, color: '#aaa', marginLeft: 4 }}>로딩 중...</span>}
       {error && <span style={{ fontSize: 12, color: '#FF4444', marginLeft: 4 }}>{error}</span>}
     </div>
   )

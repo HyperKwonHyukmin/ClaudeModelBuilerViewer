@@ -20,7 +20,7 @@ const FREE_NODE_DEFS = [
  * Uses pill-style buttons (lit = ON, dimmed = OFF) instead of checkboxes.
  */
 export default function LayerPanel() {
-  const { layers, toggleLayer, colorMode, freeNodeFilters, toggleFreeNodeFilter } = useViewerStore()
+  const { layers, toggleLayer, colorMode, setColorMode, freeNodeFilters, toggleFreeNodeFilter } = useViewerStore()
 
   return (
     <div style={{
@@ -33,8 +33,26 @@ export default function LayerPanel() {
       border: '1px solid rgba(255,255,255,0.07)',
       userSelect: 'none',
     }}>
+
+      {/* 모델 확인 콤보 */}
+      <select
+        value={colorMode}
+        onChange={e => setColorMode(e.target.value)}
+        style={{
+          background: '#1a1a3a', color: '#e0e0e0',
+          border: '1px solid #333', borderRadius: 6,
+          padding: '4px 8px', fontSize: 11, cursor: 'pointer',
+          width: '100%',
+        }}
+      >
+        <option value="category">모델 확인</option>
+        <option value="freeNode">Free Node 확인</option>
+      </select>
+
+      <div style={{ height: 1, background: 'rgba(255,255,255,0.07)' }} />
+
       {/* Section title */}
-      <div style={{ fontSize: 9, color: '#555', letterSpacing: 1.2, textTransform: 'uppercase', marginBottom: 2 }}>
+      <div style={{ fontSize: 9, color: '#555', letterSpacing: 1.2, textTransform: 'uppercase' }}>
         레이어
       </div>
 
