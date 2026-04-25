@@ -23,7 +23,7 @@ const DAMPING_TAIL = 800  // ms to keep rendering after drag ends (for inertia)
  *
  * Bottom-left corner: live XYZ axes indicator.
  */
-export default function ThreeViewport({ stageData, layers, onReady, onPick }) {
+export default function ThreeViewport({ stageData, layers, onReady, onPick, colorMode = 'category' }) {
   const containerRef = useRef(null)
   const rendererRef  = useRef(null)
   const cameraRef    = useRef(null)
@@ -237,7 +237,7 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick }) {
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Rebuild scene when stageData changes ─────────────────────────────
+  // ── Rebuild scene when stageData or colorMode changes ────────────────
   useEffect(() => {
     const scene = sceneRef.current
     if (!scene) return
@@ -250,7 +250,7 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick }) {
 
     if (!stageData) { requestRender(); return }
 
-    const sceneData = buildScene(stageData)
+    const sceneData = buildScene(stageData, colorMode)
     scene.add(sceneData.root)
     sceneDataRef.current = sceneData
 
@@ -258,7 +258,7 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick }) {
 
     fitCamera(stageData, cameraRef.current, controlsRef.current)
     requestRender()
-  }, [stageData]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [stageData, colorMode]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Layer visibility ─────────────────────────────────────────────────
   useEffect(() => {

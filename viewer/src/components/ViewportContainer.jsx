@@ -12,7 +12,7 @@ import useCameraSync from '../hooks/useCameraSync.js'
  * 3-4 viewports → 2×2 grid
  */
 export default function ViewportContainer() {
-  const { viewports, removeViewport, setViewportStage, setActiveViewport, activeViewportId, layers, cameraLinked, setPickedEntity } = useViewerStore()
+  const { viewports, removeViewport, setViewportStage, setActiveViewport, activeViewportId, layers, cameraLinked, setPickedEntity, colorMode } = useViewerStore()
   const { stages } = useStageStore()
 
   // Collect viewport refs for camera sync
@@ -116,6 +116,7 @@ export default function ViewportContainer() {
                 layers={layers}
                 onReady={(api) => handleReady(vp.id, api)}
                 onPick={handlePick}
+                colorMode={colorMode}
               />
             </div>
           </div>

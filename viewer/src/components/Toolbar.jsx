@@ -3,7 +3,7 @@ import { useViewerStore } from '../store/useViewerStore.js'
 
 export default function Toolbar() {
   const { loading, error, loadStages } = useStageStore()
-  const { viewports, addViewport, cameraLinked, toggleCameraLink } = useViewerStore()
+  const { viewports, addViewport, cameraLinked, toggleCameraLink, colorMode, setColorMode } = useViewerStore()
 
   const handleFileChange = (e) => {
     if (e.target.files?.length) loadStages(e.target.files)
@@ -41,6 +41,20 @@ export default function Toolbar() {
       >
         {cameraLinked ? '🔗 동기화 ON' : '🔗 동기화 OFF'}
       </button>
+
+      {/* Color by */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+        <span style={{ fontSize: 11, color: '#888' }}>색상:</span>
+        <select
+          value={colorMode}
+          onChange={e => setColorMode(e.target.value)}
+          style={{ background: '#1a1a3a', color: '#e0e0e0', border: '1px solid #333', borderRadius: 4, padding: '3px 6px', fontSize: 11 }}
+        >
+          <option value="category">카테고리</option>
+          <option value="propertyId">속성 ID</option>
+          <option value="shapeType">단면 형상</option>
+        </select>
+      </div>
 
       {loading && <span style={{ fontSize: 12, color: '#aaa', marginLeft: 4 }}>로딩 중...</span>}
       {error && <span style={{ fontSize: 12, color: '#FF4444', marginLeft: 4 }}>{error}</span>}

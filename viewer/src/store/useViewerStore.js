@@ -60,4 +60,8 @@ export const useViewerStore = create((set, get) => ({
   // Picked entity from raycaster (null = nothing selected)
   pickedEntity: null,
   setPickedEntity: (entity) => set({ pickedEntity: entity }),
+
+  // Beam color mode
+  colorMode: 'category',   // 'category' | 'propertyId' | 'shapeType'
+  setColorMode: (mode) => set({ colorMode: mode }),
 }))

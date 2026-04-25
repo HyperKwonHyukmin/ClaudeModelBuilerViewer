@@ -10,14 +10,16 @@ import { buildWeldMarkers } from './WeldMarkers.js'
  * Builds a complete scene graph for one pipeline stage.
  *
  * Returns:
- *   root    — THREE.Group to add to scene
- *   layers  — named Object3D references for individual visibility toggling
+ *   root      — THREE.Group to add to scene
+ *   layers    — named Object3D references for individual visibility toggling
+ *   pickables — { structure, pipe, nodes } for raycaster
  *
  * @param {import('../data/StageData.js').StageData} stageData
- * @returns {{ root: THREE.Group, layers: object }}
+ * @param {'category'|'propertyId'|'shapeType'} [colorMode='category']
+ * @returns {{ root: THREE.Group, layers: object, pickables: object }}
  */
-export function buildScene(stageData) {
-  const { structure, pipe } = buildBeamMesh(stageData)
+export function buildScene(stageData, colorMode = 'category') {
+  const { structure, pipe } = buildBeamMesh(stageData, colorMode)
   const nodes = buildNodePoints(stageData)
   const rigids = buildRigidMesh(stageData)
   const masses = buildMassMarkers(stageData)
