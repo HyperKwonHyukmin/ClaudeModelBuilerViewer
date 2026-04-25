@@ -56,4 +56,8 @@ export const useViewerStore = create((set, get) => ({
   // Camera sync
   cameraLinked: false,
   toggleCameraLink: () => set(s => ({ cameraLinked: !s.cameraLinked })),
+
+  // Picked entity from raycaster (null = nothing selected)
+  pickedEntity: null,
+  setPickedEntity: (entity) => set({ pickedEntity: entity }),
 }))

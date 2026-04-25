@@ -9,7 +9,7 @@ export default function InspectorPanel() {
   const [tab, setTab] = useState('메타')
   const [tracePage, setTracePage] = useState(0)
   const { stages } = useStageStore()
-  const { viewports, activeViewportId } = useViewerStore()
+  const { viewports, activeViewportId, pickedEntity } = useViewerStore()
 
   // Reset trace page when active viewport (and thus stage) changes
   useEffect(() => { setTracePage(0) }, [activeViewportId])
@@ -38,7 +38,7 @@ export default function InspectorPanel() {
 
       {/* Tab content */}
       <div style={{ flex: 1, overflow: 'auto', padding: '10px 12px' }}>
-        {tab === '메타' && <MetaTab stage={stage} />}
+        {tab === '메타' && <MetaTab stage={stage} pickedEntity={pickedEntity} />}
         {tab === '건강지표' && <HealthTab stage={stage} />}
         {tab === '연결성' && <ConnectivityTab stage={stage} />}
         {tab === '진단' && <DiagnosticsTab stage={stage} />}
@@ -50,10 +50,11 @@ export default function InspectorPanel() {
 
 // ── Tab components ──────────────────────────────────────────
 
-function MetaTab({ stage }) {
+function MetaTab({ stage, pickedEntity }) {
   const m = stage.meta ?? {}
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      {pickedEntity && <PickedEntitySection entity={pickedEntity} />}
       <Row label="단계명" value={m.stageName} />
       <Row label="Phase" value={m.phase} />
       <Row label="스키마" value={m.schemaVersion} />
@@ -172,6 +173,28 @@ function Section({ title, children }) {
     <div style={{ marginBottom: 12 }}>
       <p style={{ fontSize: 10, color: '#555', textTransform: 'uppercase', letterSpacing: 1, margin: '0 0 6px' }}>{title}</p>
       {children}
+    </div>
+  )
+}
+
+function PickedEntitySection({ entity }) {
+  const isNode = entity.type === 'node'
+  return (
+    <div style={{ marginBottom: 10, padding: '6px 8px', background: '#1a1a3a', borderRadius: 5, border: '1px solid #4682B4' }}>
+      <div style={{ fontSize: 10, color: '#4682B4', fontWeight: 700, marginBottom: 4 }}>
+        {isNode ? '선택된 노드' : '선택된 요소'}
+      </div>
+      {isNode ? (
+        <Row label="Node ID" value={entity.nodeId} />
+      ) : (
+        <>
+          <Row label="Element ID" value={entity.id} />
+          <Row label="유형" value={entity.category} />
+          <Row label="시작 노드" value={entity.startNode} />
+          <Row label="끝 노드" value={entity.endNode} />
+          <Row label="Property ID" value={entity.propertyId} />
+        </>
+      )}
     </div>
   )
 }

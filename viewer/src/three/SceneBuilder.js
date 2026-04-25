@@ -30,6 +30,7 @@ export function buildScene(stageData) {
   return {
     root,
     layers: { structure, pipe, nodes, rigids, masses, boundaries, welds },
+    pickables: { structure, pipe, nodes },
   }
 }
 

@@ -38,6 +38,9 @@ function _buildRods(elements, category, radius, color, stageData) {
   const mesh = new THREE.InstancedMesh(geo, mat, elems.length)
   mesh.count = 0
 
+  const elementIds   = []   // instanceId → element.id
+  const elementData  = []   // instanceId → { id, startNode, endNode, category, propertyId }
+
   for (const e of elems) {
     const start = stageData.getNodePos(e.startNode)
     const end   = stageData.getNodePos(e.endNode)
@@ -47,6 +50,9 @@ function _buildRods(elements, category, radius, color, stageData) {
     const len = _dir.length()
     if (len < 1e-6) continue
 
+    elementIds[mesh.count]  = e.id
+    elementData[mesh.count] = { id: e.id, startNode: e.startNode, endNode: e.endNode, category: e.category, propertyId: e.propertyId }
+
     _dummy.position.addVectors(start, end).multiplyScalar(0.5)
     _dummy.scale.set(1, len, 1)              // stretch unit cylinder to beam length
     _dummy.quaternion.setFromUnitVectors(_axisY, _dir.normalize())
@@ -55,5 +61,6 @@ function _buildRods(elements, category, radius, color, stageData) {
   }
 
   mesh.instanceMatrix.needsUpdate = true
+  mesh.userData = { elementIds, elementData }
   return mesh
 }

@@ -1,7 +1,8 @@
-import { useRef, useCallback } from 'react'
+import { useRef, useCallback, useState } from 'react'
 import { useViewerStore } from '../store/useViewerStore.js'
 import { useStageStore } from '../store/useStageStore.js'
 import ThreeViewport from './ThreeViewport.jsx'
+import PickTooltip from './PickTooltip.jsx'
 import useCameraSync from '../hooks/useCameraSync.js'
 
 /**
@@ -11,7 +12,7 @@ import useCameraSync from '../hooks/useCameraSync.js'
  * 3-4 viewports → 2×2 grid
  */
 export default function ViewportContainer() {
-  const { viewports, removeViewport, setViewportStage, setActiveViewport, activeViewportId, layers, cameraLinked } = useViewerStore()
+  const { viewports, removeViewport, setViewportStage, setActiveViewport, activeViewportId, layers, cameraLinked, setPickedEntity } = useViewerStore()
   const { stages } = useStageStore()
 
   // Collect viewport refs for camera sync
@@ -22,6 +23,14 @@ export default function ViewportContainer() {
   }, [])
 
   useCameraSync(viewportApiRefs, cameraLinked, viewports)
+
+  // Tooltip state
+  const [tooltip, setTooltip] = useState({ pickInfo: null, position: null })
+
+  const handlePick = useCallback((pickInfo, e) => {
+    setPickedEntity(pickInfo)
+    setTooltip(pickInfo ? { pickInfo, position: { x: e.clientX, y: e.clientY } } : { pickInfo: null, position: null })
+  }, [setPickedEntity])
 
   // Grid layout
   const count = viewports.length
@@ -39,6 +48,8 @@ export default function ViewportContainer() {
   }
 
   return (
+    <>
+    <PickTooltip pickInfo={tooltip.pickInfo} position={tooltip.position} />
     <div style={{
       flex: 1,
       display: 'grid',
@@ -104,11 +115,13 @@ export default function ViewportContainer() {
                 stageData={stage}
                 layers={layers}
                 onReady={(api) => handleReady(vp.id, api)}
+                onPick={handlePick}
               />
             </div>
           </div>
         )
       })}
     </div>
+    </>
   )
 }

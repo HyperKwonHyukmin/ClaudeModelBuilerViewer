@@ -4,6 +4,7 @@ import { TrackballControls } from 'three/addons/controls/TrackballControls.js'
 import { buildScene, disposeScene } from '../three/SceneBuilder.js'
 
 const LAYER_KEYS = ['structure', 'pipe', 'nodes', 'rigids', 'masses', 'boundaries', 'welds']
+const DRAG_THRESHOLD = 3  // px — moves less than this are treated as a click
 const AXES_PX      = 90   // corner indicator size (CSS px)
 const AXES_MARGIN  = 10   // margin from bottom-left corner
 const DAMPING_TAIL = 800  // ms to keep rendering after drag ends (for inertia)
@@ -22,7 +23,7 @@ const DAMPING_TAIL = 800  // ms to keep rendering after drag ends (for inertia)
  *
  * Bottom-left corner: live XYZ axes indicator.
  */
-export default function ThreeViewport({ stageData, layers, onReady }) {
+export default function ThreeViewport({ stageData, layers, onReady, onPick }) {
   const containerRef = useRef(null)
   const rendererRef  = useRef(null)
   const cameraRef    = useRef(null)
@@ -30,9 +31,11 @@ export default function ThreeViewport({ stageData, layers, onReady }) {
   const sceneRef     = useRef(null)
   const axesSceneRef = useRef(null)
   const axesCamRef   = useRef(null)
-  const sceneDataRef = useRef(null)   // { root, layers }
+  const sceneDataRef = useRef(null)   // { root, layers, pickables }
   const renderScheduled = useRef(false)
   const animRafRef   = useRef(null)
+  const raycasterRef = useRef(new THREE.Raycaster())
+  const pointerDownRef = useRef(null)  // { x, y } at pointerdown
 
   // ── Core render: main scene + axes indicator ──────────────────────────
   const doRender = useCallback(() => {
@@ -174,6 +177,50 @@ export default function ThreeViewport({ stageData, layers, onReady }) {
     })
     ro.observe(container)
 
+    // ── Picking: pointerdown/up to distinguish click from drag ───────
+    const onPointerDown = (e) => {
+      pointerDownRef.current = { x: e.clientX, y: e.clientY }
+    }
+    const onPointerUp = (e) => {
+      if (!pointerDownRef.current) return
+      const dx = e.clientX - pointerDownRef.current.x
+      const dy = e.clientY - pointerDownRef.current.y
+      pointerDownRef.current = null
+      if (Math.sqrt(dx*dx + dy*dy) > DRAG_THRESHOLD) return  // was a drag
+
+      if (!onPick || !sceneDataRef.current?.pickables) { if (onPick) onPick(null, e); return }
+
+      const rect = renderer.domElement.getBoundingClientRect()
+      const ndc = new THREE.Vector2(
+        ((e.clientX - rect.left)  / rect.width)  * 2 - 1,
+        -((e.clientY - rect.top) / rect.height) * 2 + 1,
+      )
+      const raycaster = raycasterRef.current
+      raycaster.setFromCamera(ndc, camera)
+
+      const { structure, pipe, nodes } = sceneDataRef.current.pickables
+      const targets = [structure, pipe, nodes].filter(Boolean)
+      const hits = raycaster.intersectObjects(targets)
+
+      if (hits.length === 0) { onPick(null, e); return }
+
+      const hit = hits[0]
+      const obj = hit.object
+      const iid = hit.instanceId
+
+      if (obj === nodes) {
+        const nodeId = obj.userData.nodeIds?.[iid]
+        onPick({ type: 'node', nodeId }, e)
+      } else {
+        const data = obj.userData.elementData?.[iid]
+        if (data) onPick({ type: 'element', ...data }, e)
+        else onPick(null, e)
+      }
+    }
+
+    renderer.domElement.addEventListener('pointerdown', onPointerDown)
+    renderer.domElement.addEventListener('pointerup',   onPointerUp)
+
     requestRender()
     if (onReady) onReady({ camera, controls, requestRender })
 
@@ -183,6 +230,8 @@ export default function ThreeViewport({ stageData, layers, onReady }) {
       controls.removeEventListener('start', onStart)
       controls.removeEventListener('end',   onEnd)
       controls.dispose()
+      renderer.domElement.removeEventListener('pointerdown', onPointerDown)
+      renderer.domElement.removeEventListener('pointerup',   onPointerUp)
       renderer.dispose()
       if (container.contains(renderer.domElement)) container.removeChild(renderer.domElement)
     }

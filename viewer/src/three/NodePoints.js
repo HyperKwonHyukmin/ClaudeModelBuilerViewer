@@ -20,14 +20,18 @@ export function buildNodePoints(stageData) {
   const mesh = new THREE.InstancedMesh(geo, mat, ids.length)
   mesh.count = 0
 
+  const nodeIds = []   // instanceId → node id
+
   for (const id of ids) {
     const pos = stageData.getNodePos(id)
     if (!pos) continue
+    nodeIds[mesh.count] = id
     _dummy.position.copy(pos)
     _dummy.updateMatrix()
     mesh.setMatrixAt(mesh.count++, _dummy.matrix)
   }
 
   mesh.instanceMatrix.needsUpdate = true
+  mesh.userData = { nodeIds }
   return mesh
 }
