@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback } from 'react'
+import { useRef, useEffect, useCallback, useState } from 'react'
 import * as THREE from 'three'
 import { TrackballControls } from 'three/addons/controls/TrackballControls.js'
 import { buildScene, disposeScene } from '../three/SceneBuilder.js'
@@ -24,6 +24,7 @@ const DAMPING_TAIL = 800  // ms to keep rendering after drag ends (for inertia)
  * Bottom-left corner: live XYZ axes indicator.
  */
 export default function ThreeViewport({ stageData, layers, onReady, onPick, colorMode = 'category' }) {
+  const [sceneError, setSceneError] = useState(null)
   const containerRef = useRef(null)
   const rendererRef  = useRef(null)
   const cameraRef    = useRef(null)
@@ -256,16 +257,22 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, colo
       sceneDataRef.current = null
     }
 
-    if (!stageData) { requestRender(); return }
+    if (!stageData) { setSceneError(null); requestRender(); return }
 
-    const sceneData = buildScene(stageData, colorMode)
-    scene.add(sceneData.root)
-    sceneDataRef.current = sceneData
+    try {
+      const sceneData = buildScene(stageData, colorMode)
+      scene.add(sceneData.root)
+      sceneDataRef.current = sceneData
 
-    if (layers) applyLayers(sceneData.layers, layers)
+      if (layers) applyLayers(sceneData.layers, layers)
 
-    fitCamera(stageData, cameraRef.current, controlsRef.current)
-    requestRender()
+      fitCamera(stageData, cameraRef.current, controlsRef.current)
+      setSceneError(null)
+      requestRender()
+    } catch (err) {
+      console.error('[ThreeViewport] Scene build failed:', err)
+      setSceneError(err.message ?? String(err))
+    }
   }, [stageData, colorMode]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Layer visibility ─────────────────────────────────────────────────
@@ -276,10 +283,20 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, colo
   }, [layers, requestRender])
 
   return (
-    <div
-      ref={containerRef}
-      style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden' }}
-    />
+    <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden' }}>
+      {sceneError && (
+        <div style={{
+          position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
+          alignItems: 'center', justifyContent: 'center',
+          background: 'rgba(10,0,0,0.85)', color: '#FF6B6B',
+          fontSize: 12, padding: 20, gap: 8, zIndex: 10,
+        }}>
+          <span style={{ fontSize: 18 }}>⚠ 씬 빌드 실패</span>
+          <span style={{ color: '#aaa', textAlign: 'center', wordBreak: 'break-all' }}>{sceneError}</span>
+          <span style={{ color: '#666', fontSize: 11 }}>콘솔에서 자세한 오류를 확인하세요</span>
+        </div>
+      )}
+    </div>
   )
 }
 

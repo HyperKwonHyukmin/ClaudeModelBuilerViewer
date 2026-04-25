@@ -1,12 +1,48 @@
+import { useRef } from 'react'
 import { useStageStore } from '../store/useStageStore.js'
 import { useViewerStore } from '../store/useViewerStore.js'
 
 export default function Toolbar() {
   const { loading, error, loadStages } = useStageStore()
   const { viewports, addViewport, cameraLinked, toggleCameraLink, colorMode, setColorMode } = useViewerStore()
+  const fallbackRef = useRef(null)
 
-  const handleFileChange = (e) => {
+  // ── Folder picker ─────────────────────────────────────────────────────
+  // Prefer the File System Access API (Chrome/Edge ≥ 86) which opens a
+  // native folder picker WITHOUT the "Upload N files?" confirmation dialog.
+  // Falls back to a hidden <input webkitdirectory> for other browsers.
+  const handleFolderClick = async () => {
+    if ('showDirectoryPicker' in window) {
+      try {
+        const dirHandle = await window.showDirectoryPicker({ mode: 'read' })
+        const files = []
+        for await (const [name, handle] of dirHandle) {
+          if (handle.kind === 'file' && name.endsWith('.json')) {
+            files.push(await handle.getFile())
+          }
+        }
+        if (files.length) {
+          loadStages(files)
+        } else {
+          // Folder was selected but contained no JSON files
+          loadStages([])  // triggers the "파일 없음" error message
+        }
+      } catch (err) {
+        // AbortError = user cancelled picker — not an error
+        if (err.name !== 'AbortError') {
+          console.error('[Toolbar] showDirectoryPicker error:', err)
+        }
+      }
+    } else {
+      // Fallback: legacy webkitdirectory input
+      fallbackRef.current?.click()
+    }
+  }
+
+  const handleFallbackChange = (e) => {
     if (e.target.files?.length) loadStages(e.target.files)
+    // Reset so the same folder can be re-selected
+    e.target.value = ''
   }
 
   const canAddViewport = viewports.length < 4
@@ -18,10 +54,24 @@ export default function Toolbar() {
       borderBottom: '1px solid #2a2a4a', flexShrink: 0, flexWrap: 'wrap',
     }}>
       {/* File loader */}
-      <label style={btnStyle('#4682B4', loading)}>
+      <button
+        onClick={handleFolderClick}
+        disabled={loading}
+        style={btnStyle('#4682B4', loading)}
+        title="JSON 파일이 있는 폴더를 선택하세요"
+      >
         📂 폴더 열기
-        <input type="file" accept=".json" multiple webkitdirectory="" onChange={handleFileChange} style={{ display: 'none' }} />
-      </label>
+      </button>
+      {/* Fallback for browsers without showDirectoryPicker */}
+      <input
+        ref={fallbackRef}
+        type="file"
+        accept=".json"
+        multiple
+        webkitdirectory=""
+        onChange={handleFallbackChange}
+        style={{ display: 'none' }}
+      />
 
       {/* Add viewport */}
       <button
