@@ -3,12 +3,13 @@ import * as THREE from 'three'
 import { TrackballControls } from 'three/addons/controls/TrackballControls.js'
 import { buildScene, disposeScene } from '../three/SceneBuilder.js'
 import { applyFreeNodeFilters } from '../three/NodePoints.js'
+import { applyGroupVisibility } from '../three/GroupVisibility.js'
 import { buildElementsHighlight, buildNodesHighlight } from '../three/SelectionHighlight.js'
 
 const LAYER_KEYS = ['structure', 'pipe', 'nodes', 'rigids', 'masses', 'boundaries']
 const DRAG_THRESHOLD = 3  // px — moves less than this are treated as a click
-const AXES_PX      = 90   // corner indicator size (CSS px)
-const AXES_MARGIN  = 10   // margin from bottom-left corner
+const AXES_PX      = 108  // corner indicator size (CSS px)
+const AXES_MARGIN  = 10   // margin from corner
 const DAMPING_TAIL = 800  // ms to keep rendering after drag ends (for inertia)
 
 /**
@@ -25,7 +26,7 @@ const DAMPING_TAIL = 800  // ms to keep rendering after drag ends (for inertia)
  *
  * Bottom-left corner: live XYZ axes indicator.
  */
-export default function ThreeViewport({ stageData, layers, onReady, onPick, colorMode = 'category', freeNodeFilters, selectedEntity }) {
+export default function ThreeViewport({ stageData, layers, onReady, onPick, colorMode = 'category', freeNodeFilters, groupFilters, selectedEntity, renderMode = 'cylinder' }) {
   const [sceneError, setSceneError] = useState(null)
   const containerRef = useRef(null)
   const rendererRef  = useRef(null)
@@ -61,11 +62,11 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, colo
     renderer.clear()
     renderer.render(scene, camera)
 
-    // Axes indicator — bottom-left corner
+    // Axes indicator — top-right corner
     const ax = AXES_PX
     const am = AXES_MARGIN
-    renderer.setViewport(am, am, ax, ax)
-    renderer.setScissor(am, am, ax, ax)
+    renderer.setViewport(w - ax - am, h - ax - am, ax, ax)
+    renderer.setScissor(w - ax - am, h - ax - am, ax, ax)
     renderer.setClearColor(0x0d0d1a, 1)
     renderer.clear()
     const axesCam = axesCamRef.current
@@ -100,6 +101,8 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, colo
     renderer.setPixelRatio(window.devicePixelRatio)
     renderer.setSize(container.clientWidth, container.clientHeight)
     renderer.autoClear = false
+    renderer.toneMapping = THREE.NoToneMapping
+    renderer.outputColorSpace = THREE.SRGBColorSpace
     container.appendChild(renderer.domElement)
     rendererRef.current = renderer
 
@@ -110,10 +113,12 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, colo
 
     // Main scene
     const scene = new THREE.Scene()
-    scene.add(new THREE.AmbientLight(0xffffff, 0.45))
+
+    // HemisphereLight: sky=bright cool white, ground=mid-dark
+    scene.add(new THREE.HemisphereLight(0xd8eaff, 0x505060, 1.6))
     // Headlight: attached to camera so it always illuminates from the viewer direction.
     // Camera must be in the scene for its children to receive matrix updates.
-    const headLight = new THREE.DirectionalLight(0xffffff, 0.85)
+    const headLight = new THREE.DirectionalLight(0xffffff, 1.0)
     headLight.position.set(0.5, 1, 0.5)   // relative to camera
     camera.add(headLight)
     scene.add(camera)
@@ -170,8 +175,8 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, colo
     controls.addEventListener('start', onStart)
     controls.addEventListener('end',   onEnd)
 
-    // ── Double-click: restore to last fitCamera view ─────────────────
-    const onDblClick = () => {
+    // ── F key: restore to last fitCamera view ────────────────────────
+    const restoreFitView = () => {
       const s = fitStateRef.current
       if (s) {
         camera.position.copy(s.position)
@@ -181,7 +186,45 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, colo
       }
       requestRender()
     }
-    renderer.domElement.addEventListener('dblclick', onDblClick)
+
+    // Keyboard shortcuts (only when pointer is inside this viewport)
+    const onKeyDown = (e) => {
+      if (!container.matches(':hover')) return
+
+      const k = e.key.toLowerCase()
+
+      // F → fit view
+      if (k === 'f') { restoreFitView(); return }
+
+      // A / S / D → axis-aligned orthographic views
+      if (k === 'a' || k === 's' || k === 'd') {
+        const fitPos = fitStateRef.current?.position
+        const dist = fitPos ? fitPos.length() : 30
+
+        let pos, up
+        if (k === 'a') {
+          // X/Y 평면 (평면도) — +Z 방향에서 내려다봄, X 종방향, Y 횡방향
+          pos = new THREE.Vector3(0, 0, dist)
+          up  = new THREE.Vector3(1, 0, 0)
+        } else if (k === 's') {
+          // X/Z 평면 (종단면) — +Y 방향에서 봄, X 종방향, Z 수직
+          pos = new THREE.Vector3(0, -dist, 0)
+          up  = new THREE.Vector3(0, 0, 1)
+        } else {
+          // Y/Z 평면 (횡단면) — +X 방향에서 봄, Y 횡방향, Z 수직
+          pos = new THREE.Vector3(dist, 0, 0)
+          up  = new THREE.Vector3(0, 0, 1)
+        }
+
+        camera.position.copy(pos)
+        camera.up.copy(up)
+        controls.target.set(0, 0, 0)
+        camera.lookAt(controls.target)
+        controls.update()
+        requestRender()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
 
     // ── ResizeObserver ────────────────────────────────────────────────
     const ro = new ResizeObserver(() => {
@@ -216,8 +259,10 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, colo
       const raycaster = raycasterRef.current
       raycaster.setFromCamera(ndc, camera)
 
-      const { structure, pipe, nodes } = sceneDataRef.current.pickables
-      const targets = [structure, pipe, nodes].filter(Boolean)
+      const { structure, pipe, nodes, beams } = sceneDataRef.current.pickables
+      const targets = beams
+        ? [...beams, nodes].filter(Boolean)
+        : [structure, pipe, nodes].filter(Boolean)
       const hits = raycaster.intersectObjects(targets)
 
       if (hits.length === 0) { onPick(null, e); return }
@@ -248,9 +293,10 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, colo
       controls.removeEventListener('start', onStart)
       controls.removeEventListener('end',   onEnd)
       controls.dispose()
-      renderer.domElement.removeEventListener('dblclick',    onDblClick)
+
       renderer.domElement.removeEventListener('pointerdown', onPointerDown)
       renderer.domElement.removeEventListener('pointerup',   onPointerUp)
+      window.removeEventListener('keydown', onKeyDown)
       renderer.dispose()
       if (container.contains(renderer.domElement)) container.removeChild(renderer.domElement)
     }
@@ -275,7 +321,7 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, colo
     if (!stageData) { setSceneError(null); requestRender(); return }
 
     try {
-      const sceneData = buildScene(stageData, colorMode)
+      const sceneData = buildScene(stageData, colorMode, renderMode)
       scene.add(sceneData.root)
       sceneDataRef.current = sceneData
 
@@ -294,7 +340,7 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, colo
       console.error('[ThreeViewport] Scene build failed:', err)
       setSceneError(err.message ?? String(err))
     }
-  }, [stageData, colorMode]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [stageData, colorMode, renderMode]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Layer visibility ─────────────────────────────────────────────────
   useEffect(() => {
@@ -309,6 +355,20 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, colo
     applyFreeNodeFilters(sceneDataRef.current.pickables?.nodes, freeNodeFilters)
     requestRender()
   }, [freeNodeFilters, requestRender])
+
+  // ── Group visibility filters ──────────────────────────────────────────
+  useEffect(() => {
+    if (!sceneDataRef.current || !groupFilters || !stageData) return
+    const { structure, pipe, beams } = sceneDataRef.current.pickables
+    const maxIndividual = (stageData.groups?.length ?? 0) <= 5 ? (stageData.groups?.length ?? 0) : 10
+    if (beams) {
+      beams.forEach(m => applyGroupVisibility(m, groupFilters, maxIndividual))
+    } else {
+      applyGroupVisibility(structure, groupFilters, maxIndividual)
+      applyGroupVisibility(pipe, groupFilters, maxIndividual)
+    }
+    requestRender()
+  }, [groupFilters, stageData, requestRender])
 
   // ── Selection highlight ───────────────────────────────────────────────
   useEffect(() => {
@@ -384,7 +444,11 @@ function fitCamera(stageData, camera, controls) {
 
   const fov  = camera.fov * (Math.PI / 180)
   const dist = (size / 2) / Math.tan(fov / 2) * 1.5
-  camera.position.set(dist, dist * 0.6, dist)
+
+  // Z-up 좌표계: X 종방향, Y 횡방향, Z 수직
+  // 카메라를 X+ / Y- / Z+ 방향에서 바라봄 (정면 우측 상단 시점)
+  camera.up.set(0, 0, 1)
+  camera.position.set(dist * 0.9, -dist * 0.7, dist * 0.6)
 
   // Explicitly orient the camera towards the rotation centre so TrackballControls
   // initialises its internal _eye vector correctly.

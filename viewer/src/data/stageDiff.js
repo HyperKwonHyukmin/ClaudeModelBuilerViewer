@@ -1,6 +1,6 @@
 /**
  * Computes metric differences between two StageData objects.
- * Returns an array of {label, a, b, delta, deltaPercent} rows.
+ * Uses healthMetrics (from JSON or client-computed) and connectivity.
  *
  * @param {import('./StageData.js').StageData} stageA
  * @param {import('./StageData.js').StageData} stageB
@@ -28,10 +28,12 @@ export function stageDiff(stageA, stageB) {
     row('요소 수 (배관)', ta.elementsByCategory?.Pipe, tb.elementsByCategory?.Pipe),
     row('RBE 수', ta.rigidCount, tb.rigidCount),
     row('질량 수', ta.pointMassCount, tb.pointMassCount),
+    row('총 길이 (m)', ta.totalLengthMm != null ? +(ta.totalLengthMm / 1000).toFixed(1) : 0,
+                       tb.totalLengthMm != null ? +(tb.totalLengthMm / 1000).toFixed(1) : 0),
     row('그룹 수', ca.groupCount, cb.groupCount),
-    row('고립 노드', ia.isolatedNodeCount ?? ca.isolatedNodeCount, ib.isolatedNodeCount ?? cb.isolatedNodeCount),
+    row('Orphan 노드', ia.orphanNodes ?? ca.isolatedNodeCount, ib.orphanNodes ?? cb.isolatedNodeCount),
     row('자유단 노드', ia.freeEndNodes, ib.freeEndNodes),
     row('단락 요소', ia.shortElements, ib.shortElements),
-    row('고아 노드', ia.orphanNodes, ib.orphanNodes),
+    row('미연결 그룹', ia.disconnectedGroups, ib.disconnectedGroups),
   ]
 }

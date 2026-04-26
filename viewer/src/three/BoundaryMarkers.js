@@ -13,7 +13,7 @@ const DIAMOND_SIZE = 0.14   // octahedron radius (≈ 140 mm)
 export function buildBoundaryMarkers(stageData) {
   const group = new THREE.Group()
   const geo = new THREE.OctahedronGeometry(DIAMOND_SIZE)
-  const mat = new THREE.MeshPhongMaterial({ color: COLORS.boundary, shininess: 60 })
+  const mat = new THREE.MeshStandardMaterial({ color: COLORS.boundary, metalness: 0.2, roughness: 0.55 })
 
   const allIds = [
     ...stageData.nodesByTag('Boundary'),

@@ -5,9 +5,9 @@ const NODE_RADIUS = 0.056  // 56 mm (80 % of original 70 mm)
 const _dummy = new THREE.Object3D()
 
 // freeNode 모드 색상
-const COLOR_NORMAL   = new THREE.Color(COLORS.node)   // 다중 요소 Node (2+) — 빨강
+const COLOR_NORMAL   = new THREE.Color(COLORS.node)   // Shared Node (2+) — 빨강
 const COLOR_FREE_END = new THREE.Color(0xFFDD00)       // Free Node (1 연결) — 노란색
-const COLOR_ORPHAN   = new THREE.Color(0xCC44FF)       // 고립 Node (0 연결) — 보라색
+const COLOR_ORPHAN   = new THREE.Color(0xCC44FF)       // Orphan Node (0 연결) — 보라색
 
 /**
  * Builds an InstancedMesh of shaded spheres, one per node.
@@ -29,7 +29,7 @@ const COLOR_ORPHAN   = new THREE.Color(0xCC44FF)       // 고립 Node (0 연결)
 export function buildNodePoints(stageData, colorMode = 'category') {
   const ids = [...stageData.nodeMap.keys()]
   const geo = new THREE.SphereGeometry(NODE_RADIUS, 10, 7)
-  const mat = new THREE.MeshPhongMaterial({ color: 0xffffff, shininess: 70, specular: 0xffffff })
+  const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, metalness: 0.15, roughness: 0.55, flatShading: true })
 
   const mesh = new THREE.InstancedMesh(geo, mat, ids.length)
   mesh.count = 0

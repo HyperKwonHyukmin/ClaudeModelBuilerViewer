@@ -11,7 +11,7 @@ const MASS_SIZE = 0.09   // cube half-extent → 90 mm side length
 export function buildMassMarkers(stageData) {
   const masses = stageData.pointMasses
   const geo = new THREE.BoxGeometry(MASS_SIZE, MASS_SIZE, MASS_SIZE)
-  const mat = new THREE.MeshPhongMaterial({ color: COLORS.mass, shininess: 60 })
+  const mat = new THREE.MeshStandardMaterial({ color: COLORS.mass, metalness: 0.2, roughness: 0.55 })
   const mesh = new THREE.InstancedMesh(geo, mat, masses.length)
   mesh.count = 0
 

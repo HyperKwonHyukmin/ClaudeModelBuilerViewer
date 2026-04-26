@@ -61,12 +61,31 @@ export const useViewerStore = create((set, get) => ({
   setPickedEntity: (entity) => set({ pickedEntity: entity }),
 
   // Beam/node color mode
-  colorMode: 'category',   // 'category' | 'freeNode'
-  setColorMode: (mode) => set({ colorMode: mode }),
+  colorMode: 'category',   // 'category' | 'freeNode' | 'group'
+  setColorMode: (mode) => set({ colorMode: mode, groupFilters: {} }),
+
+  // Beam render mode
+  renderMode: 'cylinder',  // 'cylinder' | 'section3d'
+  setRenderMode: (mode) => set({ renderMode: mode }),
 
   // Free Node 필터 (colorMode === 'freeNode' 일 때 사용)
   freeNodeFilters: { normal: true, free: true, orphan: true },
   toggleFreeNodeFilter: (key) => {
     set(s => ({ freeNodeFilters: { ...s.freeNodeFilters, [key]: !s.freeNodeFilters[key] } }))
+  },
+
+  // Group 필터 (colorMode === 'group' 일 때 사용)
+  // keys: 0..N-1 (개별 그룹), 'others' (기타)
+  // 비어있으면 모두 visible
+  groupFilters: {},
+  toggleGroupFilter: (key) => {
+    set(s => ({ groupFilters: { ...s.groupFilters, [key]: !(s.groupFilters[key] ?? true) } }))
+  },
+  setAllGroupFilters: (visible, groups, maxIndividual) => {
+    const filters = {}
+    const top = Math.min(groups.length, maxIndividual)
+    for (let i = 0; i < top; i++) filters[i] = visible
+    if (groups.length > maxIndividual) filters['others'] = visible
+    set({ groupFilters: filters })
   },
 }))

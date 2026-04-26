@@ -4,7 +4,7 @@ import { COLORS } from '../utils/colors.js'
 // Rod radii in scene units (metres)
 const STRUCT_R = 0.025   // 25 mm
 const PIPE_R   = 0.020   // 20 mm
-const SEGS     = 7       // cylinder circumference segments
+const SEGS     = 12      // cylinder circumference segments
 
 // Reused objects — allocated once, no GC pressure per element
 const _dummy = new THREE.Object3D()
@@ -70,6 +70,15 @@ export function buildBeamMesh(stageData, colorMode = 'category') {
     const total  = ids.length
     _palette.length = 0   // reset palette for new data
     colorFn = (e) => getPaletteColor(idxMap.get(e.propertyId), total)
+  } else if (colorMode === 'group') {
+    const groups = stageData.groups ?? []
+    const maxIndividual = groups.length <= 5 ? groups.length : 10
+    _palette.length = 0
+    colorFn = (e) => {
+      const gIdx = stageData.elementGroupMap.get(e.id) ?? -1
+      const colorIdx = (gIdx >= 0 && gIdx < maxIndividual) ? gIdx : maxIndividual
+      return getPaletteColor(colorIdx, maxIndividual + 1)
+    }
   } else {
     // shapeType
     const propMap = new Map((stageData.properties ?? []).map(p => [p.id, p]))
@@ -90,48 +99,17 @@ export function buildBeamMesh(stageData, colorMode = 'category') {
 
 function _buildRods(elements, category, radius, color, stageData) {
   const geo  = new THREE.CylinderGeometry(radius, radius, 1, SEGS, 1)
-  const mat  = new THREE.MeshPhongMaterial({ color, shininess: 25 })
+  const mat  = new THREE.MeshStandardMaterial({ color, metalness: 0.15, roughness: 0.55, flatShading: true })
   const elems = elements.filter(e => e.type === 'BEAM' && e.category === category)
 
   const mesh = new THREE.InstancedMesh(geo, mat, elems.length)
   mesh.count = 0
 
-  const elementIds   = []
-  const elementData  = []
-
-  for (const e of elems) {
-    const start = stageData.getNodePos(e.startNode)
-    const end   = stageData.getNodePos(e.endNode)
-    if (!start || !end) continue
-
-    _dir.subVectors(end, start)
-    const len = _dir.length()
-    if (len < 1e-6) continue
-
-    elementIds[mesh.count]  = e.id
-    elementData[mesh.count] = { id: e.id, startNode: e.startNode, endNode: e.endNode, category: e.category, propertyId: e.propertyId }
-
-    _dummy.position.addVectors(start, end).multiplyScalar(0.5)
-    _dummy.scale.set(1, len, 1)
-    _dummy.quaternion.setFromUnitVectors(_axisY, _dir.normalize())
-    _dummy.updateMatrix()
-    mesh.setMatrixAt(mesh.count++, _dummy.matrix)
-  }
-
-  mesh.instanceMatrix.needsUpdate = true
-  mesh.userData = { elementIds, elementData }
-  return mesh
-}
-
-function _buildRodsColored(elems, radius, stageData, colorFn) {
-  const geo = new THREE.CylinderGeometry(radius, radius, 1, SEGS, 1)
-  const mat = new THREE.MeshPhongMaterial({ shininess: 25, vertexColors: false })
-
-  const mesh = new THREE.InstancedMesh(geo, mat, elems.length)
-  mesh.count = 0
-
-  const elementIds  = []
-  const elementData = []
+  const elementIds       = []
+  const elementData      = []
+  const elementGroupIds  = []
+  // Float32Array of 16 floats per instance — for group visibility restore
+  const originalMatrices = new Float32Array(elems.length * 16)
 
   for (const e of elems) {
     const start = stageData.getNodePos(e.startNode)
@@ -143,20 +121,62 @@ function _buildRodsColored(elems, radius, stageData, colorFn) {
     if (len < 1e-6) continue
 
     const idx = mesh.count
-    elementIds[idx]  = e.id
-    elementData[idx] = { id: e.id, startNode: e.startNode, endNode: e.endNode, category: e.category, propertyId: e.propertyId }
+    elementIds[idx]      = e.id
+    elementGroupIds[idx] = stageData.elementGroupMap.get(e.id) ?? -1
+    elementData[idx]     = { id: e.id, startNode: e.startNode, endNode: e.endNode, category: e.category, propertyId: e.propertyId }
 
     _dummy.position.addVectors(start, end).multiplyScalar(0.5)
     _dummy.scale.set(1, len, 1)
     _dummy.quaternion.setFromUnitVectors(_axisY, _dir.normalize())
     _dummy.updateMatrix()
     mesh.setMatrixAt(idx, _dummy.matrix)
+    _dummy.matrix.toArray(originalMatrices, idx * 16)
+    mesh.count++
+  }
+
+  mesh.instanceMatrix.needsUpdate = true
+  mesh.userData = { elementIds, elementData, elementGroupIds, originalMatrices }
+  return mesh
+}
+
+function _buildRodsColored(elems, radius, stageData, colorFn) {
+  const geo = new THREE.CylinderGeometry(radius, radius, 1, SEGS, 1)
+  const mat = new THREE.MeshStandardMaterial({ metalness: 0.15, roughness: 0.55, flatShading: true })
+
+  const mesh = new THREE.InstancedMesh(geo, mat, elems.length)
+  mesh.count = 0
+
+  const elementIds       = []
+  const elementData      = []
+  const elementGroupIds  = []
+  const originalMatrices = new Float32Array(elems.length * 16)
+
+  for (const e of elems) {
+    const start = stageData.getNodePos(e.startNode)
+    const end   = stageData.getNodePos(e.endNode)
+    if (!start || !end) continue
+
+    _dir.subVectors(end, start)
+    const len = _dir.length()
+    if (len < 1e-6) continue
+
+    const idx = mesh.count
+    elementIds[idx]      = e.id
+    elementGroupIds[idx] = stageData.elementGroupMap.get(e.id) ?? -1
+    elementData[idx]     = { id: e.id, startNode: e.startNode, endNode: e.endNode, category: e.category, propertyId: e.propertyId }
+
+    _dummy.position.addVectors(start, end).multiplyScalar(0.5)
+    _dummy.scale.set(1, len, 1)
+    _dummy.quaternion.setFromUnitVectors(_axisY, _dir.normalize())
+    _dummy.updateMatrix()
+    mesh.setMatrixAt(idx, _dummy.matrix)
+    _dummy.matrix.toArray(originalMatrices, idx * 16)
     mesh.setColorAt(idx, _col.copy(colorFn(e)))
     mesh.count++
   }
 
   mesh.instanceMatrix.needsUpdate = true
   if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
-  mesh.userData = { elementIds, elementData }
+  mesh.userData = { elementIds, elementData, elementGroupIds, originalMatrices }
   return mesh
 }

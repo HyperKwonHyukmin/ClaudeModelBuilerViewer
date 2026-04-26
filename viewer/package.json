@@ -1,5 +1,5 @@
 {
-  "name": "viewer",
+  "name": "claude-model-builder-viewer",
   "private": true,
   "version": "0.0.0",
   "type": "module",

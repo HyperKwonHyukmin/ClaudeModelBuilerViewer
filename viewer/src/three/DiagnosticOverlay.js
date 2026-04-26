@@ -72,7 +72,7 @@ function _addElemOverlays(group, elemSev, elemMap, stageData) {
     if (ids.length === 0) continue
 
     const geo = new THREE.CylinderGeometry(ELEM_R, ELEM_R, 1, SEGS, 1)
-    const mat = new THREE.MeshPhongMaterial({
+    const mat = new THREE.MeshStandardMaterial({
       color: col.color, emissive: col.emissive,
       transparent: true, opacity: 0.45, depthWrite: false,
     })
@@ -108,7 +108,7 @@ function _addNodeOverlays(group, nodeSev, stageData) {
     if (ids.length === 0) continue
 
     const geo = new THREE.SphereGeometry(NODE_R, SEGS, SEGS)
-    const mat = new THREE.MeshPhongMaterial({
+    const mat = new THREE.MeshStandardMaterial({
       color: col.color, emissive: col.emissive,
       transparent: true, opacity: 0.5, depthWrite: false,
     })

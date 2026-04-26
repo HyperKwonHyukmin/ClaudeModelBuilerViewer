@@ -20,6 +20,7 @@ export class StageData {
     this.healthMetrics = json.healthMetrics
     this.diagnostics = json.diagnostics ?? []
     this.trace = json.trace ?? []
+    this.elementGroupMap = new Map()  // populated by _computeGroups
 
     // Build nodeMap: Map<id, {x, y, z, tags}>
     this.nodeMap = new Map()
@@ -47,6 +48,18 @@ export class StageData {
       y: (this.bbox.minY + this.bbox.maxY) / 2,
       z: (this.bbox.minZ + this.bbox.maxZ) / 2,
     }
+
+    // Connectivity groups (Union-Find on BEAM elements)
+    this.groups = this._computeGroups()
+
+    // Property/material lookup maps
+    this.propertyMap = new Map(this.properties.map(p => [p.id, p]))
+    this.materialMap = new Map(this.materials.map(m => [m.id, m]))
+
+    // Client-side healthMetrics (fallback if JSON doesn't include it)
+    if (!this.healthMetrics) this.healthMetrics = this._computeHealthMetrics()
+    // Client-side connectivity (fallback if JSON doesn't include it)
+    if (!this.connectivity) this.connectivity = this._computeConnectivity()
   }
 
   /**
@@ -75,6 +88,188 @@ export class StageData {
       if (n.tags.includes(tag)) result.push(id)
     }
     return result
+  }
+
+  /**
+   * Union-Find connectivity grouping on BEAM elements.
+   * Sets this.elementGroupMap (Map<elementId, groupIndex>) and returns groups[].
+   */
+  _computeGroups() {
+    // --- Union-Find ---
+    const parent = new Map()
+    const rank   = new Map()
+
+    const find = (x) => {
+      if (!parent.has(x)) { parent.set(x, x); rank.set(x, 0) }
+      if (parent.get(x) !== x) parent.set(x, find(parent.get(x)))
+      return parent.get(x)
+    }
+    const union = (a, b) => {
+      const ra = find(a), rb = find(b)
+      if (ra === rb) return
+      const ka = rank.get(ra) ?? 0, kb = rank.get(rb) ?? 0
+      if (ka < kb) parent.set(ra, rb)
+      else if (ka > kb) parent.set(rb, ra)
+      else { parent.set(rb, ra); rank.set(ra, (rank.get(ra) ?? 0) + 1) }
+    }
+
+    const beams = this.elements.filter(e => e.type === 'BEAM' && e.startNode != null && e.endNode != null)
+    for (const e of beams) union(e.startNode, e.endNode)
+
+    // --- Build groups ---
+    const groupMap = new Map()  // root → { elementIds[], nodeSet }
+    for (const e of beams) {
+      const root = find(e.startNode)
+      if (!groupMap.has(root)) groupMap.set(root, { elementIds: [], nodeSet: new Set() })
+      const g = groupMap.get(root)
+      g.elementIds.push(e.id)
+      g.nodeSet.add(e.startNode)
+      g.nodeSet.add(e.endNode)
+    }
+
+    // Sort largest first, assign stable numeric IDs
+    const groups = [...groupMap.values()]
+      .sort((a, b) => b.elementIds.length - a.elementIds.length)
+      .map((g, i) => ({ id: i, elementIds: g.elementIds, nodeCount: g.nodeSet.size }))
+
+    // Element → group index map
+    this.elementGroupMap = new Map()
+    for (const g of groups) {
+      for (const eid of g.elementIds) this.elementGroupMap.set(eid, g.id)
+    }
+
+    return groups
+  }
+
+  /**
+   * Compute healthMetrics from parsed arrays when JSON doesn't include it.
+   */
+  _computeHealthMetrics() {
+    const beams = this.elements.filter(e => e.type === 'BEAM')
+    const structCount = beams.filter(e => e.category === 'Structure').length
+    const pipeCount   = beams.filter(e => e.category === 'Pipe').length
+
+    // Count node usage to detect free-end and orphan nodes
+    const nodeUsage = new Map()
+    for (const [id] of this.nodeMap) nodeUsage.set(id, 0)
+    for (const e of beams) {
+      if (e.startNode != null) nodeUsage.set(e.startNode, (nodeUsage.get(e.startNode) ?? 0) + 1)
+      if (e.endNode   != null) nodeUsage.set(e.endNode,   (nodeUsage.get(e.endNode)   ?? 0) + 1)
+    }
+    let freeEndNodes = 0, orphanNodes = 0
+    for (const cnt of nodeUsage.values()) {
+      if (cnt === 0) orphanNodes++
+      else if (cnt === 1) freeEndNodes++
+    }
+
+    // Compute total length
+    let totalLengthMm = 0, structLenMm = 0, pipeLenMm = 0
+    for (const e of beams) {
+      const a = this.nodeMap.get(e.startNode)
+      const b = this.nodeMap.get(e.endNode)
+      if (!a || !b) continue
+      const len = Math.sqrt((b.x - a.x) ** 2 + (b.y - a.y) ** 2 + (b.z - a.z) ** 2)
+      totalLengthMm += len
+      if (e.category === 'Structure') structLenMm += len
+      else pipeLenMm += len
+    }
+
+    // Short elements (< 1mm)
+    let shortElements = 0
+    for (const e of beams) {
+      const a = this.nodeMap.get(e.startNode)
+      const b = this.nodeMap.get(e.endNode)
+      if (!a || !b) continue
+      const len = Math.sqrt((b.x - a.x) ** 2 + (b.y - a.y) ** 2 + (b.z - a.z) ** 2)
+      if (len < 1) shortElements++
+    }
+
+    return {
+      totals: {
+        nodeCount: this.nodeMap.size,
+        elementCount: beams.length,
+        rigidCount: this.rigids.length,
+        pointMassCount: this.pointMasses.length,
+        elementsByCategory: { Structure: structCount, Pipe: pipeCount },
+        totalLengthMm,
+        lengthByCategoryMm: { Structure: structLenMm, Pipe: pipeLenMm },
+        bbox: { ...this.bbox },
+      },
+      issues: {
+        freeEndNodes,
+        orphanNodes,
+        shortElements,
+        disconnectedGroups: Math.max(0, this.groups.length - 1),
+        unresolvedUbolts: 0,
+      },
+      diagnosticCounts: { error: 0, warning: 0, info: 0, byCode: {} },
+    }
+  }
+
+  /**
+   * Compute connectivity from groups when JSON doesn't include it.
+   */
+  _computeConnectivity() {
+    const groups = this.groups
+    const largest = groups[0]
+    // Orphan: nodes not connected to any BEAM element
+    const connectedNodes = new Set()
+    for (const e of this.elements) {
+      if (e.type === 'BEAM') {
+        if (e.startNode != null) connectedNodes.add(e.startNode)
+        if (e.endNode   != null) connectedNodes.add(e.endNode)
+      }
+    }
+    let isolatedNodeCount = 0
+    for (const [id] of this.nodeMap) {
+      if (!connectedNodes.has(id)) isolatedNodeCount++
+    }
+
+    return {
+      groupCount: groups.length,
+      largestGroupNodeCount: largest?.nodeCount ?? 0,
+      largestGroupElementCount: largest?.elementIds?.length ?? 0,
+      largestGroupNodeRatio: this.nodeMap.size > 0 ? (largest?.nodeCount ?? 0) / this.nodeMap.size : 0,
+      isolatedNodeCount,
+      groups: groups.map(g => ({ id: g.id, nodeCount: g.nodeCount, elementCount: g.elementIds.length })),
+    }
+  }
+
+  /**
+   * Get property details for an element.
+   */
+  getProperty(propertyId) {
+    return this.propertyMap.get(propertyId) ?? null
+  }
+
+  /**
+   * Get material details for a property.
+   */
+  getMaterial(materialId) {
+    return this.materialMap.get(materialId) ?? null
+  }
+
+  /**
+   * Get point mass at a node (if any).
+   */
+  getPointMass(nodeId) {
+    return this.pointMasses.find(pm => pm.nodeId === nodeId) ?? null
+  }
+
+  /**
+   * Format cross-section dims as human-readable string.
+   */
+  static formatDims(prop) {
+    if (!prop) return '-'
+    const d = prop.dims ?? []
+    switch (prop.kind) {
+      case 'Bar':  return `${d[0]}×${d[1]} mm`
+      case 'Rod':  return `Ø${d[0]} mm`
+      case 'Tube': return `Ø${d[0]}/${d[1]} mm`
+      case 'L':    return `L ${d[0]}×${d[1]}×${d[2]} mm`
+      case 'H':    return `H ${d[2]}×${d[0]}×${d[3]}/${d[1]} mm`
+      default:     return d.join('×') + ' mm'
+    }
   }
 
   _computeBbox(nodes) {

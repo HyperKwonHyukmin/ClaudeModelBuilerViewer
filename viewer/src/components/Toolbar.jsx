@@ -1,29 +1,27 @@
+import { useRef } from 'react'
 import { useStageStore } from '../store/useStageStore.js'
 import { useViewerStore } from '../store/useViewerStore.js'
 
 export default function Toolbar() {
   const { loading, error, loadStages } = useStageStore()
-  const { viewports, addViewport, cameraLinked, toggleCameraLink } = useViewerStore()
+  const { viewports, addViewport, cameraLinked, toggleCameraLink, renderMode, setRenderMode } = useViewerStore()
+  const folderInputRef = useRef(null)
+  const fileInputRef   = useRef(null)
 
-  // showDirectoryPicker API (Chrome/Edge ≥ 86) — no fallback input needed
-  const handleFolderClick = async () => {
-    if (!('showDirectoryPicker' in window)) {
-      alert('이 브라우저는 폴더 선택을 지원하지 않습니다. Chrome 또는 Edge를 사용하세요.')
-      return
-    }
-    try {
-      const dirHandle = await window.showDirectoryPicker({ mode: 'read' })
-      const files = []
-      for await (const [name, handle] of dirHandle) {
-        if (handle.kind === 'file' && name.endsWith('.json')) {
-          files.push(await handle.getFile())
-        }
-      }
-      if (files.length) loadStages(files)
-      else loadStages([])
-    } catch (err) {
-      if (err.name !== 'AbortError') console.error('[Toolbar] showDirectoryPicker error:', err)
-    }
+  // Folder picker — webkitdirectory collects all .json files recursively
+  const handleFolderClick = () => folderInputRef.current?.click()
+  const handleFolderInput = (e) => {
+    const files = Array.from(e.target.files).filter(f => f.name.endsWith('.json'))
+    loadStages(files)
+    e.target.value = ''
+  }
+
+  // Individual JSON file picker
+  const handleFileClick = () => fileInputRef.current?.click()
+  const handleFileInput = (e) => {
+    const files = Array.from(e.target.files)
+    loadStages(files)
+    e.target.value = ''
   }
 
   const canAddViewport = viewports.length < 4
@@ -34,7 +32,28 @@ export default function Toolbar() {
       padding: '6px 12px', background: '#12122a',
       borderBottom: '1px solid #2a2a4a', flexShrink: 0, flexWrap: 'wrap',
     }}>
-      <button onClick={handleFolderClick} disabled={loading} style={btnStyle('#4682B4', loading)} title="JSON 파일이 있는 폴더를 선택하세요">
+      {/* hidden folder input — webkitdirectory collects all .json files recursively */}
+      <input
+        ref={folderInputRef}
+        type="file"
+        webkitdirectory=""
+        multiple
+        style={{ display: 'none' }}
+        onChange={handleFolderInput}
+      />
+      {/* hidden file input — .json only, multi-select */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".json"
+        multiple
+        style={{ display: 'none' }}
+        onChange={handleFileInput}
+      />
+      <button onClick={handleFileClick} disabled={loading} style={btnStyle('#4682B4', loading)} title="JSON 파일을 개별 선택">
+        📄 파일 열기
+      </button>
+      <button onClick={handleFolderClick} disabled={loading} style={btnStyle('#2a6088', loading)} title="폴더를 선택하면 내부 JSON을 모두 불러옵니다">
         📂 폴더 열기
       </button>
 
@@ -44,6 +63,14 @@ export default function Toolbar() {
 
       <button onClick={toggleCameraLink} style={btnStyle(cameraLinked ? '#7c3aed' : '#444')} title="카메라 동기화">
         {cameraLinked ? '🔗 동기화 ON' : '🔗 동기화 OFF'}
+      </button>
+
+      <button
+        onClick={() => setRenderMode(renderMode === 'section3d' ? 'cylinder' : 'section3d')}
+        style={btnStyle(renderMode === 'section3d' ? '#a06020' : '#444')}
+        title="실제 단면 형상으로 렌더링 (Bar/Rod/Tube/L/H)"
+      >
+        {renderMode === 'section3d' ? '⬡ 3D단면 ON' : '⬡ 3D단면'}
       </button>
 
 {loading && <span style={{ fontSize: 12, color: '#aaa', marginLeft: 4 }}>로딩 중...</span>}
