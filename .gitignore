@@ -37,3 +37,6 @@ csv/
 
 # Shrimp task manager cache
 shrimp_data/
+
+# Playwright MCP session logs
+.playwright-mcp/
