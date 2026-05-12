@@ -87,7 +87,7 @@ export default function PickTooltip({ pickInfo, position, editEnabled }) {
           borderTop: '1px dashed rgba(255,100,100,0.25)',
           paddingTop: 3,
         }}>
-          Del — 삭제 의도 추가 / 취소
+          Del — 삭제  ·  Ctrl+클릭 — 다중 선택
         </span>
       )}
     </div>

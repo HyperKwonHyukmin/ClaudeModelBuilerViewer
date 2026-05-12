@@ -56,6 +56,9 @@ export const useEditStore = create((set, get) => ({
   // Rigid 연결을 위해 선택된 노드들 (편집 모드에서 Shift+Click 으로 토글)
   pendingNodeSelection: [],
 
+  // 편집 모드에서 Ctrl+Click 으로 누적된 다중 선택 element 목록 (일괄 삭제용)
+  multiSelElements: [],
+
   // 권상 방식/그룹 설정. Node 클릭으로 그룹별 권상점을 분류한다.
   // 디폴트는 hydro — 가장 흔한 방식이라 사용자가 매번 선택하지 않아도 즉시 권상점 지정 가능.
   hoistMode: 'hydro', // 'hydro' | 'goliat' | 'ceiling' | null
@@ -84,10 +87,12 @@ export const useEditStore = create((set, get) => ({
     enabled,
     // 편집 모드 끌 때 다중 선택은 자동 비움 (의도하지 않은 잔재 방지)
     pendingNodeSelection: enabled ? s.pendingNodeSelection : [],
+    multiSelElements: enabled ? s.multiSelElements : [],
   })),
   toggleEnabled: () => set(s => ({
     enabled: !s.enabled,
     pendingNodeSelection: s.enabled ? [] : s.pendingNodeSelection,
+    multiSelElements: s.enabled ? [] : s.multiSelElements,
   })),
   markEntryToastShown: () => set({ hasShownEntryToast: true }),
 
@@ -112,6 +117,24 @@ export const useEditStore = create((set, get) => ({
   }),
 
   clearNodeSelection: () => set({ pendingNodeSelection: [] }),
+
+  /**
+   * element entity 를 다중 선택 목록에서 토글한다 (이미 있으면 제거, 없으면 추가).
+   * Ctrl+Click 흐름에서 호출.
+   */
+  toggleMultiSelElement: (entity) => {
+    if (entity?.id == null) return
+    set(s => {
+      const has = s.multiSelElements.some(e => e.id === entity.id)
+      return {
+        multiSelElements: has
+          ? s.multiSelElements.filter(e => e.id !== entity.id)
+          : [...s.multiSelElements, entity],
+      }
+    })
+  },
+
+  clearMultiSelElements: () => set({ multiSelElements: [] }),
 
   setHoistMode: (mode) => {
     const nextMode = VALID_HOIST_MODES.has(mode) ? mode : null
@@ -477,6 +500,7 @@ export const useEditStore = create((set, get) => ({
     selectedIntentId: null,
     hasShownEntryToast: false,
     pendingNodeSelection: [],
+    multiSelElements: [],
     hoistMode: 'hydro',
     hoistGroupCount: 1,
     activeHoistGroupId: 1,

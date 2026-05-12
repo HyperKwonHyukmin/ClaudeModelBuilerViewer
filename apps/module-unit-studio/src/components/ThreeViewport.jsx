@@ -7,7 +7,7 @@ import { applyGroupVisibility } from '../three/GroupVisibility.js'
 import { applyDeleteMask } from '../three/applyDeleteMask.js'
 import { buildBrokenRbeHighlight } from '../three/BrokenRbeHighlight.js'
 import { buildAddRigidPreview } from '../three/AddRigidPreview.js'
-import { buildElementsHighlight, buildNodesHighlight, buildMultiSelectionHighlight } from '../three/SelectionHighlight.js'
+import { buildElementsHighlight, buildNodesHighlight, buildMultiSelectionHighlight, buildMultiSelElementHighlight } from '../three/SelectionHighlight.js'
 import { buildCenterOfGravityMarker } from '../three/CenterOfGravityMarker.js'
 import { buildHoistGroupHighlight } from '../three/HoistGroupHighlight.js'
 import { buildHoistLevelPlate } from '../three/HoistLevelPlate.js'
@@ -78,16 +78,19 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
   // 편집 모드 토글과 무관하게 intents 가 1개 이상이면 미리보기를 항상 적용한다.
   // 그래야 편집 모드를 꺼도 변경사항이 유지되고, 이어서 권상 위치 설정 시 삭제된 노드가
   // 자동으로 픽킹·시각화에서 제외된다 (자세안정성 평가가 _edited.json 으로 일관되게 흐름).
-  const editIntents          = useEditStore(s => s.intents)
-  const editEnabled          = useEditStore(s => s.enabled)
-  const pendingNodeSelection = useEditStore(s => s.pendingNodeSelection)
-  const toggleNodeSelection  = useEditStore(s => s.toggleNodeSelection)
-  const hoistMode            = useEditStore(s => s.hoistMode)
-  const hoistGroups          = useEditStore(s => s.hoistGroups)
-  const activeHoistGroupId   = useEditStore(s => s.activeHoistGroupId)
-  const addHoistNode         = useEditStore(s => s.addHoistNode)
-  const flashHoistGuide      = useEditStore(s => s.flashHoistGuide)
-  const pipeDiameterThreshold = useEditStore(s => s.pipeDiameterThreshold)
+  const editIntents            = useEditStore(s => s.intents)
+  const editEnabled            = useEditStore(s => s.enabled)
+  const pendingNodeSelection   = useEditStore(s => s.pendingNodeSelection)
+  const toggleNodeSelection    = useEditStore(s => s.toggleNodeSelection)
+  const multiSelElements       = useEditStore(s => s.multiSelElements)
+  const toggleMultiSelElement  = useEditStore(s => s.toggleMultiSelElement)
+  const clearMultiSelElements  = useEditStore(s => s.clearMultiSelElements)
+  const hoistMode              = useEditStore(s => s.hoistMode)
+  const hoistGroups            = useEditStore(s => s.hoistGroups)
+  const activeHoistGroupId     = useEditStore(s => s.activeHoistGroupId)
+  const addHoistNode           = useEditStore(s => s.addHoistNode)
+  const flashHoistGuide        = useEditStore(s => s.flashHoistGuide)
+  const pipeDiameterThreshold  = useEditStore(s => s.pipeDiameterThreshold)
   // 편집 대상 단계(마지막 단계)가 아닌 viewport 에서는 미리보기를 적용하지 않는다.
   // 그 단계의 group/node ID 가 마지막 단계와 다를 수 있어 의도와 무관한 노드가 hide 될 위험.
   const deleteMask = useMemo(
@@ -102,15 +105,18 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
       enabled: editEnabled,
       isTarget: isEditTargetStage,
       toggle: toggleNodeSelection,
+      toggleMultiSelElement,
+      clearMultiSelElements,
       addHoistNode,
       flashHoistGuide,
       mask: deleteMask,
       hasPendingNodes: pendingNodeSelection.length > 0,
       hoistMode,
     }
-  }, [editEnabled, isEditTargetStage, toggleNodeSelection, addHoistNode, flashHoistGuide, deleteMask, pendingNodeSelection.length, hoistMode])
+  }, [editEnabled, isEditTargetStage, toggleNodeSelection, toggleMultiSelElement, clearMultiSelElements, addHoistNode, flashHoistGuide, deleteMask, pendingNodeSelection.length, hoistMode])
 
-  const multiSelRef = useRef(null)   // 다중 선택 노드 overlay (노란 sphere)
+  const multiSelRef     = useRef(null)   // 다중 선택 노드 overlay (노란 sphere)
+  const multiSelElemRef = useRef(null)   // Ctrl+Click 다중 선택 element overlay (주황 cylinder)
   const addRigidRef = useRef(null)   // addRigid intent 미리보기 overlay (노란 점선)
   const hoistRef    = useRef(null)   // 권상 그룹 노드 overlay
   const cogRef      = useRef(null)   // 무게중심 마커 (sphere + cross + 라벨)
@@ -490,8 +496,19 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
         if (nodeOnlyPickMode) return
         const data = obj.userData.elementData?.[iid]
         if (data && mask?.deletedElementIds?.has(data.id)) { onPick(null, e); return }
-        if (data) onPick({ type: 'element', ...data }, e)
-        else onPick(null, e)
+        // 편집 모드 + 마지막 단계 + Ctrl = element 다중 선택 토글 (일괄 삭제용)
+        if (data && editState.enabled && editState.isTarget && e.ctrlKey) {
+          editState.toggleMultiSelElement?.({ type: 'element', ...data })
+          return
+        }
+        // 일반 단일 클릭 — 다중 선택 목록 초기화 후 단일 선택으로 전환
+        if (data) {
+          editState.clearMultiSelElements?.()
+          onPick({ type: 'element', ...data }, e)
+        } else {
+          editState.clearMultiSelElements?.()
+          onPick(null, e)
+        }
       }
     }
 
@@ -627,6 +644,11 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
       scene.remove(multiSelRef.current)
       disposeScene(multiSelRef.current)
       multiSelRef.current = null
+    }
+    if (multiSelElemRef.current) {
+      scene.remove(multiSelElemRef.current)
+      disposeScene(multiSelElemRef.current)
+      multiSelElemRef.current = null
     }
     if (addRigidRef.current) {
       scene.remove(addRigidRef.current)
@@ -767,6 +789,28 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
     }
     requestRender()
   }, [pendingNodeSelection, editEnabled, isEditTargetStage, stageData, requestRender])
+
+  // ── Ctrl+Click 다중 선택 element overlay (주황 cylinder) ───────────────
+  useEffect(() => {
+    const scene = sceneRef.current
+    if (!scene) return
+    if (multiSelElemRef.current) {
+      scene.remove(multiSelElemRef.current)
+      disposeScene(multiSelElemRef.current)
+      multiSelElemRef.current = null
+    }
+    if (!stageData || !editEnabled || !isEditTargetStage || !multiSelElements?.length) {
+      requestRender()
+      return
+    }
+    const ids = multiSelElements.map(e => e.id)
+    const group = buildMultiSelElementHighlight(ids, stageData)
+    if (group.children.length > 0) {
+      scene.add(group)
+      multiSelElemRef.current = group
+    }
+    requestRender()
+  }, [multiSelElements, editEnabled, isEditTargetStage, stageData, requestRender])
 
   // ── Broken RBE 노란 overlay (편집 모드) ────────────────────────────────
   // colorMode/renderMode 변경으로 씬이 리빌드되면 brokenRbeRef 도 정리되므로 같은 dep 를 본다.

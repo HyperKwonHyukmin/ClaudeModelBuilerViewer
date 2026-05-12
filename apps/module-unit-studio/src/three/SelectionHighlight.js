@@ -53,6 +53,48 @@ export function buildElementsHighlight(elementIds, stageData) {
 }
 
 /**
+ * 편집 모드 Ctrl+Click 다중 선택 element(주황색)를 표시하는 highlight.
+ * 시안(단일 선택) · 노란색(노드 다중 선택) 과 구분되는 주황색으로 렌더.
+ *
+ * @param {number[]} elementIds
+ * @param {import('../data/StageData.js').StageData} stageData
+ * @returns {THREE.Group}
+ */
+export function buildMultiSelElementHighlight(elementIds, stageData) {
+  const group = new THREE.Group()
+  const idSet = new Set(elementIds)
+  const elems = stageData.elements.filter(e => idSet.has(e.id))
+  if (elems.length === 0) return group
+
+  const geo = new THREE.CylinderGeometry(ELEM_HL_R * 1.3, ELEM_HL_R * 1.3, 1, 8, 1)
+  const mat = new THREE.MeshBasicMaterial({
+    color: 0xFF6B35,
+    transparent: true,
+    opacity: 0.85,
+    depthTest: false,
+  })
+  const mesh = new THREE.InstancedMesh(geo, mat, elems.length)
+  mesh.count = 0
+
+  for (const e of elems) {
+    const start = stageData.getNodePos(e.startNode)
+    const end   = stageData.getNodePos(e.endNode)
+    if (!start || !end) continue
+    _dir.subVectors(end, start)
+    const len = _dir.length()
+    if (len < 1e-6) continue
+    _dummy.position.addVectors(start, end).multiplyScalar(0.5)
+    _dummy.scale.set(1, len, 1)
+    _dummy.quaternion.setFromUnitVectors(_axisY, _dir.normalize())
+    _dummy.updateMatrix()
+    mesh.setMatrixAt(mesh.count++, _dummy.matrix)
+  }
+  mesh.instanceMatrix.needsUpdate = true
+  group.add(mesh)
+  return group
+}
+
+/**
  * 편집 모드 다중 선택 노드(노란색)를 표시하는 별도 highlight.
  * SEL_COLOR(시안) 와 명확히 구분되는 색을 써서 "단일 선택" 과 헷갈리지 않게.
  *

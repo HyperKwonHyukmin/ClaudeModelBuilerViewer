@@ -34,8 +34,10 @@ export default function EditPanel() {
   const isLastStage      = activeVp != null && stages.length > 0 && activeVp.stageIndex === stages.length - 1
   const deleteMask = useMemo(() => computeDeleteMask(lastStage, intents), [lastStage, intents])
 
-  const pendingNodeSelection = useEditStore(s => s.pendingNodeSelection)
-  const clearNodeSelection   = useEditStore(s => s.clearNodeSelection)
+  const pendingNodeSelection  = useEditStore(s => s.pendingNodeSelection)
+  const clearNodeSelection    = useEditStore(s => s.clearNodeSelection)
+  const multiSelElements      = useEditStore(s => s.multiSelElements)
+  const clearMultiSelElements = useEditStore(s => s.clearMultiSelElements)
 
   const [showAddRigid, setShowAddRigid] = useState(false)
 
@@ -48,6 +50,7 @@ export default function EditPanel() {
     const tag = (e.target?.tagName ?? '').toUpperCase()
     if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target?.isContentEditable) return
     if (e.key === 'Escape') {
+      if (multiSelElements.length > 0) { e.preventDefault(); clearMultiSelElements(); return }
       if (pendingNodeSelection.length > 0) { e.preventDefault(); clearNodeSelection() }
       else if (selectedIntentId) { e.preventDefault(); selectIntent(null) }
       return
@@ -83,7 +86,7 @@ export default function EditPanel() {
       e.preventDefault()
       removeIntent(intents[intents.length - 1].id)
     }
-  }, [showAddRigid, pendingNodeSelection.length, selectedIntentId, intents, clearNodeSelection, selectIntent, removeIntent, pickedEntity, isLastStage, addIntent])
+  }, [showAddRigid, multiSelElements.length, clearMultiSelElements, pendingNodeSelection.length, selectedIntentId, intents, clearNodeSelection, selectIntent, removeIntent, pickedEntity, isLastStage, addIntent])
 
   useEffect(() => {
     if (!enabled) return
@@ -164,6 +167,17 @@ export default function EditPanel() {
             3D 뷰포트에서 <strong>Shift + 클릭</strong>으로 노드 추가/제거
           </div>
         </div>
+      )}
+
+      {/* Ctrl+Click 다중 선택 element → 일괄 삭제 */}
+      {multiSelElements.length > 0 && (
+        <BulkDeleteBox
+          elements={multiSelElements}
+          intents={intents}
+          addIntent={addIntent}
+          removeIntent={removeIntent}
+          clearMultiSelElements={clearMultiSelElements}
+        />
       )}
 
       {/* derived 영향 요약 — 삭제/추가 의도가 있을 때만 */}
@@ -278,6 +292,71 @@ export default function EditPanel() {
   )
 }
 
+// ── Ctrl+Click 다중 선택 element 일괄 삭제 박스 ──────────────────────────
+
+function BulkDeleteBox({ elements, intents, addIntent, removeIntent, clearMultiSelElements }) {
+  const allAlreadyMarked = elements.every(el =>
+    intents.some(i => i.kind === 'deleteElement' && i.params?.elementId === el.id)
+  )
+
+  const handleBulkAdd = () => {
+    for (const el of elements) {
+      const exists = intents.find(i => i.kind === 'deleteElement' && i.params?.elementId === el.id)
+      if (!exists) {
+        addIntent({ kind: 'deleteElement', params: { elementId: el.id, category: el.category, startNode: el.startNode, endNode: el.endNode } })
+      }
+    }
+    clearMultiSelElements()
+  }
+
+  const handleBulkUndo = () => {
+    for (const el of elements) {
+      const existing = intents.find(i => i.kind === 'deleteElement' && i.params?.elementId === el.id)
+      if (existing) removeIntent(existing.id)
+    }
+    clearMultiSelElements()
+  }
+
+  return (
+    <div style={{
+      display: 'flex', flexDirection: 'column', gap: 4,
+      background: 'rgba(255,107,53,0.10)',
+      border: '1px solid rgba(255,107,53,0.45)',
+      borderRadius: 5, padding: '6px 8px',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+        <span style={{ fontSize: 10, color: '#FFB899', fontWeight: 700 }}>
+          선택 요소 {elements.length}개
+        </span>
+        <button
+          onClick={clearMultiSelElements}
+          title="선택 초기화"
+          style={{ background: 'transparent', border: 'none', color: '#7a8aaa', cursor: 'pointer', padding: 1, lineHeight: 0 }}>
+          <X size={11} />
+        </button>
+      </div>
+      <button
+        onClick={allAlreadyMarked ? handleBulkUndo : handleBulkAdd}
+        title={allAlreadyMarked ? '일괄 삭제 의도 취소' : `선택한 요소 ${elements.length}개를 삭제 의도에 추가`}
+        style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+          padding: '5px 9px',
+          background: allAlreadyMarked ? 'rgba(122,138,170,0.18)' : 'rgba(255,107,53,0.22)',
+          color:      allAlreadyMarked ? '#cad8e8'                : '#FFD4C0',
+          border: `1px solid ${allAlreadyMarked ? '#3a3a5a' : 'rgba(255,107,53,0.6)'}`,
+          borderRadius: 5, fontSize: 10, fontWeight: 700, cursor: 'pointer',
+        }}>
+        {allAlreadyMarked
+          ? (<><X size={11} /> {elements.length}개 삭제 의도 취소</>)
+          : (<><Trash2 size={11} /> {elements.length}개 요소 일괄 삭제</>)}
+      </button>
+      <div style={{ fontSize: 9, color: '#7a8aaa', lineHeight: 1.4 }}>
+        3D 뷰포트에서 <strong>Ctrl + 클릭</strong>으로 요소 추가/제거
+      </div>
+    </div>
+  )
+}
+
 // ── 고립 노드 정리 박스 ───────────────────────────────────────────────────
 
 /**
@@ -361,7 +440,10 @@ function EmptyStateGuide({ hasSelection }) {
         </li>
         <li>
           <span style={{ color: '#e88a8a', fontWeight: 700 }}>요소 삭제</span>
-          : 3D 뷰포트에서 요소 클릭 → 우측 Inspector 의 <strong>이 요소 삭제</strong> 버튼
+          : 3D 뷰포트에서 요소 클릭 → <strong>Del</strong> 키 또는 Inspector 버튼
+          <br />
+          <span style={{ color: '#FF6B35', fontWeight: 600 }}>다중 삭제</span>
+          : <strong>Ctrl + 클릭</strong>으로 요소 여러 개 선택 후 일괄 추가
         </li>
         <li>
           <span style={{ color: '#FFB800', fontWeight: 700 }}>Rigid 만들기</span>
