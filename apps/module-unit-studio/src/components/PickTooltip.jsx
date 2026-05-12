@@ -11,7 +11,7 @@ import { useUnitStructuralStore } from '../store/useUnitStructuralStore.js'
  * Element 클릭 시 Unit 구조 해석 결과(useUnitStructuralStore.result)에 해당
  * element 의 stress/axial force 가 있으면 라인에 함께 표시한다.
  */
-export default function PickTooltip({ pickInfo, position }) {
+export default function PickTooltip({ pickInfo, position, editEnabled }) {
   const unitResult = useUnitStructuralStore(s => s.result)
 
   // Map 캐시 — render 마다 result 가 바뀌지 않으면 재구성 안 함.
@@ -57,6 +57,8 @@ export default function PickTooltip({ pickInfo, position }) {
     }
   }
 
+  const editHint = editEnabled && pickInfo.type === 'element'
+
   return (
     <div style={{
       position: 'fixed',
@@ -79,6 +81,15 @@ export default function PickTooltip({ pickInfo, position }) {
     }}>
       <span>{label}</span>
       {resultBadge}
+      {editHint && (
+        <span style={{
+          fontSize: 9, color: '#e88a8a',
+          borderTop: '1px dashed rgba(255,100,100,0.25)',
+          paddingTop: 3,
+        }}>
+          Del — 삭제 의도 추가 / 취소
+        </span>
+      )}
     </div>
   )
 }

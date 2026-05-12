@@ -14,6 +14,7 @@ import StabilityReportPanel from './StabilityReportPanel.jsx'
 import UnitStructuralPanel from './UnitStructuralPanel.jsx'
 import useCameraSync from '../hooks/useCameraSync.js'
 import { getStabilityIssueElementIds } from '../three/StabilityIssueOverlay.js'
+import { useEditStore } from '../store/useEditStore.js'
 
 /**
  * Dynamic viewport grid.
@@ -27,6 +28,9 @@ export default function ViewportContainer() {
   const { viewports, removeViewport, setActiveViewport, activeViewportId, layers, cameraLinked, setPickedEntity, pickedEntity, focusSelectionRequest, isolateSelection, renderMode } = useViewerStore()
   const { stages } = useStageStore()
   const stabilityReport = useStabilityStore(s => s.report)
+  const editEnabled = useEditStore(s => s.enabled)
+  const activeVp = viewports.find(v => v.id === activeViewportId)
+  const editTargetActive = editEnabled && stages.length > 0 && activeVp != null && activeVp.stageIndex === stages.length - 1
 
   const viewportApiRefs = useRef({})
 
@@ -100,7 +104,7 @@ export default function ViewportContainer() {
 
   return (
     <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
-      <PickTooltip pickInfo={activeTooltip.pickInfo} position={activeTooltip.position} />
+      <PickTooltip pickInfo={activeTooltip.pickInfo} position={activeTooltip.position} editEnabled={editTargetActive} />
       <EditModeWatermark />
       <HoistInstructionOverlay />
       <MassSummaryOverlay />

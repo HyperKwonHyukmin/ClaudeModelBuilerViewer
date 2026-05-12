@@ -39,6 +39,11 @@ export default function InspectorPanel() {
     if (tab === '편집') setCollapsed(false)
   }, [tab])
 
+  // entity 가 선택되면 패널을 자동으로 펼쳐 삭제 버튼 등이 즉시 보이게 한다.
+  useEffect(() => {
+    if (pickedEntity) setCollapsed(false)
+  }, [pickedEntity])
+
   const activeVp = viewports.find(v => v.id === activeViewportId)
   const stage = activeVp ? stages[activeVp.stageIndex] : null
   // 편집 의도는 항상 마지막 stage 기준이므로 element 삭제 버튼도 마지막 stage 에서만 의미 있다.

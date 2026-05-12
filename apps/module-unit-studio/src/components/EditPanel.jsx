@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect, useCallback } from 'react'
 import { Trash2, X, Link2, Eraser } from 'lucide-react'
 import { useEditStore } from '../store/useEditStore.js'
 import { useStageStore } from '../store/useStageStore.js'
+import { useViewerStore } from '../store/useViewerStore.js'
 import { summarizeIntent } from '../data/EditIntent.js'
 import { computeDeleteMask } from '../data/applyEditIntents.js'
 import AddRigidDialog from './AddRigidDialog.jsx'
@@ -24,8 +25,13 @@ export default function EditPanel() {
   const clearIntents     = useEditStore(s => s.clearIntents)
   const addIntent        = useEditStore(s => s.addIntent)
 
-  const stages = useStageStore(s => s.stages)
-  const lastStage = stages.length > 0 ? stages[stages.length - 1] : null
+  const stages           = useStageStore(s => s.stages)
+  const lastStage        = stages.length > 0 ? stages[stages.length - 1] : null
+  const pickedEntity     = useViewerStore(s => s.pickedEntity)
+  const viewports        = useViewerStore(s => s.viewports)
+  const activeViewportId = useViewerStore(s => s.activeViewportId)
+  const activeVp         = viewports.find(v => v.id === activeViewportId)
+  const isLastStage      = activeVp != null && stages.length > 0 && activeVp.stageIndex === stages.length - 1
   const deleteMask = useMemo(() => computeDeleteMask(lastStage, intents), [lastStage, intents])
 
   const pendingNodeSelection = useEditStore(s => s.pendingNodeSelection)
@@ -46,16 +52,38 @@ export default function EditPanel() {
       else if (selectedIntentId) { e.preventDefault(); selectIntent(null) }
       return
     }
-    if ((e.key === 'Delete' || e.key === 'Backspace') && selectedIntentId) {
-      e.preventDefault()
-      removeIntent(selectedIntentId)
-      return
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+      if (selectedIntentId) {
+        // 인텐트 목록에서 선택된 항목 제거
+        e.preventDefault()
+        removeIntent(selectedIntentId)
+        return
+      }
+      if (pickedEntity?.type === 'element' && isLastStage) {
+        // 3D 뷰에서 선택된 element 를 삭제 의도에 토글 (추가 / 취소)
+        e.preventDefault()
+        const existing = intents.find(i => i.kind === 'deleteElement' && i.params?.elementId === pickedEntity.id)
+        if (existing) {
+          removeIntent(existing.id)
+        } else {
+          addIntent({
+            kind: 'deleteElement',
+            params: {
+              elementId: pickedEntity.id,
+              category:  pickedEntity.category,
+              startNode: pickedEntity.startNode,
+              endNode:   pickedEntity.endNode,
+            },
+          })
+        }
+        return
+      }
     }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && intents.length > 0) {
       e.preventDefault()
       removeIntent(intents[intents.length - 1].id)
     }
-  }, [showAddRigid, pendingNodeSelection.length, selectedIntentId, intents, clearNodeSelection, selectIntent, removeIntent])
+  }, [showAddRigid, pendingNodeSelection.length, selectedIntentId, intents, clearNodeSelection, selectIntent, removeIntent, pickedEntity, isLastStage, addIntent])
 
   useEffect(() => {
     if (!enabled) return
