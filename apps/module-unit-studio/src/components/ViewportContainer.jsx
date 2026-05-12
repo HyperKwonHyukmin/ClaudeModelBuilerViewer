@@ -1,0 +1,191 @@
+import { useRef, useCallback, useEffect, useState } from 'react'
+import { useViewerStore } from '../store/useViewerStore.js'
+import { useStageStore } from '../store/useStageStore.js'
+import { useStabilityStore } from '../store/useStabilityStore.js'
+import ThreeViewport from './ThreeViewport.jsx'
+import PickTooltip from './PickTooltip.jsx'
+import LayerPanel from './LayerPanel.jsx'
+import EditModeWatermark from './EditModeWatermark.jsx'
+import MassSummaryOverlay from './MassSummaryOverlay.jsx'
+import HoistPositionPanel from './HoistPositionPanel.jsx'
+import HoistInstructionOverlay from './HoistInstructionOverlay.jsx'
+import HoistGuideToast from './HoistGuideToast.jsx'
+import StabilityReportPanel from './StabilityReportPanel.jsx'
+import UnitStructuralPanel from './UnitStructuralPanel.jsx'
+import useCameraSync from '../hooks/useCameraSync.js'
+import { getStabilityIssueElementIds } from '../three/StabilityIssueOverlay.js'
+
+/**
+ * Dynamic viewport grid.
+ * 1 viewport → full area
+ * 2 viewports → 1×2 row
+ * 3-4 viewports → 2×2 grid
+ *
+ * Each viewport has its own LayerPanel overlay (bottom-left).
+ */
+export default function ViewportContainer() {
+  const { viewports, removeViewport, setActiveViewport, activeViewportId, layers, cameraLinked, setPickedEntity, pickedEntity, focusSelectionRequest, isolateSelection, renderMode } = useViewerStore()
+  const { stages } = useStageStore()
+  const stabilityReport = useStabilityStore(s => s.report)
+
+  const viewportApiRefs = useRef({})
+
+  const handleReady = useCallback((id, api) => {
+    viewportApiRefs.current[id] = api
+  }, [])
+
+  useCameraSync(viewportApiRefs, cameraLinked, viewports)
+
+  const [tooltip, setTooltip] = useState({ pickInfo: null, position: null })
+  const [hoverTooltip, setHoverTooltip] = useState({ pickInfo: null, position: null })
+
+  const handlePick = useCallback((pickInfo, e) => {
+    setPickedEntity(pickInfo)
+    setTooltip(pickInfo ? { pickInfo, position: { x: e.clientX, y: e.clientY } } : { pickInfo: null, position: null })
+    // 클릭이 발생하면 hover tooltip 즉시 해제 — selection tooltip 으로 자연스럽게 인계.
+    setHoverTooltip({ pickInfo: null, position: null })
+  }, [setPickedEntity])
+
+  // 호버 tooltip — 마우스를 element/node 등에 올려두는 동안 실시간 표시.
+  // 큰 모델 성능을 위해 ThreeViewport 가 RAF throttle 로 frame 당 최대 1회만 알려준다.
+  const handleHover = useCallback((pickInfo, position) => {
+    setHoverTooltip(pickInfo ? { pickInfo, position } : { pickInfo: null, position: null })
+  }, [])
+
+  // 우선순위: hover 가 있으면 hover (마우스 따라다님), 없으면 selection(click) tooltip.
+  const activeTooltip = hoverTooltip.pickInfo ? hoverTooltip : tooltip
+
+  useEffect(() => {
+    if (!focusSelectionRequest || !pickedEntity) return
+    viewportApiRefs.current[activeViewportId]?.focusEntity?.(pickedEntity)
+  }, [focusSelectionRequest, pickedEntity, activeViewportId])
+
+  useEffect(() => {
+    if (!stabilityReport || stages.length === 0) return
+    const issueElementId = getStabilityIssueElementIds(stabilityReport)[0]
+    if (!issueElementId) return
+    const stage = stages[stages.length - 1]
+    const elem = stage?.elements?.find(e => e.id === issueElementId)
+    if (!elem) return
+    setPickedEntity({
+      type: 'element',
+      id: elem.id,
+      category: elem.category,
+      startNode: elem.startNode,
+      endNode: elem.endNode,
+      propertyId: elem.propertyId,
+      source: 'stabilityIssue',
+    })
+    window.setTimeout(() => viewportApiRefs.current[activeViewportId]?.focusEntity?.({
+      type: 'element',
+      id: elem.id,
+      startNode: elem.startNode,
+      endNode: elem.endNode,
+    }), 0)
+  }, [stabilityReport, stages, activeViewportId, setPickedEntity])
+
+  const count = viewports.length
+  const cols = count <= 1 ? 1 : 2
+  const rows = count <= 2 ? 1 : 2
+
+  if (stages.length === 0) {
+    return (
+      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12, color: '#555' }}>
+        <div style={{ fontSize: 48 }}>🏗️</div>
+        <p style={{ fontSize: 15 }}>파이프라인 JSON 파일을 선택하세요</p>
+        <p style={{ fontSize: 12, color: '#444' }}>csv/01/20260424_172924/ 폴더의 JSON 파일들</p>
+      </div>
+    )
+  }
+
+  return (
+    <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+      <PickTooltip pickInfo={activeTooltip.pickInfo} position={activeTooltip.position} />
+      <EditModeWatermark />
+      <HoistInstructionOverlay />
+      <MassSummaryOverlay />
+
+      {/* Viewport grid */}
+      <div style={{
+        width: '100%', height: '100%',
+        display: 'grid',
+        gridTemplateColumns: `repeat(${cols}, 1fr)`,
+        gridTemplateRows: `repeat(${rows}, 1fr)`,
+        gap: 2,
+      }}>
+        {viewports.map((vp) => {
+          const stage = stages[vp.stageIndex] ?? null
+          const isActive = vp.id === activeViewportId
+          // 편집 의도는 "마지막 단계(보통 Validation)" 기준으로만 적용된다.
+          // 다른 단계를 보는 viewport 에서는 미리보기 미적용 + LayerPanel trash 비활성.
+          const isEditTargetStage = stages.length > 0 && vp.stageIndex === stages.length - 1
+
+          return (
+            <div
+              key={vp.id}
+              onClick={() => setActiveViewport(vp.id)}
+              style={{
+                position: 'relative',
+                display: 'flex', flexDirection: 'column', overflow: 'hidden',
+                border: isActive ? '2px solid #4682B4' : '2px solid transparent',
+                background: '#0d0d1a',
+              }}
+            >
+              {/* Viewport header */}
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                padding: '3px 8px', background: '#12122a', flexShrink: 0,
+              }}>
+                {stage && (
+                  <span style={{ flex: 1, fontSize: 10, color: '#555', whiteSpace: 'nowrap' }}>
+                    N:{stage.healthMetrics?.totals?.nodeCount?.toLocaleString()} E:{stage.healthMetrics?.totals?.elementCount?.toLocaleString()}
+                  </span>
+                )}
+
+                {viewports.length > 1 && (
+                  <button
+                    onClick={e => {
+                      e.stopPropagation()
+                      delete viewportApiRefs.current[vp.id]
+                      removeViewport(vp.id)
+                    }}
+                    style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', fontSize: 14, padding: '0 2px', lineHeight: 1 }}
+                    title="뷰포트 닫기"
+                  >×</button>
+                )}
+              </div>
+
+              {/* Three.js canvas */}
+              <div style={{ flex: 1, overflow: 'hidden' }}>
+                <ThreeViewport
+                  stageData={stage}
+                  layers={layers}
+                  onReady={(api) => handleReady(vp.id, api)}
+                  onPick={handlePick}
+                  onHover={handleHover}
+                  colorMode={vp.colorMode}
+                  freeNodeFilters={vp.freeNodeFilters}
+                  groupFilters={vp.groupFilters}
+                  selectedEntity={pickedEntity}
+                  isolateSelection={isolateSelection}
+                  renderMode={renderMode}
+                  isEditTargetStage={isEditTargetStage}
+                />
+              </div>
+
+              {/* Per-viewport layer panel — bottom-left overlay */}
+              <LayerPanel viewportId={vp.id} stageData={stage} isEditTargetStage={isEditTargetStage} />
+              {isEditTargetStage && <HoistPositionPanel />}
+              {isEditTargetStage && <HoistGuideToast />}
+              {isEditTargetStage && <StabilityReportPanel />}
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Unit 구조 해석 패널 — 전체 화면 단위로 단 1개만 렌더 (multi-viewport 분할에 영향 안 받음).
+          mainStageReady = 마지막 stage 가 로드된 시점 = 자세안정성 평가 가능 시점. */}
+      {stages.length > 0 && <UnitStructuralPanel />}
+    </div>
+  )
+}
