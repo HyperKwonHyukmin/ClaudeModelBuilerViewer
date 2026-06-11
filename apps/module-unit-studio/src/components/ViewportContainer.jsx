@@ -4,7 +4,6 @@ import { useStageStore } from '../store/useStageStore.js'
 import { useStabilityStore } from '../store/useStabilityStore.js'
 import ThreeViewport from './ThreeViewport.jsx'
 import PickTooltip from './PickTooltip.jsx'
-import LayerPanel from './LayerPanel.jsx'
 import EditModeWatermark from './EditModeWatermark.jsx'
 import MassSummaryOverlay from './MassSummaryOverlay.jsx'
 import HoistInstructionOverlay from './HoistInstructionOverlay.jsx'
@@ -180,8 +179,7 @@ export default function ViewportContainer() {
                 />
               </div>
 
-              {/* Per-viewport layer panel — bottom-left overlay */}
-              <LayerPanel viewportId={vp.id} stageData={stage} isEditTargetStage={isEditTargetStage} />
+              {/* 모델 확인(LayerPanel)은 Model 사이드바(Sidebar)로 이주 — 더 이상 뷰포트 floating 아님. */}
               {/* 권상 위치 설정 패널은 좌측 Hoist 도크(LeftDock)로 이주 — 더 이상 뷰포트 floating 아님. */}
               {isEditTargetStage && hoistActive && <HoistGuideToast />}
               {/* 자세안정성 결과 패널은 Hoist(실행 직후 자동 열림)·Analyze(결과 보기) 두 탭에서만 표시. */}

@@ -8,9 +8,8 @@ import {
   Play,
   Wrench,
 } from 'lucide-react'
-import { useStabilityStore } from '../store/useStabilityStore.js'
 import { useUnitStructuralStore } from '../store/useUnitStructuralStore.js'
-import { getHost } from '../host/host.js'
+import { useUnitStructuralRunner } from '../hooks/useUnitStructuralRunner.js'
 
 /**
  * UnitStructuralPanel — 자세안정성 PASS 후 Wire 포함 BDF + Nastran SOL 101 실행 패널.
@@ -35,86 +34,16 @@ export default function UnitStructuralPanel() {
   const open = useUnitStructuralStore(s => s.panelOpen)
   const close = useUnitStructuralStore(s => s.closePanel)
 
-  const status = useUnitStructuralStore(s => s.status)
-  const progress = useUnitStructuralStore(s => s.progress)
-  const message = useUnitStructuralStore(s => s.message)
-  const result = useUnitStructuralStore(s => s.result)
-  const summary = useUnitStructuralStore(s => s.summary)
-  const warnings = useUnitStructuralStore(s => s.warnings)
-  const error = useUnitStructuralStore(s => s.error)
-  const ranAt = useUnitStructuralStore(s => s.ranAt)
-  const safetyFactor = useUnitStructuralStore(s => s.safetyFactor)
-  const allowableMpa = useUnitStructuralStore(s => s.allowableMpa)
-
-  const setSafetyFactor = useUnitStructuralStore(s => s.setSafetyFactor)
-  const setAllowableMpa = useUnitStructuralStore(s => s.setAllowableMpa)
-  const setProgress = useUnitStructuralStore(s => s.setProgress)
-  const setStarted = useUnitStructuralStore(s => s.setStarted)
-  const setSuccess = useUnitStructuralStore(s => s.setSuccess)
-  const setFailure = useUnitStructuralStore(s => s.setFailure)
-
-  const overall = useStabilityStore(s => s.overallStatus)
-  const stabilityPath = useStabilityStore(s => s.stabilityPath)
-
-  // host runtime — preload 노출 여부
-  const host = getHost()
-  const ipcAvailable = typeof host.runUnitStructural === 'function'
-  const onProgressAvailable = typeof host.onUnitStructuralProgress === 'function'
-
-  // progress stream 구독 (status 가 변하는 동안 main → renderer push 로 갱신)
-  useEffect(() => {
-    if (!onProgressAvailable) return
-    const off = host.onUnitStructuralProgress((data) => {
-      if (!data) return
-      setProgress({ status: data.status, progress: data.progress, message: data.message })
-    })
-    return () => { try { off?.() } catch {} }
-  }, [onProgressAvailable, host, setProgress])
-
-  // 입력 로컬 미러 (포커스 중 store 업데이트가 끊기지 않도록)
-  const [sfInput, setSfInput] = useState(String(safetyFactor))
-  const [allowInput, setAllowInput] = useState(String(allowableMpa))
-  useEffect(() => { setSfInput(String(safetyFactor)) }, [safetyFactor])
-  useEffect(() => { setAllowInput(String(allowableMpa)) }, [allowableMpa])
-
-  const isRunning = status === 'Pending' || status === 'Running'
-  // 한번 해석이 됐으면 다시 실행 불가 — 결과 일관성 유지를 위해 사용자에게는
-  // 좌하단 "초기화" 버튼으로 처음부터 다시 시작하도록 유도한다.
-  const isFinished = status === 'Success'
-  // PASS 또는 WARN 일 때 진행 가능. FAIL 만 차단. — 사용자 정책: 경고는 정보로만 두고
-  // 사용자가 책임지고 진행한다. 실행 결과 패널이 stability 의 경고도 함께 표시한다.
-  const stabilityOk = overall === 'pass' || overall === 'warn'
-  const isReady = stabilityOk && ipcAvailable && stabilityPath
-  const canRun = isReady && !isRunning && !isFinished
-
-  const handleRun = async () => {
-    if (!canRun) return
-    setStarted()
-    try {
-      const r = await host.runUnitStructural({
-        stabilityPath,
-        safetyFactor,
-        allowableMpa,
-      })
-      if (!r) {
-        setFailure('응답 없음')
-        return
-      }
-      if (r.ok) {
-        setSuccess({
-          analysisId: r.analysisId ?? null,
-          summary: r.summary ?? null,
-          warnings: r.warnings ?? [],
-          resultPath: r.resultPath ?? null,
-          result: r.result ?? null,
-        })
-      } else {
-        setFailure({ message: r.error ?? '알 수 없는 오류', stderr: r.stderr ?? null })
-      }
-    } catch (e) {
-      setFailure({ message: e?.message ?? String(e) })
-    }
-  }
+  // 실행·준비상태·입력 미러는 AnalyzePanel(좌측 도크, 주 입력/실행 위치)과 공유하는 훅에서 가져온다.
+  // 이 floating 패널은 '구조 해석 패널 열기'(결과 Success 후 활성)로만 열리는 상세 뷰.
+  const {
+    status, progress, message, result, summary, warnings, error, ranAt,
+    sfInput, setSfInput, commitSf,
+    allowInput, setAllowInput, commitAllow,
+    overall, stabilityPath, ipcAvailable,
+    isRunning, isFinished, isReady, canRun,
+    handleRun,
+  } = useUnitStructuralRunner()
 
   // 패널 위치 — 첫 마운트 시 우상단의 XYZ 축 바로 아래로 anchor.
   // ThreeViewport 의 AXES_PX=108, AXES_MARGIN=10 기준 → top = 10 + 108 + 8 = 126.
@@ -237,10 +166,10 @@ export default function UnitStructuralPanel() {
         <InputsRow
           sfInput={sfInput}
           setSfInput={setSfInput}
-          onCommitSf={() => setSafetyFactor(sfInput)}
+          onCommitSf={commitSf}
           allowInput={allowInput}
           setAllowInput={setAllowInput}
-          onCommitAllow={() => setAllowableMpa(allowInput)}
+          onCommitAllow={commitAllow}
           disabled={isRunning}
         />
 

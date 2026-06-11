@@ -1,29 +1,28 @@
 import {
   Activity,
   ClipboardList,
-  Wrench,
   CheckCircle2,
   AlertTriangle,
   XCircle,
   Loader2,
   ChevronRight,
+  Play,
 } from 'lucide-react'
 import { useStabilityStore } from '../store/useStabilityStore.js'
 import { useUnitStructuralStore } from '../store/useUnitStructuralStore.js'
+import { useUnitStructuralRunner } from '../hooks/useUnitStructuralRunner.js'
 
 /**
  * AnalyzePanel — 상단 메뉴바 'Analyze' 모드의 좌측 도크 본문.
  *
- * 설계 원칙(기능 손실 0):
- *  - 실제 상세 패널인 StabilityReportPanel / UnitStructuralPanel 은 ViewportContainer 안에
- *    position:absolute 플로팅으로 그대로 유지된다. 이 좌측 패널은 그 패널들로의 '진입/요약'만 담당.
- *  - 새 해석 실행 로직을 새로 구현하지 않는다. 기존 store 의 openPanel() 만 트리거하고
- *    overallStatus / status / progress 를 배지·요약으로 보여준다.
- *  - σy/γM 대응: 이 앱의 Unit 구조 해석 입력은 Safety Factor + 허용응력(MPa)이며 그 입력·실행
- *    버튼은 UnitStructuralPanel(플로팅) 이 계속 담당한다. 여기서는 현재 입력값을 읽기 전용으로 요약.
+ * 설계:
+ *  - 자세안정성 평가: 결과 요약/진입만 담당. 실행은 Hoist 탭의 "자세안정성 평가 실행".
+ *  - Unit 구조 해석: 입력(Safety Factor·허용응력)·준비상태·실행·진행·요약을 이 도크가 직접 소유한다
+ *    (이전에는 뷰포트 floating UnitStructuralPanel 이 담당했으나 Analyze 좌측 도크로 이주).
+ *    실행 로직은 useUnitStructuralRunner 훅으로 floating 패널과 공유한다.
+ *  - "구조 해석 패널 열기": 상세 결과 floating 패널을 여는 버튼 — 해석 결과(Success) 전까지 비활성.
  *
- * 외곽 컨테이너는 Sidebar(ModelPanel)와 동일한 다크 컨테이너 — width 190 고정(레이아웃 점프 방지),
- * background '#0b0b1e', overflowY auto.
+ * 폭 190 고정(레이아웃 점프 방지), background '#0b0b1e'.
  */
 
 const STABILITY_STATUS = {
@@ -47,15 +46,12 @@ export default function AnalyzePanel() {
   const stabilityOverall = useStabilityStore(s => s.overallStatus)
   const openStabilityPanel = useStabilityStore(s => s.openPanel)
 
-  // ── Unit 구조 해석 (useUnitStructuralStore) ─────────────────────
-  const structStatus = useUnitStructuralStore(s => s.status)
-  const structProgress = useUnitStructuralStore(s => s.progress)
-  const structSummary = useUnitStructuralStore(s => s.summary)
-  const safetyFactor = useUnitStructuralStore(s => s.safetyFactor)
-  const allowableMpa = useUnitStructuralStore(s => s.allowableMpa)
+  // ── Unit 구조 해석 (실행/준비/입력 공유 훅 + 상세 패널 열기) ─────
+  const us = useUnitStructuralRunner()
   const openStructuralPanel = useUnitStructuralStore(s => s.openPanel)
 
   const hasStabilityResult = !!stabilityReport || !!stabilityError
+  const inputsDisabled = us.isRunning || us.isFinished
 
   return (
     <div style={{
@@ -106,33 +102,76 @@ export default function AnalyzePanel() {
         )}
       </Section>
 
-      {/* ── 섹션 2: Unit 구조 해석 (σ / 허용응력) ───── */}
+      {/* ── 섹션 2: Unit 구조 해석 (입력·실행·결과 직접 소유) ───── */}
       <Section label="Unit 구조 해석">
-        <StructuralStatusRow status={structStatus} progress={structProgress} />
+        <StructuralStatusRow status={us.status} progress={us.progress} />
 
-        {/* 입력값 요약 (읽기 전용 — 실제 입력·실행은 플로팅 UnitStructuralPanel 담당) */}
+        {/* 준비 상태 — 자세안정성 PASS/WARN + Workbench 환경 + stability JSON 필요 */}
+        {!us.isFinished && <ReadinessRow isReady={us.isReady} overall={us.overall} blocking={us.blocking} />}
+
+        {/* 입력 (편집 가능 — 실행 중/완료 시 잠금) */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-          <ReadonlyField label="Safety Factor" value={formatNum(safetyFactor)} />
-          <ReadonlyField label="허용응력 (MPa)" value={formatNum(allowableMpa)} />
+          <EditableField
+            label="Safety Factor"
+            value={us.sfInput}
+            onChange={us.setSfInput}
+            onCommit={us.commitSf}
+            disabled={inputsDisabled}
+            step="0.05"
+            min="0.01"
+          />
+          <EditableField
+            label="허용응력 (MPa)"
+            value={us.allowInput}
+            onChange={us.setAllowInput}
+            onCommit={us.commitAllow}
+            disabled={inputsDisabled}
+            step="10"
+            min="1"
+          />
         </div>
 
-        {structStatus === 'Success' && structSummary && (
-          <StructuralSummary summary={structSummary} />
+        {/* 실행 버튼 */}
+        <RunButton
+          canRun={us.canRun}
+          isRunning={us.isRunning}
+          isFinished={us.isFinished}
+          progress={us.progress}
+          onClick={us.handleRun}
+        />
+
+        {/* 진행 바 */}
+        {us.isRunning && <ProgressLine progress={us.progress} message={us.message} />}
+
+        {/* 실패 메시지 */}
+        {!us.isRunning && us.error && (
+          <div style={{
+            fontSize: 10, color: '#FFB3BC', lineHeight: 1.5,
+            background: 'rgba(255,85,102,0.08)',
+            border: '1px solid rgba(255,85,102,0.40)',
+            borderRadius: 6, padding: '6px 8px',
+          }}>
+            <strong style={{ color: '#FF5566' }}>실행 실패</strong> · {us.error?.message ?? us.error?.error ?? String(us.error)}
+          </div>
         )}
 
+        {/* 성공 요약 */}
+        {us.status === 'Success' && us.summary && (
+          <StructuralSummary summary={us.summary} />
+        )}
+
+        {/* 상세 결과 패널 열기 — 해석(Success) 전까지 비활성 */}
         <ActionButton
           onClick={openStructuralPanel}
-          disabled={false}
+          disabled={us.status !== 'Success'}
           accent="#FFC447"
-          icon={<Wrench size={14} />}
-          title="Unit 구조 해석 패널을 엽니다. 입력값 변경·해석 실행·결과 확인은 그 패널에서 수행합니다."
+          icon={<ClipboardList size={14} />}
+          title={us.status === 'Success'
+            ? 'Unit 구조 해석 상세 결과 패널을 엽니다.'
+            : '구조 해석을 먼저 실행하면 상세 결과 패널을 열 수 있습니다.'}
         >
           구조 해석 패널 열기
         </ActionButton>
-        <Hint>
-          입력값 변경과 "구조 해석 실행"은 열린 패널에서 수행합니다. 자세안정성 PASS/WARN 후
-          실행할 수 있습니다.
-        </Hint>
       </Section>
     </div>
   )
@@ -193,6 +232,103 @@ function StructuralStatusRow({ status, progress }) {
       {sc.label}
       {showPct && <span style={{ marginLeft: 'auto', fontWeight: 800 }}>{Math.round(progress)}%</span>}
     </StatusPill>
+  )
+}
+
+// ── 구조 해석 준비 상태 ─────────────────────────────────────────────────────
+
+function ReadinessRow({ isReady, overall, blocking }) {
+  if (!isReady) {
+    return (
+      <div style={{
+        fontSize: 10, color: '#FFC447', lineHeight: 1.5,
+        background: 'rgba(255,196,71,0.06)',
+        border: '1px solid rgba(255,196,71,0.30)',
+        borderRadius: 6, padding: '6px 8px',
+      }}>
+        대기 — {blocking.join(' / ')}
+      </div>
+    )
+  }
+  if (overall === 'warn') {
+    return (
+      <div style={{
+        fontSize: 10, color: '#FFC447', lineHeight: 1.5,
+        background: 'rgba(255,196,71,0.10)',
+        border: '1px solid rgba(255,196,71,0.45)',
+        borderRadius: 6, padding: '6px 8px',
+      }}>
+        ⚠ 자세안정성 WARN — 진행 가능하나 결과 검토 필요
+      </div>
+    )
+  }
+  return (
+    <div style={{
+      fontSize: 10, color: '#37E08A', lineHeight: 1.5,
+      background: 'rgba(55,224,138,0.06)',
+      border: '1px solid rgba(55,224,138,0.30)',
+      borderRadius: 6, padding: '6px 8px',
+    }}>
+      준비 완료 — 입력값을 확인하고 실행하세요.
+    </div>
+  )
+}
+
+// ── 구조 해석 실행 버튼 ─────────────────────────────────────────────────────
+
+function RunButton({ canRun, isRunning, isFinished, progress, onClick }) {
+  const label = isRunning ? `실행 중... ${Math.round(progress)}%`
+    : isFinished ? '해석 완료 — 초기화 후 재실행'
+    : '구조 해석 실행'
+  const enabled = canRun
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={!enabled}
+      title={
+        isFinished ? '이미 해석이 완료되었습니다 — 다시 실행하려면 좌측 "초기화" 후 폴더를 다시 여세요'
+        : enabled ? 'Unit 구조 해석 실행'
+        : isRunning ? '실행 중...'
+        : '자세안정성 PASS/WARN + Workbench 환경 필요'
+      }
+      style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+        width: '100%', padding: '8px 10px',
+        background: enabled ? 'linear-gradient(180deg, #FFC447 0%, #ff9d3a 100%)' : '#0f0f1e',
+        color: enabled ? '#1a1300' : '#5a5a80',
+        border: `1px solid ${enabled ? '#FFC44788' : '#2a2a40'}`,
+        borderRadius: 6,
+        fontSize: 11.5, fontWeight: 800, letterSpacing: 0.3,
+        cursor: enabled ? 'pointer' : 'not-allowed',
+        transition: 'all 0.15s ease',
+      }}
+    >
+      {isRunning ? <Loader2 size={14} style={{ animation: 'hoistSpin 900ms linear infinite' }} />
+        : isFinished ? <CheckCircle2 size={14} />
+        : <Play size={14} fill={enabled ? '#1a1300' : 'none'} strokeWidth={2.5} />}
+      {label}
+    </button>
+  )
+}
+
+function ProgressLine({ progress, message }) {
+  const pct = Math.max(0, Math.min(100, Number(progress) || 0))
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <div style={{
+        position: 'relative', width: '100%', height: 6,
+        background: 'rgba(255,255,255,0.06)', borderRadius: 6,
+        overflow: 'hidden', border: '1px solid #2a2a4a',
+      }}>
+        <div style={{
+          position: 'absolute', inset: 0, width: `${pct}%`,
+          background: 'linear-gradient(90deg, #00d1ff 0%, #FFC447 100%)',
+          transition: 'width 0.3s ease',
+        }} />
+      </div>
+      {message && <div style={{ fontSize: 9.5, color: '#90A4B0', lineHeight: 1.4 }}>{message}</div>}
+    </div>
   )
 }
 
@@ -299,17 +435,37 @@ function ActionButton({ onClick, disabled, accent, icon, title, children }) {
   )
 }
 
-function ReadonlyField({ label, value }) {
+function EditableField({ label, value, onChange, onCommit, disabled, step, min }) {
   return (
     <div style={{
       display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6,
-      padding: '6px 9px',
+      padding: '5px 8px 5px 9px',
       background: '#0f0f22',
       border: '1px solid #2a2a4a',
       borderRadius: 6,
     }}>
-      <span style={{ fontSize: 10, color: '#90E8FF', fontWeight: 700, letterSpacing: 0.3 }}>{label}</span>
-      <span style={{ fontSize: 12, color: '#e6f1ff', fontWeight: 800 }}>{value}</span>
+      <span style={{ fontSize: 10, color: '#90E8FF', fontWeight: 700, letterSpacing: 0.3, flexShrink: 0 }}>{label}</span>
+      <input
+        type="number"
+        step={step}
+        min={min}
+        value={value}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.value)}
+        onBlur={onCommit}
+        onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
+        style={{
+          width: 64,
+          padding: '3px 6px',
+          fontSize: 12, fontWeight: 800,
+          color: disabled ? '#60708a' : '#e6f1ff',
+          background: disabled ? '#0a0a18' : 'rgba(8,6,22,0.65)',
+          border: '1px solid #2a2a4a',
+          borderRadius: 4,
+          outline: 'none',
+          textAlign: 'right',
+        }}
+      />
     </div>
   )
 }
@@ -320,11 +476,4 @@ function Hint({ children }) {
       {children}
     </div>
   )
-}
-
-function formatNum(n) {
-  const v = Number(n)
-  if (!Number.isFinite(v)) return '-'
-  if (Number.isInteger(v)) return String(v)
-  return v.toLocaleString('ko-KR', { maximumFractionDigits: 2 })
 }

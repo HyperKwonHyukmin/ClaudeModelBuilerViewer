@@ -1,10 +1,11 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
-import { Trash2, X, Link2, Eraser } from 'lucide-react'
+import { Trash2, X, Link2, Eraser, RotateCcw } from 'lucide-react'
 import { useEditStore } from '../store/useEditStore.js'
 import { useStageStore } from '../store/useStageStore.js'
 import { useViewerStore } from '../store/useViewerStore.js'
 import { summarizeIntent } from '../data/EditIntent.js'
 import { computeDeleteMask } from '../data/applyEditIntents.js'
+import { getGroupDisplayCount, groupColorCss } from '../utils/groupPalette.js'
 import AddRigidDialog from './AddRigidDialog.jsx'
 import ConflictSummary from './ConflictSummary.jsx'
 
@@ -125,6 +126,15 @@ export default function EditPanel() {
           {errCount  > 0 && <span style={{ color: '#FF8866' }}> · 오류 {errCount}</span>}
         </span>
       </div>
+
+      {/* 그룹 삭제 — 모델 확인이 Model 사이드바로 이동했으므로 그룹 삭제 진입점을 Edit 패널에 둔다.
+          각 그룹의 휴지통을 누르면 deleteGroup intent 를 추가/취소(복원)한다. */}
+      <GroupDeleteSection
+        lastStage={lastStage}
+        intents={intents}
+        addIntent={addIntent}
+        removeIntent={removeIntent}
+      />
 
       {/* 다중 선택 → Rigid 만들기 (편집 모드에서 Shift+Click 으로 노드 누적) */}
       {pendingNodeSelection.length > 0 && (
@@ -292,6 +302,74 @@ export default function EditPanel() {
   )
 }
 
+// ── 그룹 삭제 섹션 ────────────────────────────────────────────────────────
+// 모델 확인(LayerPanel)이 Model 사이드바로 이동하면서 Edit 모드에서의 그룹 삭제 진입점을
+// 여기로 가져왔다. 마지막 단계의 연결 그룹별로 deleteGroup intent 를 추가/취소한다.
+// 색·번호는 모델 확인의 Group 모드와 동일한 groupPalette 규칙을 써서 일관되게 보인다.
+
+function GroupDeleteSection({ lastStage, intents, addIntent, removeIntent }) {
+  const groups = lastStage?.finalGroups ?? lastStage?.groups ?? []
+  if (groups.length === 0) return null
+  const { maxIndividual, displayCount } = getGroupDisplayCount(groups)
+  const individual = groups.slice(0, maxIndividual)
+
+  return (
+    <div style={{
+      display: 'flex', flexDirection: 'column', gap: 3,
+      padding: '6px 7px 7px',
+      background: 'rgba(255,255,255,0.02)',
+      border: '1px solid #20203a',
+      borderRadius: 6,
+    }}>
+      <div style={{ fontSize: 9, color: '#7ab2d4', letterSpacing: 1, textTransform: 'uppercase', fontWeight: 800, paddingLeft: 1, marginBottom: 1 }}>
+        그룹 삭제 ({groups.length}개)
+      </div>
+      {individual.map((g, i) => {
+        const intent = intents.find(it => it.kind === 'deleteGroup' && it.params?.groupId === g.id)
+        const pending = !!intent
+        const color = groupColorCss(i, displayCount)
+        const elemCount = g.elementIds?.length ?? 0
+        const nodeCount = g.nodeCount ?? g.nodeIds?.length ?? 0
+        return (
+          <div key={g.id} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ width: 8, height: 8, borderRadius: '50%', flexShrink: 0, background: pending ? '#FF6B6B' : color, boxShadow: pending ? 'none' : `0 0 5px ${color}aa` }} />
+            <div style={{ flex: 1, minWidth: 0, opacity: pending ? 0.55 : 1 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: pending ? '#FFB3B3' : '#cdd8e8' }}>
+                그룹 {i + 1}{pending && <span style={{ fontWeight: 600 }}> · 삭제 예정</span>}
+              </div>
+              <div style={{ fontSize: 9, color: '#60708a' }}>{elemCount}개 요소 / {nodeCount}개 노드</div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                if (pending) { removeIntent(intent.id); return }
+                addIntent({ kind: 'deleteGroup', params: { groupId: g.id, memberNodeCount: nodeCount } })
+              }}
+              title={pending ? '그룹 삭제 의도 취소(복원)' : '이 그룹 삭제 의도 추가'}
+              style={{
+                width: 26, height: 26, flexShrink: 0,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                background: pending ? 'rgba(255,107,107,0.18)' : 'transparent',
+                color: pending ? '#FFB3B3' : '#7070a0',
+                border: `1px solid ${pending ? 'rgba(255,107,107,0.55)' : '#2a2a44'}`,
+                borderRadius: 5, cursor: 'pointer', padding: 0, lineHeight: 0,
+                transition: 'all 0.15s ease',
+              }}
+            >
+              {pending ? <RotateCcw size={12} /> : <Trash2 size={12} />}
+            </button>
+          </div>
+        )
+      })}
+      {maxIndividual < groups.length && (
+        <div style={{ fontSize: 9, color: '#4e5870', paddingLeft: 1, marginTop: 1 }}>
+          그 외 {groups.length - maxIndividual}개 소그룹은 개별 삭제 대상이 아닙니다.
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Ctrl+Click 다중 선택 element 일괄 삭제 박스 ──────────────────────────
 
 function BulkDeleteBox({ elements, intents, addIntent, removeIntent, clearMultiSelElements }) {
@@ -436,7 +514,7 @@ function EmptyStateGuide({ hasSelection }) {
       <ol style={{ margin: 0, paddingLeft: 16, display: 'flex', flexDirection: 'column', gap: 5 }}>
         <li>
           <span style={{ color: '#FF6B6B', fontWeight: 700 }}>그룹 삭제</span>
-          : 모델 확인 패널에서 <strong>Group</strong> 모드 → 각 그룹의 휴지통 아이콘
+          : 위 <strong>그룹 삭제</strong> 목록에서 각 그룹의 휴지통 아이콘
         </li>
         <li>
           <span style={{ color: '#e88a8a', fontWeight: 700 }}>요소 삭제</span>

@@ -1,6 +1,7 @@
 import { useRef, useState, useCallback, useEffect } from 'react'
-import { Box, FileJson, FolderOpen, Link, Plus, RotateCcw, Search } from 'lucide-react'
+import { Box, FileJson, FolderOpen, RotateCcw, Search } from 'lucide-react'
 import { useViewerStore } from '../store/useViewerStore.js'
+import LayerPanel from './LayerPanel.jsx'
 import { useStageStore } from '../store/useStageStore.js'
 import { useEditStore } from '../store/useEditStore.js'
 import { useStabilityStore } from '../store/useStabilityStore.js'
@@ -27,8 +28,7 @@ const DEFAULT_WIDTH = 190
 export default function Sidebar() {
   const { loading, error, loadStages, loadSummary, stages, reset: resetStages } = useStageStore()
   const {
-    viewports, addViewport,
-    cameraLinked, toggleCameraLink,
+    activeViewportId,
     renderMode, setRenderMode,
     layers, toggleLayer,
     reset: resetViewer,
@@ -137,7 +137,7 @@ export default function Sidebar() {
     window.addEventListener('mouseup', onMouseUp)
   }, [width])
 
-  const canAddViewport = viewports.length < 4
+  const lastStage = stages.length > 0 ? stages[stages.length - 1] : null
 
   return (
     <div style={{
@@ -186,22 +186,6 @@ export default function Sidebar() {
 
       {/* ── 섹션 1.5: ID 검색 (데이터 로드 후만 표시) ─── */}
       {stages.length > 0 && <SearchSection />}
-
-      {/* ── 섹션 2: 뷰포트 ───────────────────────────── */}
-      <Section label="뷰포트">
-        <Tooltip placement="right" content={<><strong style={{ color: '#90E8FF' }}>뷰포트 추가 (최대 4개)</strong><br/>같은 모델을 여러 단계 / 다른 색상 모드로 동시에 비교할 때 유용합니다. 각 뷰포트는 독립적인 카메라와 단계 선택을 가집니다.</>}>
-          <SideBtn onClick={addViewport} disabled={!canAddViewport} accent="#2a6a3a">
-            <Plus size={14} />
-            <span style={{ flex: 1 }}>뷰 추가</span>
-            <CountBadge active={canAddViewport}>{viewports.length}/4</CountBadge>
-          </SideBtn>
-        </Tooltip>
-        <Tooltip placement="right" content={<><strong style={{ color: '#a78bfa' }}>카메라 동기화</strong><br/>여러 뷰포트의 카메라(회전·줌·팬) 가 함께 움직입니다. 같은 모델을 색상 모드만 다르게 비교할 때 켜세요.</>}>
-          <span style={{ display: 'flex', width: '100%' }}>
-            <ToggleBtn active={cameraLinked} onClick={toggleCameraLink} activeColor="#7c3aed" label="카메라 동기화" icon={<Link size={13} />} />
-          </span>
-        </Tooltip>
-      </Section>
 
       {/* ── 섹션 3: 렌더 ─────────────────────────────── */}
       <Section label="렌더">
@@ -266,20 +250,20 @@ export default function Sidebar() {
 
       {/* ── 편집 모드 토글은 Edit 모드 좌측 패널(EditPanelDock)로 이동 ── */}
 
-      {/* ── 섹션 6: 단계 정보 ────────────────────────── */}
+      {/* ── 섹션 5: 모델 확인 (이전 뷰포트 floating → 사이드바 이동) ──
+          색상 기준(Default/Node Check/Group)·노드/그룹 필터·해석 결과 표시 토글.
+          그룹 삭제(휴지통)는 Edit 모드 전용이라 Model 사이드바(여기)에선 표시되지 않고,
+          Edit 모드 좌측 패널(EditPanel)의 그룹 삭제 섹션에서 수행한다. */}
       {stages.length > 0 && (
-        <Section label="단계">
-          <div style={{
-            background: '#0f0f22', border: '1px solid #1e1e36', borderRadius: 6,
-            padding: '6px 10px', display: 'flex', alignItems: 'baseline', gap: 4,
-          }}>
-            <span style={{ fontSize: 16, fontWeight: 800, color: '#5BA8E5' }}>{stages.length}</span>
-            <span style={{ fontSize: 10, color: '#404060' }}>단계</span>
-          </div>
-        </Section>
+        <LayerPanel
+          viewportId={activeViewportId}
+          stageData={lastStage}
+          isEditTargetStage
+          embedded
+        />
       )}
 
-      {/* ── 초기화 버튼 (단계 섹션 바로 아래) ─────────── */}
+      {/* ── 초기화 버튼 ─────────── */}
       <div style={{ padding: '10px 8px', borderBottom: '1px solid #1e1e38' }}>
         <Tooltip
           placement="right"
@@ -413,14 +397,6 @@ function ToggleBtn({ active, onClick, activeColor, label, icon }) {
         {active ? 'ON' : 'OFF'}
       </span>
     </button>
-  )
-}
-
-function CountBadge({ active, children }) {
-  return (
-    <span style={{ fontSize: 9, color: active ? '#6aaa7a' : '#444', fontWeight: 700 }}>
-      {children}
-    </span>
   )
 }
 

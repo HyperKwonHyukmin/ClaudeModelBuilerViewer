@@ -32,8 +32,9 @@ export const useUnitStructuralStore = create((set) => ({
   safetyFactor: 1.2,
   allowableMpa: 220,
 
-  // 패널 가시성
-  panelOpen: true,
+  // 패널 가시성 — 기본 닫힘. 입력·실행은 Analyze 좌측 도크(AnalyzePanel)가 담당하고,
+  // 이 floating 패널은 '구조 해석 패널 열기'(결과 Success 후 활성)로만 연다.
+  panelOpen: false,
 
   // 마지막 실행 ISO timestamp
   ranAt: null,

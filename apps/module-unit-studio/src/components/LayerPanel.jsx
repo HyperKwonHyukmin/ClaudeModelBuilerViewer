@@ -17,7 +17,7 @@ const MODE_DEFS = [
   { key: 'group',    icon: '⊞', label: 'Group',      desc: '연결 그룹' },
 ]
 
-export default function LayerPanel({ viewportId, stageData, isEditTargetStage = true }) {
+export default function LayerPanel({ viewportId, stageData, isEditTargetStage = true, embedded = false }) {
   const [collapsed, setCollapsed] = useState(false)
   const [hint, setHint] = useState(null)
   const hintTimerRef = useRef(null)
@@ -67,7 +67,8 @@ export default function LayerPanel({ viewportId, stageData, isEditTargetStage = 
     ? groups.slice(maxIndividual).reduce((s, g) => s + g.elementIds.length, 0)
     : 0
 
-  if (collapsed) {
+  // embedded(사이드바) 모드에서는 항상 펼쳐진 정적 블록으로 렌더 — 접기 FAB 없음.
+  if (collapsed && !embedded) {
     return (
       <button
         onClick={() => {
@@ -89,7 +90,15 @@ export default function LayerPanel({ viewportId, stageData, isEditTargetStage = 
   }
 
   return (
-    <div style={{
+    <div style={embedded ? {
+      // 사이드바 embedded — 정적 블록, '레이어' 섹션 아래에 자연스럽게 이어진다.
+      position: 'relative',
+      display: 'flex', flexDirection: 'column',
+      background: 'transparent',
+      borderTop: '1px solid #1e1e38',
+      userSelect: 'none',
+      width: '100%',
+    } : {
       position: 'absolute', bottom: 12, left: 12, zIndex: 20,
       display: 'flex', flexDirection: 'column',
       background: 'rgba(8, 6, 22, 0.92)',
@@ -104,25 +113,27 @@ export default function LayerPanel({ viewportId, stageData, isEditTargetStage = 
       {/* Header */}
       <div style={{
         display: 'flex', alignItems: 'center', gap: 8,
-        padding: '9px 8px 7px 12px',
-        fontSize: 11, color: '#7ab2d4', letterSpacing: 1.5,
+        padding: embedded ? '11px 8px 7px 10px' : '9px 8px 7px 12px',
+        fontSize: embedded ? 10 : 11, color: '#7ab2d4', letterSpacing: 1.5,
         textTransform: 'uppercase', fontWeight: 800,
-        borderBottom: '1px solid rgba(255,255,255,0.07)',
+        borderBottom: embedded ? 'none' : '1px solid rgba(255,255,255,0.07)',
       }}>
         <span style={{ flex: 1 }}>모델 확인</span>
-        <button
-          onClick={() => {
-            setCollapsed(true)
-            showHint('모델 확인 패널을 접었습니다. 아이콘을 누르면 다시 열립니다.')
-          }}
-          title="패널 접기"
-          style={{ background: 'transparent', border: 'none', color: '#516b84', cursor: 'pointer', fontSize: 13, lineHeight: 1 }}
-        >
-          ×
-        </button>
+        {!embedded && (
+          <button
+            onClick={() => {
+              setCollapsed(true)
+              showHint('모델 확인 패널을 접었습니다. 아이콘을 누르면 다시 열립니다.')
+            }}
+            title="패널 접기"
+            style={{ background: 'transparent', border: 'none', color: '#516b84', cursor: 'pointer', fontSize: 13, lineHeight: 1 }}
+          >
+            ×
+          </button>
+        )}
       </div>
 
-      {hint && <PanelHint text={hint} onClose={() => setHint(null)} />}
+      {!embedded && hint && <PanelHint text={hint} onClose={() => setHint(null)} />}
 
       {/* Mode selector */}
       <div style={{ display: 'flex', flexDirection: 'column', padding: '5px 6px', gap: 2 }}>
