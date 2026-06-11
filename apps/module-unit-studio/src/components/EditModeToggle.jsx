@@ -126,7 +126,7 @@ export default function EditModeToggle() {
           </div>
           <div>
             오른쪽 패널의 <strong style={{ color: '#FFE6A8' }}>편집</strong> 탭에서 RBE 생성·충돌 확인을 진행하고,
-            완성되면 좌상단 <strong style={{ color: '#FFE6A8' }}>자세안정성 평가 실행</strong> 으로 적용된 모델과 권상 설정을 함께 저장합니다.
+            완성되면 상단 <strong style={{ color: '#8fd0c0' }}>Hoist</strong> 탭의 <strong style={{ color: '#FFE6A8' }}>자세안정성 평가 실행</strong> 으로 적용된 모델과 권상 설정을 함께 저장합니다.
           </div>
         </div>
       )}

@@ -7,7 +7,6 @@ import PickTooltip from './PickTooltip.jsx'
 import LayerPanel from './LayerPanel.jsx'
 import EditModeWatermark from './EditModeWatermark.jsx'
 import MassSummaryOverlay from './MassSummaryOverlay.jsx'
-import HoistPositionPanel from './HoistPositionPanel.jsx'
 import HoistInstructionOverlay from './HoistInstructionOverlay.jsx'
 import HoistGuideToast from './HoistGuideToast.jsx'
 import StabilityReportPanel from './StabilityReportPanel.jsx'
@@ -25,7 +24,10 @@ import { useEditStore } from '../store/useEditStore.js'
  * Each viewport has its own LayerPanel overlay (bottom-left).
  */
 export default function ViewportContainer() {
-  const { viewports, removeViewport, setActiveViewport, activeViewportId, layers, cameraLinked, setPickedEntity, pickedEntity, focusSelectionRequest, isolateSelection, renderMode } = useViewerStore()
+  const { viewports, removeViewport, setActiveViewport, activeViewportId, layers, cameraLinked, setPickedEntity, pickedEntity, focusSelectionRequest, isolateSelection, renderMode, activeMode } = useViewerStore()
+  // 권상 픽킹(Shift+Node)·권상 오버레이는 상단 Hoist 탭에서만 활성화한다.
+  // (hoistMode 가 설정된 채 다른 탭에서 Shift+클릭하면 권상 픽킹이 Edit 의 다중선택을 가로채는 것을 방지)
+  const hoistActive = activeMode === 'hoist'
   const { stages } = useStageStore()
   const stabilityReport = useStabilityStore(s => s.report)
   const editEnabled = useEditStore(s => s.enabled)
@@ -106,7 +108,7 @@ export default function ViewportContainer() {
     <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
       <PickTooltip pickInfo={activeTooltip.pickInfo} position={activeTooltip.position} editEnabled={editTargetActive} />
       <EditModeWatermark />
-      <HoistInstructionOverlay />
+      {hoistActive && <HoistInstructionOverlay />}
       <MassSummaryOverlay />
 
       {/* Viewport grid */}
@@ -174,14 +176,16 @@ export default function ViewportContainer() {
                   isolateSelection={isolateSelection}
                   renderMode={renderMode}
                   isEditTargetStage={isEditTargetStage}
+                  hoistPickEnabled={hoistActive}
                 />
               </div>
 
               {/* Per-viewport layer panel — bottom-left overlay */}
               <LayerPanel viewportId={vp.id} stageData={stage} isEditTargetStage={isEditTargetStage} />
-              {isEditTargetStage && <HoistPositionPanel />}
-              {isEditTargetStage && <HoistGuideToast />}
-              {isEditTargetStage && <StabilityReportPanel />}
+              {/* 권상 위치 설정 패널은 좌측 Hoist 도크(LeftDock)로 이주 — 더 이상 뷰포트 floating 아님. */}
+              {isEditTargetStage && hoistActive && <HoistGuideToast />}
+              {/* 자세안정성 결과 패널은 Hoist(실행 직후 자동 열림)·Analyze(결과 보기) 두 탭에서만 표시. */}
+              {isEditTargetStage && (hoistActive || activeMode === 'analyze') && <StabilityReportPanel />}
             </div>
           )
         })}

@@ -44,7 +44,7 @@ const DAMPING_TAIL = 800  // ms to keep rendering after drag ends (for inertia)
  *
  * Bottom-left corner: live XYZ axes indicator.
  */
-export default function ThreeViewport({ stageData, layers, onReady, onPick, onHover, colorMode = 'category', freeNodeFilters, groupFilters, selectedEntity, isolateSelection = false, renderMode = 'cylinder', isEditTargetStage = true }) {
+export default function ThreeViewport({ stageData, layers, onReady, onPick, onHover, colorMode = 'category', freeNodeFilters, groupFilters, selectedEntity, isolateSelection = false, renderMode = 'cylinder', isEditTargetStage = true, hoistPickEnabled = false }) {
   const [sceneError, setSceneError] = useState(null)
   const containerRef = useRef(null)
   const rendererRef  = useRef(null)
@@ -112,8 +112,11 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
       mask: deleteMask,
       hasPendingNodes: pendingNodeSelection.length > 0,
       hoistMode,
+      // 권상 픽킹은 상단 Hoist 탭에서만 — hoistMode 가 남아있어도 다른 탭에선 Shift+클릭이
+      // 권상 노드 추가로 새지 않도록 게이트. (Edit 의 rigid/다중선택 Shift 흐름과 충돌 방지)
+      hoistPickEnabled,
     }
-  }, [editEnabled, isEditTargetStage, toggleNodeSelection, toggleMultiSelElement, clearMultiSelElements, addHoistNode, flashHoistGuide, deleteMask, pendingNodeSelection.length, hoistMode])
+  }, [editEnabled, isEditTargetStage, toggleNodeSelection, toggleMultiSelElement, clearMultiSelElements, addHoistNode, flashHoistGuide, deleteMask, pendingNodeSelection.length, hoistMode, hoistPickEnabled])
 
   const multiSelRef     = useRef(null)   // 다중 선택 노드 overlay (노란 sphere)
   const multiSelElemRef = useRef(null)   // Ctrl+Click 다중 선택 element overlay (주황 cylinder)
@@ -408,7 +411,7 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
 
       const { structure, pipe, nodes, beams, masses, rigidLines = [] } = sceneDataRef.current.pickables
       const editState = editStateRef.current
-      const hoistPickMode = editState.isTarget && editState.hoistMode && e.shiftKey
+      const hoistPickMode = editState.isTarget && editState.hoistPickEnabled && editState.hoistMode && e.shiftKey
       const rigidPickMode = !hoistPickMode && editState.enabled && editState.isTarget && (e.shiftKey || editState.hasPendingNodes)
       const nodeOnlyPickMode = hoistPickMode || rigidPickMode
       const baseTargets = nodeOnlyPickMode
@@ -463,7 +466,7 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
         }
         // 권상 모드 미선택 상태에서 Shift+클릭 — 가이드 토스트로 안내.
         // (편집 모드 ON 상태에서는 rigid 다중 선택 흐름이 우선이므로 토스트는 띄우지 않는다.)
-        if (e.shiftKey && nodeId != null && editState.isTarget && !editState.hoistMode && !editState.enabled) {
+        if (e.shiftKey && nodeId != null && editState.isTarget && editState.hoistPickEnabled && !editState.hoistMode && !editState.enabled) {
           editState.flashHoistGuide?.('권상 방식(Hydro 또는 Goliat)을 먼저 선택해 주세요.', 'noMode')
           return
         }

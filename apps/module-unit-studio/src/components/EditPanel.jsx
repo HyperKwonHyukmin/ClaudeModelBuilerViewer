@@ -455,7 +455,7 @@ function EmptyStateGuide({ hasSelection }) {
           )}
         </li>
         <li>
-          완성되면 좌상단 <strong>권상 위치 설정 → 자세안정성 평가 실행</strong> 으로
+          완성되면 상단 <strong>Hoist 탭 → 자세안정성 평가 실행</strong> 으로
           편집 적용 모델(<code>_edited.json</code>)과 권상 설정이 함께 저장됩니다.
         </li>
       </ol>

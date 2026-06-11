@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
-import Sidebar from './components/Sidebar.jsx'
+import TopMenuBar from './components/TopMenuBar.jsx'
+import LeftDock from './components/LeftDock.jsx'
 import ViewportContainer from './components/ViewportContainer.jsx'
 import InspectorPanel from './components/InspectorPanel.jsx'
 import BottomReviewDock from './components/BottomReviewDock.jsx'
@@ -43,15 +44,28 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [])
 
+  // 상단 메뉴바 activeMode <-> editStore.enabled 동기화.
+  // activeMode 가 'edit' 면 편집 모드 ON, 그 외 모드면 OFF.
+  // setEnabled(멱등)만 호출하므로 중복 렌더에도 안전하고, EditModeToggle 의 기존 toggle 동작과 충돌하지 않는다.
+  // (사용자가 Edit 탭 안에서 토글을 끄는 것은 허용 — 다음 activeMode 변경 시 다시 동기화된다.)
+  const activeMode = useViewerStore(s => s.activeMode)
+  useEffect(() => {
+    const setEnabled = useEditStore.getState().setEnabled
+    setEnabled(activeMode === 'edit')
+  }, [activeMode])
+
   return (
-    <div style={{ display: 'flex', width: '100%', height: '100%', background: '#0d0d1a', color: '#e0e0e0', overflow: 'hidden' }}>
-      <Sidebar />
-      <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
-        <ViewportContainer />
-        <UnitStructuralResultDock />
-        <BottomReviewDock />
+    <div style={{ display: 'flex', flexDirection: 'column', width: '100%', height: '100%', background: '#0d0d1a', color: '#e0e0e0', overflow: 'hidden' }}>
+      <TopMenuBar />
+      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+        <LeftDock />
+        <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
+          <ViewportContainer />
+          <UnitStructuralResultDock />
+          <BottomReviewDock />
+        </div>
+        <InspectorPanel />
       </div>
-      <InspectorPanel />
     </div>
   )
 }

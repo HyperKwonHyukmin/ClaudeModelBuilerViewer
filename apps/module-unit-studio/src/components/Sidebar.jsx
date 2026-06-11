@@ -6,7 +6,6 @@ import { useEditStore } from '../store/useEditStore.js'
 import { useStabilityStore } from '../store/useStabilityStore.js'
 import { useUnitStructuralStore } from '../store/useUnitStructuralStore.js'
 import { getHost } from '../host/host.js'
-import EditModeToggle from './EditModeToggle.jsx'
 import Tooltip from './Tooltip.jsx'
 
 const LAYER_DEFS = [
@@ -265,10 +264,7 @@ export default function Sidebar() {
         })}
       </Section>
 
-      {/* ── 섹션 5: 편집 모드 ────────────────────────── */}
-      <Section label="편집">
-        <EditModeToggle />
-      </Section>
+      {/* ── 편집 모드 토글은 Edit 모드 좌측 패널(EditPanelDock)로 이동 ── */}
 
       {/* ── 섹션 6: 단계 정보 ────────────────────────── */}
       {stages.length > 0 && (

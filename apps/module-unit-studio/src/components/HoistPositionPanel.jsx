@@ -117,18 +117,19 @@ export default function HoistPositionPanel() {
   const hasReportOrError = !!stabilityReport || !!stabilityError
 
   return (
+    // 상단 Hoist 탭의 좌측 도크(190px). 이전엔 3D 뷰포트 위 position:absolute floating 이었으나
+    // 메뉴바 도입으로 도크로 이주했다. 폭은 Edit/Analyze 도크(190)와 동일하게 고정해야
+    // UnitStructuralResultDock 의 layoutBounds.sidebarWidth 계산과 어긋나지 않는다.
+    // 내부 컨트롤(방식·그룹·노드 칩·Wire·외경·실행)·store·단축키 로직은 그대로 유지.
     <div style={{
-      position: 'absolute',
-      top: 42,
-      left: 12,
-      zIndex: 21,
-      width: 234,
-      background: 'rgba(8, 6, 22, 0.92)',
-      backdropFilter: 'blur(12px)',
-      border: '1px solid rgba(0,209,255,0.25)',
-      borderRadius: 10,
+      width: 190,
+      flexShrink: 0,
+      position: 'relative',
+      background: '#0b0b1e',
+      height: '100%',
+      overflowY: 'auto',
+      overflowX: 'hidden',
       padding: '8px',
-      boxShadow: '0 6px 28px rgba(0,0,0,0.58)',
       userSelect: 'none',
       display: 'flex',
       flexDirection: 'column',

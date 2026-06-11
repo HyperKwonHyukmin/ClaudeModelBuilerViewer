@@ -112,6 +112,10 @@ export const useViewerStore = create((set, get) => ({
   inspectorTab: '메타',
   setInspectorTab: (tab) => set({ inspectorTab: tab }),
 
+  // 상단 메뉴바 활성 모드 — 좌측 패널(LeftDock) 분기 결정. 'model'|'edit'|'analyze'
+  activeMode: 'model',
+  setActiveMode: (mode) => set({ activeMode: mode }),
+
   // Layer visibility
   layers: { ...DEFAULT_LAYERS },
   toggleLayer: (key) => {
@@ -143,6 +147,7 @@ export const useViewerStore = create((set, get) => ({
       viewports: [{ id, stageIndex: 0, ...DEFAULT_VP_COLOR }],
       activeViewportId: id,
       inspectorTab: '메타',
+      activeMode: 'model',
       layers: { ...DEFAULT_LAYERS },
       cameraLinked: false,
       pickedEntity: null,
