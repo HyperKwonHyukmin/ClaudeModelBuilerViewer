@@ -104,6 +104,18 @@ export const useViewerStore = create((set, get) => ({
     }))
   },
 
+  // 단독 뷰 — soloKey(개별 index 또는 'others') 그룹만 보이고 나머지는 모두 숨긴다.
+  // Edit 모드 그룹 관리자의 "단독 뷰" 버튼에서 사용.
+  soloViewportGroup: (id, soloKey, groups, maxIndividual) => {
+    const filters = {}
+    const top = Math.min(groups.length, maxIndividual)
+    for (let i = 0; i < top; i++) filters[i] = (i === soloKey)
+    if (groups.length > maxIndividual) filters['others'] = (soloKey === 'others')
+    set(s => ({
+      viewports: s.viewports.map(v => v.id === id ? { ...v, groupFilters: filters } : v),
+    }))
+  },
+
   // Active viewport (for inspector panel)
   activeViewportId: 1,
   setActiveViewport: (id) => set({ activeViewportId: id }),
@@ -120,6 +132,10 @@ export const useViewerStore = create((set, get) => ({
   layers: { ...DEFAULT_LAYERS },
   toggleLayer: (key) => {
     set(s => ({ layers: { ...s.layers, [key]: !s.layers[key] } }))
+  },
+  // 명시적 ON/OFF 설정 — 부재 종류(구조/배관) 단독 뷰처럼 값을 직접 지정해야 할 때 사용.
+  setLayer: (key, on) => {
+    set(s => ({ layers: { ...s.layers, [key]: !!on } }))
   },
 
   // Camera sync

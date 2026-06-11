@@ -92,6 +92,18 @@ export function computeDeleteMask(stageData, intents) {
     deletedElementIds.add(eid)
   }
 
+  // 부재 종류(구조/배관) 일괄 삭제 — 해당 category 의 BEAM 요소를 모두 deletedElementIds 에 누적.
+  // deleteElement 와 동일하게 노드는 자동 삭제하지 않고(공유 노드/ RBE 참조 가능),
+  // 그 결과 고립된 노드는 orphanCandidateNodeIds 로 노출되어 사용자가 별도로 정리한다.
+  for (const intent of intents) {
+    if (intent.kind !== 'deleteCategory') continue
+    const category = intent.params?.category
+    if (category == null) continue
+    for (const e of stageData.elements ?? []) {
+      if (e.type === 'BEAM' && e.category === category) deletedElementIds.add(e.id)
+    }
+  }
+
   // Orphan 노드 일괄 삭제 — element 참조가 없는 노드만 대상이므로 element/RBE/PointMass cascade 영향 없음
   // (validate 단계에서 nodeMap 존재 여부 확인됨)
   for (const intent of intents) {

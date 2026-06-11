@@ -1,13 +1,13 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
-import { Crosshair, Eye, EyeOff, X, Trash2 } from 'lucide-react'
+import { Crosshair, Eye, EyeOff, X } from 'lucide-react'
 import { useStageStore } from '../store/useStageStore.js'
 import { useViewerStore } from '../store/useViewerStore.js'
 import { useEditStore } from '../store/useEditStore.js'
 import { StageData } from '../data/StageData.js'
 import { computeDeleteMask } from '../data/applyEditIntents.js'
-import EditPanel from './EditPanel.jsx'
 
-const TABS = ['메타', '모델지표', '연결성', '진단', '편집']
+// 우측 인스펙터는 정보 전용(읽기 전용)이다. 부재/그룹 편집(삭제·Rigid 등)은 좌측 Edit 패널에서 수행한다.
+const TABS = ['메타', '모델지표', '연결성', '진단']
 const MIN_WIDTH = 200
 const MAX_WIDTH = 600
 const DEFAULT_WIDTH = 300
@@ -27,7 +27,6 @@ export default function InspectorPanel() {
     isolateSelection, toggleIsolateSelection,
     inspectorTab: tab, setInspectorTab: setTab,
   } = useViewerStore()
-  const editEnabled = useEditStore(s => s.enabled)
 
   // dock 가 우측 영역을 비우도록 useViewerStore 에 현재 폭을 publish
   const publishInspectorWidth = useViewerStore(s => s.setInspectorWidth)
@@ -35,19 +34,13 @@ export default function InspectorPanel() {
     publishInspectorWidth(collapsed ? 20 : width)
   }, [collapsed, width, publishInspectorWidth])
 
-  useEffect(() => {
-    if (tab === '편집') setCollapsed(false)
-  }, [tab])
-
-  // entity 가 선택되면 패널을 자동으로 펼쳐 삭제 버튼 등이 즉시 보이게 한다.
+  // entity 가 선택되면 패널을 자동으로 펼쳐 상세 정보가 즉시 보이게 한다.
   useEffect(() => {
     if (pickedEntity) setCollapsed(false)
   }, [pickedEntity])
 
   const activeVp = viewports.find(v => v.id === activeViewportId)
   const stage = activeVp ? stages[activeVp.stageIndex] : null
-  // 편집 의도는 항상 마지막 stage 기준이므로 element 삭제 버튼도 마지막 stage 에서만 의미 있다.
-  const isLastStage = activeVp != null && stages.length > 0 && activeVp.stageIndex === stages.length - 1
 
   // ── Resize drag ───────────────────────────────────────────────────────
   const onDragMouseDown = useCallback((e) => {
@@ -125,7 +118,6 @@ export default function InspectorPanel() {
             <PickedEntitySection
               entity={pickedEntity}
               stage={stage}
-              canEdit={editEnabled && isLastStage}
               clearPickedEntity={clearPickedEntity}
               focusPickedEntity={focusPickedEntity}
               isolateSelection={isolateSelection}
@@ -141,11 +133,6 @@ export default function InspectorPanel() {
           {stage && tab === '모델지표' && <HealthTab stage={stage} />}
           {stage && tab === '연결성' && <ConnectivityTab stage={stage} />}
           {stage && tab === '진단' && <DiagnosticsTab stage={stage} setPickedEntity={setPickedEntity} focusPickedEntity={focusPickedEntity} />}
-          {stage && tab === '편집' && (
-            editEnabled
-              ? <EditPanel />
-              : <EmptyEditTab />
-          )}
         </div>
       </div>
     </div>
@@ -163,24 +150,6 @@ function MetaTab({ stage }) {
       <Row label="스키마" value={m.schemaVersion} />
       <Row label="단위" value={m.unit} />
       <Row label="타임스탬프" value={m.timestamp ? new Date(m.timestamp).toLocaleString('ko-KR') : '-'} />
-    </div>
-  )
-}
-
-function EmptyEditTab() {
-  return (
-    <div style={{
-      marginTop: 8,
-      padding: '14px 12px',
-      background: '#101024',
-      border: '1px solid #242448',
-      borderRadius: 6,
-      color: '#7a8aaa',
-      fontSize: 12,
-      lineHeight: 1.6,
-    }}>
-      <div style={{ color: '#cad8e8', fontWeight: 700, marginBottom: 4 }}>편집 모드가 꺼져 있습니다</div>
-      <div>왼쪽 패널의 편집 모드를 켜면 편집 의도와 충돌 상태가 여기에 표시됩니다.</div>
     </div>
   )
 }
@@ -384,27 +353,14 @@ function Section({ title, children }) {
   )
 }
 
-function PickedEntitySection({ entity, stage, canEdit = false, clearPickedEntity, focusPickedEntity, isolateSelection, toggleIsolateSelection }) {
+function PickedEntitySection({ entity, stage, clearPickedEntity, focusPickedEntity, isolateSelection, toggleIsolateSelection }) {
   const isNode  = entity.type === 'node'
   const isMass  = entity.type === 'mass'
   const isSrc   = entity.type === 'sourceName'
   const isRigid = entity.type === 'rigid'
   const isElem  = !isNode && !isMass && !isSrc && !isRigid
 
-  // 편집 모드에서 element 삭제 — 이 요소가 이미 deleteElement intent 로 마킹돼 있으면 취소 가능.
-  const editIntents     = useEditStore(s => s.intents)
-  const addEditIntent   = useEditStore(s => s.addIntent)
-  const removeEditIntent= useEditStore(s => s.removeIntent)
-  const elementIntent = isElem
-    ? editIntents.find(i => i.kind === 'deleteElement' && i.params?.elementId === entity.id)
-    : null
-  const elementInDeletedGroup = isElem && stage?.groups
-    ? (() => {
-        const containing = stage.groups.find(g => (g.elementIds ?? []).includes(entity.id))
-        if (!containing) return false
-        return editIntents.some(i => i.kind === 'deleteGroup' && i.params?.groupId === containing.id)
-      })()
-    : false
+  // 우측 인스펙터는 읽기 전용 — 부재 삭제 등 편집 액션은 좌측 Edit 패널에서 수행한다.
 
   // Element detail lookups
   let prop = null, mat = null, elemLength = null, sourceName = null
@@ -505,97 +461,12 @@ function PickedEntitySection({ entity, stage, canEdit = false, clearPickedEntity
           {mat && <Row label="재질" value={`${mat.name} (E=${fmt(mat.E)} MPa)`} />}
           {sourceName && <Row label="CAD 출처" value={sourceName} />}
 
-          {canEdit && (
-            <ElementDeleteButton
-              entity={entity}
-              elementIntent={elementIntent}
-              elementInDeletedGroup={elementInDeletedGroup}
-              addEditIntent={addEditIntent}
-              removeEditIntent={removeEditIntent}
-            />
-          )}
+          <div style={{ marginTop: 6, fontSize: 9, color: '#5a6a82', lineHeight: 1.4 }}>
+            부재 삭제는 좌측 <strong style={{ color: '#9fc8e8' }}>Edit</strong> 패널에서 수행합니다.
+          </div>
         </>
       )}
     </div>
-  )
-}
-
-/**
- * 편집 모드 + 마지막 stage 에서 element 선택 시 노출되는 삭제/취소 버튼.
- * - 이미 deleteGroup intent 에 속하면 삭제 의미가 없으므로 안내만 표시
- * - 이미 deleteElement intent 가 있으면 "삭제 취소" 로 토글
- * - 그 외에는 "이 요소 삭제" 버튼
- */
-function ElementDeleteButton({ entity, elementIntent, elementInDeletedGroup, addEditIntent, removeEditIntent }) {
-  if (elementInDeletedGroup) {
-    return (
-      <div style={{
-        marginTop: 8,
-        padding: '6px 8px',
-        background: 'rgba(122, 138, 170, 0.10)',
-        border: '1px solid rgba(122, 138, 170, 0.35)',
-        borderRadius: 5,
-        fontSize: 10, color: '#9aaad0', lineHeight: 1.4,
-      }}>
-        이 요소가 속한 그룹이 이미 삭제 예정입니다.
-      </div>
-    )
-  }
-  if (elementIntent) {
-    return (
-      <button
-        onClick={() => removeEditIntent(elementIntent.id)}
-        title="이 요소 삭제 의도 취소"
-        style={{
-          marginTop: 8,
-          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-          padding: '6px 10px',
-          background: 'rgba(255, 184, 0, 0.18)',
-          color: '#FFE6A8',
-          border: '1px solid rgba(255, 184, 0, 0.6)',
-          borderRadius: 5,
-          fontSize: 11, fontWeight: 700, cursor: 'pointer',
-          width: '100%',
-        }}
-      >
-        <X size={12} /> 삭제 의도 취소
-      </button>
-    )
-  }
-  return (
-    <button
-      onClick={() => addEditIntent({
-        kind: 'deleteElement',
-        params: {
-          elementId: entity.id,
-          category:  entity.category,
-          startNode: entity.startNode,
-          endNode:   entity.endNode,
-        },
-      })}
-      title="이 요소를 삭제 의도에 추가"
-      style={{
-        marginTop: 8,
-        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-        padding: '6px 10px',
-        background: 'rgba(192, 74, 74, 0.16)',
-        color: '#e88a8a',
-        border: '1px solid rgba(192, 74, 74, 0.5)',
-        borderRadius: 5,
-        fontSize: 11, fontWeight: 700, cursor: 'pointer',
-        width: '100%',
-      }}
-      onMouseEnter={e => {
-        e.currentTarget.style.background = 'rgba(192, 74, 74, 0.30)'
-        e.currentTarget.style.color = '#ffb0b0'
-      }}
-      onMouseLeave={e => {
-        e.currentTarget.style.background = 'rgba(192, 74, 74, 0.16)'
-        e.currentTarget.style.color = '#e88a8a'
-      }}
-    >
-      <Trash2 size={12} /> 이 요소 삭제
-    </button>
   )
 }
 

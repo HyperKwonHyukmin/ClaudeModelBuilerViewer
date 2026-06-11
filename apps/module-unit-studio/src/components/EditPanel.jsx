@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
-import { Trash2, X, Link2, Eraser, RotateCcw } from 'lucide-react'
+import { Trash2, X, Link2, Eraser, RotateCcw, Eye, EyeOff, Crosshair } from 'lucide-react'
 import { useEditStore } from '../store/useEditStore.js'
 import { useStageStore } from '../store/useStageStore.js'
 import { useViewerStore } from '../store/useViewerStore.js'
@@ -127,14 +127,26 @@ export default function EditPanel() {
         </span>
       </div>
 
-      {/* 그룹 삭제 — 모델 확인이 Model 사이드바로 이동했으므로 그룹 삭제 진입점을 Edit 패널에 둔다.
-          각 그룹의 휴지통을 누르면 deleteGroup intent 를 추가/취소(복원)한다. */}
-      <GroupDeleteSection
+      {/* 그룹 관리 — 모델 확인이 Model 사이드바로 이동했으므로 그룹 관리 진입점을 Edit 패널에 둔다.
+          연결 그룹/부재 종류 기준을 전환하며, 각 그룹을 확인(표시)·단독 뷰·삭제할 수 있다. */}
+      <GroupManager
         lastStage={lastStage}
         intents={intents}
         addIntent={addIntent}
         removeIntent={removeIntent}
       />
+
+      {/* 선택된 부재 삭제 — 우측 인스펙터는 정보만 출력하므로, 부재 삭제 액션은 좌측 패널에서 수행한다.
+          3D 뷰포트에서 부재를 클릭하면 여기에 삭제 버튼이 나타난다. */}
+      {pickedEntity?.type === 'element' && isLastStage && (
+        <PickedElementDeleteSection
+          pickedEntity={pickedEntity}
+          lastStage={lastStage}
+          intents={intents}
+          addIntent={addIntent}
+          removeIntent={removeIntent}
+        />
+      )}
 
       {/* 다중 선택 → Rigid 만들기 (편집 모드에서 Shift+Click 으로 노드 누적) */}
       {pendingNodeSelection.length > 0 && (
@@ -302,69 +314,301 @@ export default function EditPanel() {
   )
 }
 
-// ── 그룹 삭제 섹션 ────────────────────────────────────────────────────────
-// 모델 확인(LayerPanel)이 Model 사이드바로 이동하면서 Edit 모드에서의 그룹 삭제 진입점을
-// 여기로 가져왔다. 마지막 단계의 연결 그룹별로 deleteGroup intent 를 추가/취소한다.
+// ── 그룹 관리 섹션 ────────────────────────────────────────────────────────
+// 모델 확인(LayerPanel)이 Model 사이드바로 이동하면서 Edit 모드의 그룹 관리 진입점을 여기로 가져왔다.
+// 두 가지 기준을 전환할 수 있다:
+//   · 연결 그룹  — 마지막 단계의 연결성(connectivity) 그룹. 모델이 RBE2 로 전부 이어져 있으면 1개일 수 있다.
+//   · 부재 종류  — 구조/배관(modelPart=category). 연결 그룹이 1개로 합쳐진 모델도 종류 단위로 나눠 본다.
+// 각 그룹은 확인(표시 토글)·단독 뷰(이 그룹만)·삭제(intent 추가/취소)가 가능하다.
 // 색·번호는 모델 확인의 Group 모드와 동일한 groupPalette 규칙을 써서 일관되게 보인다.
 
-function GroupDeleteSection({ lastStage, intents, addIntent, removeIntent }) {
-  const groups = lastStage?.finalGroups ?? lastStage?.groups ?? []
-  if (groups.length === 0) return null
-  const { maxIndividual, displayCount } = getGroupDisplayCount(groups)
-  const individual = groups.slice(0, maxIndividual)
+const CATEGORY_DEFS = [
+  { key: 'Structure', label: '구조', color: '#5BA8E5', layerKey: 'structure' },
+  { key: 'Pipe',      label: '배관', color: '#FFAA22', layerKey: 'pipe' },
+]
+
+function GroupManager({ lastStage, intents, addIntent, removeIntent }) {
+  const [basis, setBasis] = useState('connectivity')   // 'connectivity' | 'category'
+
+  const viewports        = useViewerStore(s => s.viewports)
+  const activeViewportId = useViewerStore(s => s.activeViewportId)
+  const toggleGroupFilter   = useViewerStore(s => s.toggleViewportGroupFilter)
+  const setAllGroupFilters  = useViewerStore(s => s.setAllViewportGroupFilters)
+  const soloGroup           = useViewerStore(s => s.soloViewportGroup)
+  const layers   = useViewerStore(s => s.layers)
+  const setLayer = useViewerStore(s => s.setLayer)
+  const activeVp = viewports.find(v => v.id === activeViewportId)
+  const groupFilters = activeVp?.groupFilters ?? {}
+
+  const connGroups = lastStage?.finalGroups ?? lastStage?.groups ?? []
+  const hasConn = connGroups.length > 0
+
+  // 부재 종류 그룹 — 구조/배관별 BEAM 요소·노드 수 집계
+  const categoryGroups = useMemo(() => {
+    const els = lastStage?.elements ?? []
+    return CATEGORY_DEFS.map(d => {
+      const beams = els.filter(e => e.type === 'BEAM' && e.category === d.key)
+      const nodeSet = new Set()
+      for (const e of beams) {
+        if (e.startNode != null) nodeSet.add(e.startNode)
+        if (e.endNode   != null) nodeSet.add(e.endNode)
+      }
+      return { ...d, elemCount: beams.length, nodeCount: nodeSet.size }
+    }).filter(d => d.elemCount > 0)
+  }, [lastStage])
+
+  if (!hasConn && categoryGroups.length === 0) return null
+
+  // 연결 그룹이 없으면 부재 종류로 강제
+  const effBasis = (basis === 'connectivity' && !hasConn) ? 'category' : basis
+  const { maxIndividual, hasOthers, displayCount } = getGroupDisplayCount(connGroups)
+
+  const resetVisibility = () => {
+    if (effBasis === 'connectivity') {
+      setAllGroupFilters(activeViewportId, true, connGroups, maxIndividual)
+    } else {
+      setLayer('structure', true)
+      setLayer('pipe', true)
+    }
+  }
 
   return (
     <div style={{
-      display: 'flex', flexDirection: 'column', gap: 3,
+      display: 'flex', flexDirection: 'column', gap: 4,
       padding: '6px 7px 7px',
       background: 'rgba(255,255,255,0.02)',
       border: '1px solid #20203a',
       borderRadius: 6,
     }}>
-      <div style={{ fontSize: 9, color: '#7ab2d4', letterSpacing: 1, textTransform: 'uppercase', fontWeight: 800, paddingLeft: 1, marginBottom: 1 }}>
-        그룹 삭제 ({groups.length}개)
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <span style={{ fontSize: 9, color: '#7ab2d4', letterSpacing: 1, textTransform: 'uppercase', fontWeight: 800, paddingLeft: 1 }}>
+          그룹 관리
+        </span>
+        <button
+          type="button"
+          onClick={resetVisibility}
+          title="모든 그룹 다시 표시"
+          style={{ background: 'transparent', border: 'none', color: '#5d6b86', cursor: 'pointer', fontSize: 9, fontWeight: 700, padding: '1px 2px' }}
+        >전체 표시</button>
       </div>
-      {individual.map((g, i) => {
+
+      {/* 기준 선택 */}
+      <div style={{ display: 'flex', gap: 4 }}>
+        <BasisBtn active={effBasis === 'connectivity'} disabled={!hasConn} onClick={() => setBasis('connectivity')}>
+          연결 그룹 ({connGroups.length})
+        </BasisBtn>
+        <BasisBtn active={effBasis === 'category'} disabled={categoryGroups.length === 0} onClick={() => setBasis('category')}>
+          부재 종류 ({categoryGroups.length})
+        </BasisBtn>
+      </div>
+
+      {/* 연결 그룹 기준 */}
+      {effBasis === 'connectivity' && connGroups.slice(0, maxIndividual).map((g, i) => {
         const intent = intents.find(it => it.kind === 'deleteGroup' && it.params?.groupId === g.id)
-        const pending = !!intent
-        const color = groupColorCss(i, displayCount)
         const elemCount = g.elementIds?.length ?? 0
         const nodeCount = g.nodeCount ?? g.nodeIds?.length ?? 0
         return (
-          <div key={g.id} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ width: 8, height: 8, borderRadius: '50%', flexShrink: 0, background: pending ? '#FF6B6B' : color, boxShadow: pending ? 'none' : `0 0 5px ${color}aa` }} />
-            <div style={{ flex: 1, minWidth: 0, opacity: pending ? 0.55 : 1 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: pending ? '#FFB3B3' : '#cdd8e8' }}>
-                그룹 {i + 1}{pending && <span style={{ fontWeight: 600 }}> · 삭제 예정</span>}
-              </div>
-              <div style={{ fontSize: 9, color: '#60708a' }}>{elemCount}개 요소 / {nodeCount}개 노드</div>
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                if (pending) { removeIntent(intent.id); return }
-                addIntent({ kind: 'deleteGroup', params: { groupId: g.id, memberNodeCount: nodeCount } })
-              }}
-              title={pending ? '그룹 삭제 의도 취소(복원)' : '이 그룹 삭제 의도 추가'}
-              style={{
-                width: 26, height: 26, flexShrink: 0,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                background: pending ? 'rgba(255,107,107,0.18)' : 'transparent',
-                color: pending ? '#FFB3B3' : '#7070a0',
-                border: `1px solid ${pending ? 'rgba(255,107,107,0.55)' : '#2a2a44'}`,
-                borderRadius: 5, cursor: 'pointer', padding: 0, lineHeight: 0,
-                transition: 'all 0.15s ease',
-              }}
-            >
-              {pending ? <RotateCcw size={12} /> : <Trash2 size={12} />}
-            </button>
-          </div>
+          <ManagerRow
+            key={g.id}
+            color={groupColorCss(i, displayCount)}
+            label={`그룹 ${i + 1}`}
+            sub={`${elemCount}개 요소 / ${nodeCount}개 노드`}
+            visible={groupFilters[i] !== false}
+            pending={!!intent}
+            onToggleVisible={() => toggleGroupFilter(activeViewportId, i)}
+            onSolo={() => soloGroup(activeViewportId, i, connGroups, maxIndividual)}
+            onDelete={() => {
+              if (intent) { removeIntent(intent.id); return }
+              addIntent({ kind: 'deleteGroup', params: { groupId: g.id, memberNodeCount: nodeCount } })
+            }}
+          />
         )
       })}
-      {maxIndividual < groups.length && (
-        <div style={{ fontSize: 9, color: '#4e5870', paddingLeft: 1, marginTop: 1 }}>
-          그 외 {groups.length - maxIndividual}개 소그룹은 개별 삭제 대상이 아닙니다.
+      {effBasis === 'connectivity' && hasOthers && (
+        <ManagerRow
+          color={groupColorCss(maxIndividual, displayCount)}
+          label={`기타 (${connGroups.length - maxIndividual}개)`}
+          sub="소그룹 묶음 — 개별 삭제 불가"
+          visible={groupFilters['others'] !== false}
+          pending={false}
+          onToggleVisible={() => toggleGroupFilter(activeViewportId, 'others')}
+          onSolo={() => soloGroup(activeViewportId, 'others', connGroups, maxIndividual)}
+          onDelete={null}
+        />
+      )}
+
+      {/* 부재 종류 기준 */}
+      {effBasis === 'category' && categoryGroups.map((c) => {
+        const intent = intents.find(it => it.kind === 'deleteCategory' && it.params?.category === c.key)
+        const visible = layers[c.layerKey] !== false
+        return (
+          <ManagerRow
+            key={c.key}
+            color={c.color}
+            label={c.label}
+            sub={`${c.elemCount}개 요소 / ${c.nodeCount}개 노드`}
+            visible={visible}
+            pending={!!intent}
+            onToggleVisible={() => setLayer(c.layerKey, !visible)}
+            onSolo={() => {
+              setLayer('structure', c.key === 'Structure')
+              setLayer('pipe',      c.key === 'Pipe')
+            }}
+            onDelete={() => {
+              if (intent) { removeIntent(intent.id); return }
+              if (!window.confirm(`${c.label} 부재 ${c.elemCount}개를 모두 삭제 의도에 추가합니다.\n적용 전까지는 미리보기이며 언제든 취소할 수 있습니다.\n\n진행할까요?`)) return
+              addIntent({ kind: 'deleteCategory', params: { category: c.key, elementCount: c.elemCount } })
+            }}
+          />
+        )
+      })}
+    </div>
+  )
+}
+
+// 기준 선택 버튼 (연결 그룹 / 부재 종류)
+function BasisBtn({ active, disabled, onClick, children }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      style={{
+        flex: 1, padding: '4px 4px',
+        background: active ? 'rgba(70,130,180,0.22)' : 'transparent',
+        color: disabled ? '#3a3a50' : active ? '#cfe4f5' : '#7a8aaa',
+        border: `1px solid ${active ? '#2e5a7a' : '#2a2a44'}`,
+        borderRadius: 5, fontSize: 9.5, fontWeight: 700,
+        cursor: disabled ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap',
+      }}
+    >{children}</button>
+  )
+}
+
+// 그룹 1행 — 색 점 + 라벨/카운트 + (확인·단독·삭제) 액션
+function ManagerRow({ color, label, sub, visible, pending, onToggleVisible, onSolo, onDelete }) {
+  return (
+    <div style={{
+      display: 'flex', flexDirection: 'column', gap: 4,
+      padding: '5px 6px',
+      background: 'rgba(255,255,255,0.015)',
+      border: '1px solid #1d1d34', borderRadius: 5,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <span style={{
+          width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
+          background: pending ? '#FF6B6B' : (visible ? color : '#2a2a3a'),
+          boxShadow: (!pending && visible) ? `0 0 5px ${color}aa` : 'none',
+        }} />
+        <div style={{ flex: 1, minWidth: 0, opacity: pending ? 0.55 : 1 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: pending ? '#FFB3B3' : '#cdd8e8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {label}{pending && <span style={{ fontWeight: 600 }}> · 삭제 예정</span>}
+          </div>
+          <div style={{ fontSize: 9, color: '#60708a' }}>{sub}</div>
         </div>
+      </div>
+      <div style={{ display: 'flex', gap: 4 }}>
+        <ManagerBtn active={visible} onClick={onToggleVisible} title={visible ? '숨기기' : '표시'}>
+          {visible ? <Eye size={11} /> : <EyeOff size={11} />}<span>확인</span>
+        </ManagerBtn>
+        <ManagerBtn onClick={onSolo} title="이 그룹만 보기 (단독 뷰)">
+          <Crosshair size={11} /><span>단독</span>
+        </ManagerBtn>
+        {onDelete && (
+          <ManagerBtn danger pending={pending} onClick={onDelete} title={pending ? '삭제 의도 취소(복원)' : '삭제 의도 추가'}>
+            {pending ? <RotateCcw size={12} /> : <Trash2 size={12} />}
+          </ManagerBtn>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function ManagerBtn({ children, onClick, title, active, danger, pending }) {
+  const base = {
+    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3,
+    padding: '4px 5px', borderRadius: 5, fontSize: 10, fontWeight: 700,
+    cursor: 'pointer', lineHeight: 1, whiteSpace: 'nowrap',
+  }
+  let style
+  if (danger) {
+    style = pending
+      ? { ...base, width: 30, flexShrink: 0, background: 'rgba(255,107,107,0.18)', color: '#FFB3B3', border: '1px solid rgba(255,107,107,0.55)' }
+      : { ...base, width: 30, flexShrink: 0, background: 'transparent', color: '#9a6a6a', border: '1px solid #3a2a2a' }
+  } else if (active) {
+    style = { ...base, flex: 1, background: 'rgba(70,130,180,0.20)', color: '#cfe4f5', border: '1px solid #2e5a7a' }
+  } else {
+    style = { ...base, flex: 1, background: 'transparent', color: '#7a8aaa', border: '1px solid #2a2a44' }
+  }
+  return <button type="button" onClick={onClick} title={title} style={style}>{children}</button>
+}
+
+// ── 선택된 부재 삭제 ─────────────────────────────────────────────────────
+// 우측 인스펙터를 정보 전용으로 바꾸면서, 부재 삭제 액션은 좌측 Edit 패널에서 수행한다.
+// 3D 뷰포트에서 부재를 클릭하면 노출된다.
+function PickedElementDeleteSection({ pickedEntity, lastStage, intents, addIntent, removeIntent }) {
+  const id = pickedEntity.id
+  const existing = intents.find(i => i.kind === 'deleteElement' && i.params?.elementId === id)
+
+  // 이미 그룹/부재종류 삭제에 포함된 요소인지
+  const inDeletedSet = (() => {
+    const g = (lastStage?.groups ?? []).find(gr => (gr.elementIds ?? []).includes(id))
+    if (g && intents.some(i => i.kind === 'deleteGroup' && i.params?.groupId === g.id)) return true
+    if (intents.some(i => i.kind === 'deleteCategory' && i.params?.category === pickedEntity.category)) return true
+    return false
+  })()
+
+  const catLabel = pickedEntity.category === 'Structure' ? '구조' : pickedEntity.category === 'Pipe' ? '배관' : (pickedEntity.category ?? '')
+
+  return (
+    <div style={{
+      display: 'flex', flexDirection: 'column', gap: 5,
+      padding: '6px 8px',
+      background: 'rgba(70,130,180,0.10)',
+      border: '1px solid rgba(70,130,180,0.45)',
+      borderRadius: 5,
+    }}>
+      <div style={{ fontSize: 10, color: '#9fc8e8', fontWeight: 700 }}>
+        선택된 부재 #{id}{catLabel && <span style={{ color: '#7a8aaa', fontWeight: 600 }}> · {catLabel}</span>}
+      </div>
+      {inDeletedSet ? (
+        <div style={{ fontSize: 10, color: '#9aaad0', lineHeight: 1.4 }}>
+          이 부재가 속한 그룹/종류가 이미 삭제 예정입니다.
+        </div>
+      ) : existing ? (
+        <button
+          type="button"
+          onClick={() => removeIntent(existing.id)}
+          title="이 부재 삭제 의도 취소"
+          style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+            padding: '5px 9px',
+            background: 'rgba(255,184,0,0.18)', color: '#FFE6A8',
+            border: '1px solid rgba(255,184,0,0.6)', borderRadius: 5,
+            fontSize: 10, fontWeight: 700, cursor: 'pointer',
+          }}
+        ><X size={11} /> 삭제 의도 취소</button>
+      ) : (
+        <button
+          type="button"
+          onClick={() => addIntent({
+            kind: 'deleteElement',
+            params: {
+              elementId: id,
+              category:  pickedEntity.category,
+              startNode: pickedEntity.startNode,
+              endNode:   pickedEntity.endNode,
+            },
+          })}
+          title="이 부재를 삭제 의도에 추가"
+          style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+            padding: '5px 9px',
+            background: 'rgba(192,74,74,0.16)', color: '#e88a8a',
+            border: '1px solid rgba(192,74,74,0.5)', borderRadius: 5,
+            fontSize: 10, fontWeight: 700, cursor: 'pointer',
+          }}
+        ><Trash2 size={11} /> 이 부재 삭제</button>
       )}
     </div>
   )
@@ -513,15 +757,15 @@ function EmptyStateGuide({ hasSelection }) {
       </div>
       <ol style={{ margin: 0, paddingLeft: 16, display: 'flex', flexDirection: 'column', gap: 5 }}>
         <li>
-          <span style={{ color: '#FF6B6B', fontWeight: 700 }}>그룹 삭제</span>
-          : 위 <strong>그룹 삭제</strong> 목록에서 각 그룹의 휴지통 아이콘
+          <span style={{ color: '#7ab2d4', fontWeight: 700 }}>그룹 관리</span>
+          : 위 <strong>그룹 관리</strong>에서 연결 그룹/부재 종류를 전환하고 각 그룹을 확인·단독 뷰·삭제
         </li>
         <li>
-          <span style={{ color: '#e88a8a', fontWeight: 700 }}>요소 삭제</span>
-          : 3D 뷰포트에서 요소 클릭 → <strong>Del</strong> 키 또는 Inspector 버튼
+          <span style={{ color: '#e88a8a', fontWeight: 700 }}>부재 삭제</span>
+          : 3D 뷰포트에서 부재 클릭 → 위 <strong>선택된 부재</strong> 삭제 버튼 또는 <strong>Del</strong> 키
           <br />
           <span style={{ color: '#FF6B35', fontWeight: 600 }}>다중 삭제</span>
-          : <strong>Ctrl + 클릭</strong>으로 요소 여러 개 선택 후 일괄 추가
+          : <strong>Ctrl + 클릭</strong>으로 부재 여러 개 선택 후 일괄 추가
         </li>
         <li>
           <span style={{ color: '#FFB800', fontWeight: 700 }}>Rigid 만들기</span>

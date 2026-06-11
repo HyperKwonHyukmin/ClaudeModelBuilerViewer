@@ -6,7 +6,7 @@
  *
  *   {
  *     id:          string                       // 고유 ID (crypto.randomUUID() 권장)
- *     kind:        'addRigid' | 'deleteGroup' | 'deleteElement' | 'deleteOrphanNodes'
+ *     kind:        'addRigid' | 'deleteGroup' | 'deleteElement' | 'deleteCategory' | 'deleteOrphanNodes'
  *     createdAt:   string                       // ISO 8601
  *     params:      object                       // kind 별 스키마
  *     validation:  { status, warnings, errors } // 추가 시점 검증 결과
@@ -20,7 +20,7 @@
 
 export const EDIT_INTENT_SCHEMA_VERSION = '1.0'
 
-const VALID_KINDS = new Set(['addRigid', 'deleteGroup', 'deleteElement', 'deleteOrphanNodes'])
+const VALID_KINDS = new Set(['addRigid', 'deleteGroup', 'deleteElement', 'deleteCategory', 'deleteOrphanNodes'])
 
 /**
  * 새 EditIntent 1건을 만든다 (검증은 별도, validateIntent 호출 후 합치기).
@@ -62,6 +62,8 @@ export function validateIntent(intent, stageData, existingIntents = []) {
     validateDeleteGroup(intent.params, stageData, existingIntents, errors, warnings)
   } else if (intent.kind === 'deleteElement') {
     validateDeleteElement(intent.params, stageData, existingIntents, errors, warnings)
+  } else if (intent.kind === 'deleteCategory') {
+    validateDeleteCategory(intent.params, stageData, existingIntents, errors, warnings)
   } else if (intent.kind === 'deleteOrphanNodes') {
     validateDeleteOrphanNodes(intent.params, stageData, existingIntents, errors, warnings)
   } else {
@@ -250,6 +252,12 @@ export function summarizeIntent(intent) {
     const ends = (startNode != null && endNode != null) ? ` (N${startNode}↔N${endNode})` : ''
     return `요소 #${elementId} 삭제${cat}${ends}`
   }
+  if (intent.kind === 'deleteCategory') {
+    const { category, elementCount } = intent.params ?? {}
+    const label = category === 'Structure' ? '구조' : category === 'Pipe' ? '배관' : category
+    const cnt = elementCount != null ? ` (${elementCount}개 요소)` : ''
+    return `${label} 부재 일괄 삭제${cnt}`
+  }
   if (intent.kind === 'deleteOrphanNodes') {
     const ids = Array.isArray(intent.params?.nodeIds) ? intent.params.nodeIds : []
     const head = ids.slice(0, 4).join(',')
@@ -297,6 +305,37 @@ function validateDeleteElement(params, stageData, existingIntents, errors, warni
       if (groupWillBeDeleted) {
         warnings.push(`요소 #${elementId} 가 속한 그룹 #${containingGroup.id} 가 이미 삭제 예정입니다.`)
       }
+    }
+  }
+}
+
+// 부재 종류(구조/배관) 일괄 삭제 — 해당 category 의 BEAM 요소를 통째로 제거한다.
+// 연결 그룹이 1개로 합쳐진 모델에서 구조/배관 단위로 정리할 수 있게 하는 진입점.
+const DELETABLE_CATEGORIES = new Set(['Structure', 'Pipe'])
+
+function validateDeleteCategory(params, stageData, existingIntents, errors, warnings) {
+  const category = params?.category
+
+  if (!DELETABLE_CATEGORIES.has(category)) {
+    errors.push(`삭제 가능한 부재 종류가 아닙니다: ${category} (Structure | Pipe)`)
+    return
+  }
+
+  if (stageData?.elements) {
+    const count = stageData.elements.filter(e => e.type === 'BEAM' && e.category === category).length
+    if (count === 0) {
+      errors.push(`${category} 종류의 BEAM 요소가 없습니다.`)
+    } else {
+      warnings.push(`${category} 부재 ${count}개를 통째로 삭제합니다. 적용 전까지는 미리보기이며 좌측에서 취소할 수 있습니다.`)
+    }
+  }
+
+  // 같은 종류를 두 번 삭제하려는 경우
+  for (const ex of existingIntents) {
+    if (ex.kind !== 'deleteCategory') continue
+    if (ex.params?.category === category) {
+      errors.push(`${category} 부재 삭제 intent 가 이미 추가되어 있습니다.`)
+      break
     }
   }
 }
