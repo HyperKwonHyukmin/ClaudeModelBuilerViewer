@@ -22,8 +22,8 @@ const LAYER_DEFS = [
 ]
 
 const MIN_WIDTH = 130
-const MAX_WIDTH = 320
-const DEFAULT_WIDTH = 190
+const MAX_WIDTH = 360
+const DEFAULT_WIDTH = 228   // 좌측 패널 기본 폭 (이전 190 → +20%)
 
 export default function Sidebar() {
   const { loading, error, loadStages, loadSummary, stages, reset: resetStages } = useStageStore()

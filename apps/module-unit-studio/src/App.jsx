@@ -2,7 +2,6 @@ import { useEffect } from 'react'
 import TopMenuBar from './components/TopMenuBar.jsx'
 import LeftDock from './components/LeftDock.jsx'
 import ViewportContainer from './components/ViewportContainer.jsx'
-import InspectorPanel from './components/InspectorPanel.jsx'
 import BottomReviewDock from './components/BottomReviewDock.jsx'
 import UnitStructuralResultDock from './components/UnitStructuralResultDock.jsx'
 import { useStageStore } from './store/useStageStore.js'
@@ -60,11 +59,12 @@ export default function App() {
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         <LeftDock />
         <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
+          {/* 우측 인스펙터(InspectorPanel)는 dock 컬럼에서 빠지고 ViewportContainer 내부의
+              뷰포트 위 floating 정보 창으로 이동했다 — 뷰어가 가로 전폭을 사용한다. */}
           <ViewportContainer />
           <UnitStructuralResultDock />
           <BottomReviewDock />
         </div>
-        <InspectorPanel />
       </div>
     </div>
   )

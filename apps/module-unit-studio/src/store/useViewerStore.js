@@ -22,8 +22,8 @@ const DEFAULT_VP_COLOR = {
 // UnitStructuralResultDock 가 Sidebar/InspectorPanel 폭에 동적으로 맞춰 좌·우를 비우기 위해
 // 두 패널이 자기 현재 폭을 여기에 publish 한다.
 const DEFAULT_LAYOUT_BOUNDS = {
-  sidebarWidth: 190,    // Sidebar.jsx DEFAULT_WIDTH 와 동일
-  inspectorWidth: 20,   // InspectorPanel collapsed 폭 (펼치면 300+)
+  sidebarWidth: 228,    // Sidebar.jsx DEFAULT_WIDTH 와 동일 (이전 190 → +20%)
+  inspectorWidth: 0,    // 우측 인스펙터는 뷰포트 위 floating 으로 전환 — 더 이상 dock 폭을 차지하지 않는다.
 }
 
 let nextId = 1

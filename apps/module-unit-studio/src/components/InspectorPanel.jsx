@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
-import { Crosshair, Eye, EyeOff, X } from 'lucide-react'
+import { Crosshair, Eye, EyeOff, X, Info } from 'lucide-react'
 import { useStageStore } from '../store/useStageStore.js'
 import { useViewerStore } from '../store/useViewerStore.js'
 import { useEditStore } from '../store/useEditStore.js'
@@ -13,9 +13,10 @@ const MAX_WIDTH = 600
 const DEFAULT_WIDTH = 300
 
 export default function InspectorPanel() {
-  // 초기 진입 시에는 인스펙터가 필요한 단계가 아니므로 닫힌 채로 시작.
-  // 사용자가 우측 화살표를 클릭하거나 편집 탭을 활성화하면 펼쳐진다.
-  const [collapsed, setCollapsed] = useState(true)
+  // 우측 인스펙터는 더 이상 dock 컬럼이 아니라 3D 뷰포트 위에 떠 있는 floating 정보 창이다.
+  // 부재/노드/질량/RBE 를 선택하면 자동으로 열리고, 닫으면 우상단의 작은 "정보" 런처 버튼만 남는다.
+  // (좌측 Edit 패널이 모든 편집을 담당하므로 이 창은 읽기 전용 정보 표시에 집중한다.)
+  const [open, setOpen] = useState(false)
   const [width, setWidth] = useState(DEFAULT_WIDTH)
   const dragRef = useRef(null)
 
@@ -28,21 +29,13 @@ export default function InspectorPanel() {
     inspectorTab: tab, setInspectorTab: setTab,
   } = useViewerStore()
 
-  // dock 가 우측 영역을 비우도록 useViewerStore 에 현재 폭을 publish
-  const publishInspectorWidth = useViewerStore(s => s.setInspectorWidth)
+  // 엔티티(부재/노드/질량/RBE)를 선택하면 정보 창을 자동으로 띄워 상세 정보가 즉시 보이게 한다.
   useEffect(() => {
-    publishInspectorWidth(collapsed ? 20 : width)
-  }, [collapsed, width, publishInspectorWidth])
-
-  // entity 가 선택되면 패널을 자동으로 펼쳐 상세 정보가 즉시 보이게 한다.
-  useEffect(() => {
-    if (pickedEntity) setCollapsed(false)
+    if (pickedEntity) setOpen(true)
   }, [pickedEntity])
 
-  const activeVp = viewports.find(v => v.id === activeViewportId)
-  const stage = activeVp ? stages[activeVp.stageIndex] : null
-
-  // ── Resize drag ───────────────────────────────────────────────────────
+  // ── Resize drag — 왼쪽 가장자리를 끌면 폭이 넓어진다 ───────────────────
+  // floating 창이라 dock 폭(layoutBounds.inspectorWidth)을 publish 할 필요가 없다.
   const onDragMouseDown = useCallback((e) => {
     e.preventDefault()
     const startX = e.clientX
@@ -60,23 +53,46 @@ export default function InspectorPanel() {
     window.addEventListener('mouseup', onUp)
   }, [width])
 
-  // ── Collapsed: just show a thin toggle strip ──────────────────────────
-  if (collapsed) {
+  const activeVp = viewports.find(v => v.id === activeViewportId)
+  const stage = activeVp ? stages[activeVp.stageIndex] : null
+
+  // 파일 미로드 시 런처/창 모두 표시하지 않는다.
+  if (!stage) return null
+
+  // ── 닫힘: 뷰포트 우상단에 작은 "정보" 런처 버튼만 표시 ─────────────────
+  if (!open) {
     return (
-      <div style={{
-        width: 20, flexShrink: 0,
-        background: '#0e0e20', borderLeft: '1px solid #2a2a4a',
-        display: 'flex', flexDirection: 'column', alignItems: 'center',
-        paddingTop: 8, cursor: 'pointer', userSelect: 'none',
-      }} onClick={() => setCollapsed(false)} title="패널 열기">
-        <span style={{ color: '#4682B4', fontSize: 12, writingMode: 'vertical-rl', letterSpacing: 1 }}>◀</span>
-      </div>
+      <button
+        onClick={() => setOpen(true)}
+        title="정보 패널 열기 (부재/노드 선택 시 자동으로 열립니다)"
+        style={{
+          position: 'absolute', top: 8, right: 8, zIndex: 26,
+          display: 'inline-flex', alignItems: 'center', gap: 5,
+          padding: '6px 10px', borderRadius: 7,
+          background: 'rgba(18,18,42,0.92)', color: '#9fc8e8',
+          border: '1px solid #2a3a5a', cursor: 'pointer',
+          fontSize: 11, fontWeight: 700, letterSpacing: 0.3,
+          boxShadow: '0 2px 10px rgba(0,0,0,0.35)',
+          backdropFilter: 'blur(2px)',
+        }}
+      >
+        <Info size={13} /> 정보
+      </button>
     )
   }
 
-  // ── Expanded panel ────────────────────────────────────────────────────
+  // ── 열림: 뷰포트 위에 떠 있는 floating 정보 창 ────────────────────────
+  // ViewportContainer 의 position:relative 루트 기준으로 우상단에 배치된다.
+  // 하단 우측 MassSummaryOverlay 와 겹치지 않도록 maxHeight 로 높이를 제한한다.
   return (
-    <div style={{ width, flexShrink: 0, display: 'flex', position: 'relative' }}>
+    <div style={{
+      position: 'absolute', top: 8, right: 8, zIndex: 26,
+      width, maxHeight: 'calc(100% - 86px)',
+      display: 'flex',
+      borderRadius: 8, overflow: 'hidden',
+      boxShadow: '0 8px 28px rgba(0,0,0,0.45)',
+      border: '1px solid #2a2a4a',
+    }}>
       {/* Drag handle — left edge */}
       <div
         ref={dragRef}
@@ -91,8 +107,8 @@ export default function InspectorPanel() {
       />
 
       {/* Panel body */}
-      <div style={{ flex: 1, background: '#12122a', borderLeft: '1px solid #2a2a4a', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        {/* Tab bar + collapse button */}
+      <div style={{ flex: 1, background: '#12122a', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        {/* Tab bar + close button */}
         <div style={{ display: 'flex', borderBottom: '1px solid #2a2a4a', flexShrink: 0 }}>
           <div style={{ display: 'flex', flex: 1, overflowX: 'hidden' }}>
             {TABS.map(t => (
@@ -102,13 +118,13 @@ export default function InspectorPanel() {
             ))}
           </div>
           <button
-            onClick={() => setCollapsed(true)}
-            title="패널 닫기"
-            style={{ padding: '0 8px', background: 'transparent', border: 'none', color: '#444', cursor: 'pointer', fontSize: 12, flexShrink: 0 }}
-          >▶</button>
+            onClick={() => setOpen(false)}
+            title="정보 패널 닫기"
+            style={{ padding: '0 9px', background: 'transparent', border: 'none', color: '#667', cursor: 'pointer', flexShrink: 0, display: 'flex', alignItems: 'center' }}
+          ><X size={13} /></button>
         </div>
 
-        {stage && pickedEntity && (
+        {pickedEntity && (
           <div style={{
             flexShrink: 0,
             padding: '10px 12px 0',
@@ -128,11 +144,10 @@ export default function InspectorPanel() {
 
         {/* Tab content */}
         <div style={{ flex: 1, overflow: 'auto', padding: '10px 12px' }}>
-          {!stage && <p style={{ color: '#444', fontSize: 12, textAlign: 'center', paddingTop: 40 }}>파일을 로드하세요</p>}
-          {stage && tab === '메타' && <MetaTab stage={stage} />}
-          {stage && tab === '모델지표' && <HealthTab stage={stage} />}
-          {stage && tab === '연결성' && <ConnectivityTab stage={stage} />}
-          {stage && tab === '진단' && <DiagnosticsTab stage={stage} setPickedEntity={setPickedEntity} focusPickedEntity={focusPickedEntity} />}
+          {tab === '메타' && <MetaTab stage={stage} />}
+          {tab === '모델지표' && <HealthTab stage={stage} />}
+          {tab === '연결성' && <ConnectivityTab stage={stage} />}
+          {tab === '진단' && <DiagnosticsTab stage={stage} setPickedEntity={setPickedEntity} focusPickedEntity={focusPickedEntity} />}
         </div>
       </div>
     </div>

@@ -55,7 +55,7 @@ export default function AnalyzePanel() {
 
   return (
     <div style={{
-      width: 190,
+      width: 228,
       flexShrink: 0,
       position: 'relative',
       background: '#0b0b1e',

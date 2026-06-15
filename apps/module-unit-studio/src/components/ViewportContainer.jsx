@@ -3,6 +3,7 @@ import { useViewerStore } from '../store/useViewerStore.js'
 import { useStageStore } from '../store/useStageStore.js'
 import { useStabilityStore } from '../store/useStabilityStore.js'
 import ThreeViewport from './ThreeViewport.jsx'
+import InspectorPanel from './InspectorPanel.jsx'
 import PickTooltip from './PickTooltip.jsx'
 import EditModeWatermark from './EditModeWatermark.jsx'
 import MassSummaryOverlay from './MassSummaryOverlay.jsx'
@@ -192,6 +193,10 @@ export default function ViewportContainer() {
       {/* Unit 구조 해석 패널 — 전체 화면 단위로 단 1개만 렌더 (multi-viewport 분할에 영향 안 받음).
           mainStageReady = 마지막 stage 가 로드된 시점 = 자세안정성 평가 가능 시점. */}
       {stages.length > 0 && <UnitStructuralPanel />}
+
+      {/* 우측 정보 인스펙터 — 뷰포트 우상단 floating 창. 부재/노드 선택 시 자동으로 열린다.
+          (이전엔 App.jsx 의 우측 dock 컬럼이었으나 뷰어 가로 폭 확보를 위해 floating 으로 이동.) */}
+      <InspectorPanel />
     </div>
   )
 }

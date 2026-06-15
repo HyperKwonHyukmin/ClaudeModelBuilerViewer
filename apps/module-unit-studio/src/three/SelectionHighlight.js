@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 
 const SEL_COLOR = 0x00E5FF   // cyan glow
-const NODE_HL_R = 0.090      // slightly larger than NODE_RADIUS (0.056)
+const NODE_HL_R = 0.065      // slightly larger than NODE_RADIUS (0.056)
 const ELEM_HL_R = 0.042      // slightly thicker than beam radii
 
 const _dummy = new THREE.Object3D()

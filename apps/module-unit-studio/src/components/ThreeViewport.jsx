@@ -11,6 +11,7 @@ import { buildElementsHighlight, buildNodesHighlight, buildMultiSelectionHighlig
 import { buildCenterOfGravityMarker } from '../three/CenterOfGravityMarker.js'
 import { buildHoistGroupHighlight } from '../three/HoistGroupHighlight.js'
 import { buildHoistLevelPlate } from '../three/HoistLevelPlate.js'
+import { buildHoistCandidateNodes } from '../three/HoistCandidateNodes.js'
 import { buildHoistGroupCog } from '../three/HoistGroupCog.js'
 import { buildPipeDiameterOverlay } from '../three/PipeDiameterOverlay.js'
 import { buildPolygonOverlay } from '../three/PolygonOverlay.js'
@@ -125,6 +126,7 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
   const cogRef      = useRef(null)   // 무게중심 마커 (sphere + cross + 라벨)
   const polygonRef  = useRef(null)   // 권상 그룹별 도형(line/triangle/quad) overlay — hoistGroups 직접 파생
   const levelPlateRef = useRef(null) // 권상 그룹별 Z-레벨 가이드 평판 (첫 노드 기준)
+  const candidateNodesRef = useRef(null) // 평판 위/아래 가장 가까운 레벨의 후보 노드 강조
   const groupCogRef   = useRef(null) // 권상 그룹별 도형 무게중심 마커
   const pipeDiamRef   = useRef(null) // 배관 외경 비교 overlay
   const resultWireRef = useRef(null) // 자세안정성 결과 JSON 에서 생성된 최종 wire overlay
@@ -678,6 +680,11 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
       disposeScene(levelPlateRef.current)
       levelPlateRef.current = null
     }
+    if (candidateNodesRef.current) {
+      scene.remove(candidateNodesRef.current)
+      disposeScene(candidateNodesRef.current)
+      candidateNodesRef.current = null
+    }
     if (groupCogRef.current) {
       scene.remove(groupCogRef.current)
       disposeScene(groupCogRef.current)
@@ -1121,6 +1128,30 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
     if (plate.children.length > 0) {
       scene.add(plate)
       levelPlateRef.current = plate
+    }
+    requestRender()
+  }, [hoistGroups, activeHoistGroupId, isEditTargetStage, stageData, renderMode, colorMode, requestRender])
+
+  // ── 평판 위/아래 가장 가까운 레벨의 후보 노드 강조 ──────────────────────
+  // 평판(활성 그룹 첫 노드 Z)을 기준으로 바로 위(주황)·아래(흰색) 레벨의 노드를 강조해
+  // 사용자가 그 후보 중에서 권상점을 고르도록 돕는다. 평판과 같은 dep/조건으로 갱신된다.
+  useEffect(() => {
+    const scene = sceneRef.current
+    if (!scene) return
+    if (candidateNodesRef.current) {
+      scene.remove(candidateNodesRef.current)
+      disposeScene(candidateNodesRef.current)
+      candidateNodesRef.current = null
+    }
+    const activeNodes = hoistGroups?.[activeHoistGroupId] ?? []
+    if (!stageData || !isEditTargetStage || activeNodes.length === 0) {
+      requestRender()
+      return
+    }
+    const candidates = buildHoistCandidateNodes(hoistGroups, stageData, activeHoistGroupId)
+    if (candidates.children.length > 0) {
+      scene.add(candidates)
+      candidateNodesRef.current = candidates
     }
     requestRender()
   }, [hoistGroups, activeHoistGroupId, isEditTargetStage, stageData, renderMode, colorMode, requestRender])
