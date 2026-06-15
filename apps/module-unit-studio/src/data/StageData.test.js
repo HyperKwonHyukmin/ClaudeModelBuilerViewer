@@ -101,6 +101,34 @@ describe('StageData', () => {
       expect(ids.has(6)).toBe(false)   // Structure
     })
 
+    it('getStructureOnlyNodeIds 는 Structure 만 연결된 노드만 반환 (Pipe/RBE/PointMass 공유 노드 제외)', () => {
+      const stage = new StageData(makeJson({
+        nodes: [
+          { id: 1, x: 0, y: 0, z: 0, tags: [] },   // Structure 만 연결
+          { id: 2, x: 1, y: 0, z: 0, tags: [] },   // Structure 만 연결
+          { id: 3, x: 2, y: 0, z: 0, tags: [] },   // Structure + Pipe
+          { id: 4, x: 3, y: 0, z: 0, tags: [] },   // Structure 만 연결되지만 RBE dependent
+          { id: 5, x: 4, y: 0, z: 0, tags: [] },   // Structure 만 연결되지만 PointMass
+          { id: 6, x: 5, y: 0, z: 0, tags: [] },   // Pipe 만
+        ],
+        elements: [
+          { id: 10, type: 'BEAM', startNode: 1, endNode: 2, category: 'Structure', propertyId: 1 },
+          { id: 11, type: 'BEAM', startNode: 2, endNode: 3, category: 'Structure', propertyId: 1 },
+          { id: 12, type: 'BEAM', startNode: 3, endNode: 6, category: 'Pipe',      propertyId: 1 },
+          { id: 13, type: 'BEAM', startNode: 4, endNode: 5, category: 'Structure', propertyId: 1 },
+        ],
+        rigids: [{ id: 100, independentNode: 4, dependentNodes: [], cm: '123456' }],
+        pointMasses: [{ id: 200, nodeId: 5, mass: 1.0, sourceName: 'pm' }],
+      }))
+      const ids = stage.getStructureOnlyNodeIds()
+      expect(ids.has(1)).toBe(true)    // Structure(끝점)
+      expect(ids.has(2)).toBe(true)    // Structure 만 연결
+      expect(ids.has(3)).toBe(false)   // Structure + Pipe
+      expect(ids.has(4)).toBe(false)   // RBE 가 pin
+      expect(ids.has(5)).toBe(false)   // PointMass 가 pin
+      expect(ids.has(6)).toBe(false)   // Pipe
+    })
+
     it('한 노드가 두 그룹의 교차점이면 두 그룹 모두 반환', () => {
       const stage = new StageData(makeJson())
       stage.finalGroups = [

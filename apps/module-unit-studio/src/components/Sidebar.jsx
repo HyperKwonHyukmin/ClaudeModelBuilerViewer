@@ -1,5 +1,5 @@
 import { useRef, useState, useCallback, useEffect } from 'react'
-import { Box, FileJson, FolderOpen, RotateCcw, Search } from 'lucide-react'
+import { Box, FileJson, FolderOpen, RotateCcw } from 'lucide-react'
 import { useViewerStore } from '../store/useViewerStore.js'
 import LayerPanel from './LayerPanel.jsx'
 import { useStageStore } from '../store/useStageStore.js'
@@ -22,8 +22,8 @@ const LAYER_DEFS = [
 ]
 
 const MIN_WIDTH = 130
-const MAX_WIDTH = 360
-const DEFAULT_WIDTH = 228   // 좌측 패널 기본 폭 (이전 190 → +20%)
+const MAX_WIDTH = 432
+const DEFAULT_WIDTH = 274   // 좌측 패널 기본 폭 (228 → +20%)
 
 export default function Sidebar() {
   const { loading, error, loadStages, loadSummary, stages, reset: resetStages } = useStageStore()
@@ -183,9 +183,6 @@ export default function Sidebar() {
           )}
         </Section>
       )}
-
-      {/* ── 섹션 1.5: ID 검색 (데이터 로드 후만 표시) ─── */}
-      {stages.length > 0 && <SearchSection />}
 
       {/* ── 섹션 3: 렌더 ─────────────────────────────── */}
       <Section label="렌더">
@@ -408,128 +405,4 @@ function StatusText({ color, children }) {
   )
 }
 
-// ── ID 검색 ─────────────────────────────────────────────────────────────
-//
-// 입력 형식:
-//   "1234"        → auto: 요소 → 노드 → RBE 우선순위로 탐색
-//   "E1234"       → 요소 ID 전용 (대소문자 무관, "#" 구분자 허용: "E#1234")
-//   "N1234"       → 노드 ID 전용
-//   "R1234" / "RBE1234" → RBE ID 전용
-//
-// 동작: 마지막 stage 기준으로 검색 → setPickedEntity + focusPickedEntity (3D 카메라 이동).
-//       해당 ID 가 마지막 stage 에 없으면 "찾을 수 없음" 메시지.
-function SearchSection() {
-  const [input, setInput] = useState('')
-  const [feedback, setFeedback] = useState(null)
-  const stages = useStageStore(s => s.stages)
-  const setPickedEntity = useViewerStore(s => s.setPickedEntity)
-  const focusPickedEntity = useViewerStore(s => s.focusPickedEntity)
-
-  const handleSearch = () => {
-    const text = input.trim()
-    if (!text) { setFeedback(null); return }
-    if (stages.length === 0) {
-      setFeedback({ type: 'error', text: '먼저 데이터를 로드하세요' })
-      return
-    }
-    const parsed = parseSearchInput(text)
-    if (!parsed) {
-      setFeedback({ type: 'error', text: '형식 오류 (예: 1234, E1234, N5678, R10)' })
-      return
-    }
-    const stage = stages[stages.length - 1]
-    const found = findEntityById(stage, parsed)
-    if (!found) {
-      const label = parsed.type === 'auto' ? '#' : `${labelOf(parsed.type)}#`
-      setFeedback({ type: 'error', text: `${label}${parsed.id} 찾을 수 없음` })
-      return
-    }
-    setPickedEntity(found.entity)
-    setTimeout(focusPickedEntity, 0)
-    setFeedback({ type: 'ok', text: `${found.label}#${parsed.id} 선택됨` })
-  }
-
-  return (
-    <Section label="검색">
-      <input
-        value={input}
-        onChange={(e) => setInput(e.target.value)}
-        onKeyDown={(e) => { if (e.key === 'Enter') handleSearch() }}
-        placeholder="ID (예: E1234, N5678, R10)"
-        style={{
-          width: '100%', boxSizing: 'border-box',
-          background: '#0f0f22',
-          border: '1px solid #2e2e50',
-          borderRadius: 6,
-          padding: '6px 9px',
-          fontSize: 11, fontWeight: 500,
-          color: '#ccd8e8',
-          outline: 'none',
-          fontFamily: 'inherit',
-        }}
-        onFocus={(e) => { e.currentTarget.style.borderColor = '#4a8cc488' }}
-        onBlur={(e)  => { e.currentTarget.style.borderColor = '#2e2e50' }}
-      />
-      <SideBtn onClick={handleSearch} disabled={!input.trim()} accent="#4a8cc4">
-        <Search size={13} /> 찾기
-      </SideBtn>
-      {feedback && (
-        <StatusText color={feedback.type === 'ok' ? '#6ac58f' : '#FF5566'}>
-          {feedback.text}
-        </StatusText>
-      )}
-    </Section>
-  )
-}
-
-function parseSearchInput(s) {
-  // RBE 접두사 (longest match) 우선
-  const mRbe = /^rbe\s*#?\s*(\d+)$/i.exec(s)
-  if (mRbe) return { type: 'rigid', id: parseInt(mRbe[1], 10) }
-  // E / N / R 단일 문자 접두사
-  const m = /^([enr])\s*#?\s*(\d+)$/i.exec(s)
-  if (m) {
-    const t = m[1].toLowerCase()
-    return {
-      type: t === 'e' ? 'element' : t === 'n' ? 'node' : 'rigid',
-      id: parseInt(m[2], 10),
-    }
-  }
-  // 숫자만 → 자동 탐색
-  if (/^\d+$/.test(s)) return { type: 'auto', id: parseInt(s, 10) }
-  return null
-}
-
-function labelOf(type) {
-  return type === 'element' ? 'E' : type === 'node' ? 'N' : 'RBE'
-}
-
-function findEntityById(stage, parsed) {
-  const tryElement = () => {
-    const e = stage.elements?.find(x => x.id === parsed.id)
-    if (!e) return null
-    return {
-      label: 'E',
-      entity: { type: 'element', id: e.id, category: e.category, startNode: e.startNode, endNode: e.endNode, propertyId: e.propertyId },
-    }
-  }
-  const tryNode = () => {
-    if (!stage.nodeMap?.has(parsed.id)) return null
-    return { label: 'N', entity: { type: 'node', nodeId: parsed.id } }
-  }
-  const tryRigid = () => {
-    const r = stage.rigids?.find(x => x.id === parsed.id)
-    if (!r) return null
-    return {
-      label: 'RBE',
-      entity: { type: 'rigid', id: r.id, independentNode: r.independentNode, dependentNodes: r.dependentNodes ?? [] },
-    }
-  }
-
-  if (parsed.type === 'element') return tryElement()
-  if (parsed.type === 'node')    return tryNode()
-  if (parsed.type === 'rigid')   return tryRigid()
-  // auto — 우선순위: 요소 → 노드 → RBE
-  return tryElement() ?? tryNode() ?? tryRigid()
-}
 
