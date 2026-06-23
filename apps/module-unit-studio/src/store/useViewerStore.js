@@ -35,28 +35,15 @@ const DEFAULT_PICK_FILTERS = {
 
 let nextId = 1
 
-export const useViewerStore = create((set, get) => ({
-  // Viewports: start with one
+export const useViewerStore = create((set) => ({
+  // 단일 뷰포트 — 멀티뷰포트(뷰 추가/삭제·카메라 동기화)는 제거됨.
+  // colorMode/freeNodeFilters/groupFilters 가 이 뷰포트 객체에 묶여 있어 상태 구조는 유지한다.
   viewports: [{ id: nextId++, stageIndex: 0, ...DEFAULT_VP_COLOR }],
 
   // ── 레이아웃 폭 동기화 (Sidebar / InspectorPanel → dock) ──
   layoutBounds: { ...DEFAULT_LAYOUT_BOUNDS },
   setSidebarWidth: (w) => set(s => ({ layoutBounds: { ...s.layoutBounds, sidebarWidth: Math.max(0, w | 0) } })),
   setInspectorWidth: (w) => set(s => ({ layoutBounds: { ...s.layoutBounds, inspectorWidth: Math.max(0, w | 0) } })),
-
-  addViewport: () => {
-    if (get().viewports.length >= 4) return
-    set(s => ({ viewports: [...s.viewports, { id: nextId++, stageIndex: 0, ...DEFAULT_VP_COLOR }] }))
-  },
-
-  removeViewport: (id) => {
-    set(s => {
-      if (s.viewports.length <= 1) return s
-      const viewports = s.viewports.filter(v => v.id !== id)
-      const activeId = s.activeViewportId === id ? viewports[0]?.id : s.activeViewportId
-      return { viewports, activeViewportId: activeId }
-    })
-  },
 
   setViewportStage: (id, stageIndex) => {
     set(s => ({
@@ -154,10 +141,6 @@ export const useViewerStore = create((set, get) => ({
     set(s => ({ pickFilters: { ...s.pickFilters, [key]: !s.pickFilters[key] } }))
   },
 
-  // Camera sync
-  cameraLinked: false,
-  toggleCameraLink: () => set(s => ({ cameraLinked: !s.cameraLinked })),
-
   // Picked entity from raycaster (null = nothing selected)
   pickedEntity: null,
   setPickedEntity: (entity) => set({ pickedEntity: entity }),
@@ -183,7 +166,6 @@ export const useViewerStore = create((set, get) => ({
       layers: { ...DEFAULT_LAYERS },
       displayStyle: 'shaded',
       pickFilters: { ...DEFAULT_PICK_FILTERS },
-      cameraLinked: false,
       pickedEntity: null,
       renderMode: 'cylinder',
       isolateSelection: false,        // 모델 전환 시 격리 모드 잔류로 새 모델이 통째로 은폐되는 버그 방지

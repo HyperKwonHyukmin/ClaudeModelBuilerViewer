@@ -11,7 +11,6 @@ import HoistInstructionOverlay from './HoistInstructionOverlay.jsx'
 import HoistGuideToast from './HoistGuideToast.jsx'
 import StabilityReportPanel from './StabilityReportPanel.jsx'
 import UnitStructuralPanel from './UnitStructuralPanel.jsx'
-import useCameraSync from '../hooks/useCameraSync.js'
 import { getStabilityIssueElementIds } from '../three/StabilityIssueOverlay.js'
 import { useEditStore } from '../store/useEditStore.js'
 
@@ -24,7 +23,7 @@ import { useEditStore } from '../store/useEditStore.js'
  * Each viewport has its own LayerPanel overlay (bottom-left).
  */
 export default function ViewportContainer() {
-  const { viewports, removeViewport, setActiveViewport, setViewportStage, activeViewportId, layers, cameraLinked, setPickedEntity, pickedEntity, focusSelectionRequest, isolateSelection, renderMode, displayStyle, pickFilters, activeMode } = useViewerStore()
+  const { viewports, setActiveViewport, setViewportStage, activeViewportId, layers, setPickedEntity, pickedEntity, focusSelectionRequest, isolateSelection, renderMode, displayStyle, pickFilters, activeMode } = useViewerStore()
   // 권상 픽킹(Shift+Node)·권상 오버레이는 상단 Hoist 탭에서만 활성화한다.
   // (hoistMode 가 설정된 채 다른 탭에서 Shift+클릭하면 권상 픽킹이 Edit 의 다중선택을 가로채는 것을 방지)
   const hoistActive = activeMode === 'hoist'
@@ -39,8 +38,6 @@ export default function ViewportContainer() {
   const handleReady = useCallback((id, api) => {
     viewportApiRefs.current[id] = api
   }, [])
-
-  useCameraSync(viewportApiRefs, cameraLinked, viewports)
 
   const [tooltip, setTooltip] = useState({ pickInfo: null, position: null })
   const [hoverTooltip, setHoverTooltip] = useState({ pickInfo: null, position: null })
@@ -90,10 +87,6 @@ export default function ViewportContainer() {
     }), 0)
   }, [stabilityReport, stages, activeViewportId, setPickedEntity])
 
-  const count = viewports.length
-  const cols = count <= 1 ? 1 : 2
-  const rows = count <= 2 ? 1 : 2
-
   if (stages.length === 0) {
     return (
       <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12, color: '#7a8aaa' }}>
@@ -115,8 +108,8 @@ export default function ViewportContainer() {
       <div style={{
         width: '100%', height: '100%',
         display: 'grid',
-        gridTemplateColumns: `repeat(${cols}, 1fr)`,
-        gridTemplateRows: `repeat(${rows}, 1fr)`,
+        gridTemplateColumns: '1fr',
+        gridTemplateRows: '1fr',
         gap: 2,
       }}>
         {viewports.map((vp) => {
@@ -169,17 +162,6 @@ export default function ViewportContainer() {
                   </span>
                 )}
 
-                {viewports.length > 1 && (
-                  <button
-                    onClick={e => {
-                      e.stopPropagation()
-                      delete viewportApiRefs.current[vp.id]
-                      removeViewport(vp.id)
-                    }}
-                    style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', fontSize: 14, padding: '0 2px', lineHeight: 1 }}
-                    title="뷰포트 닫기"
-                  >×</button>
-                )}
               </div>
 
               {/* Three.js canvas */}
