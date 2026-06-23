@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import { ClipboardList, Loader2, Play, Plus, Trash2, X } from 'lucide-react'
 import {
   useEditStore,
@@ -150,11 +150,15 @@ export default function HoistPositionPanel() {
       gap: 7,
     }}>
       <div style={{ fontSize: 14, color: '#90E8FF', letterSpacing: 0.8, fontWeight: 900 }}>
-        권상 위치 설정
+        권상(Hoisting) 위치 설정
       </div>
-      <div style={{ fontSize: 12, color: '#8fa9bf', lineHeight: 1.45 }}>
-        방식을 선택한 뒤 그룹을 고르고 뷰어에서 Shift + Node 클릭으로 권상 위치를 지정하세요. Hydro 4그룹 / Goliat 3그룹 / 천장 Crane 1그룹(3~4점).
-      </div>
+
+      {/* 진행 로드맵 — 초심자가 "지금 어디까지 했고 다음에 뭘 하는지" 한눈에 보도록 */}
+      <StepFlow mode={mode} groupsValid={allGroupsValid} hasResult={!!stabilityReport} />
+
+      {/* ── STEP 1. 권상 방식 ── */}
+      <StepHeader n={1} title="권상 방식 선택" done={!!mode}
+        desc="크레인/후크 방식을 먼저 고르세요. 방식에 따라 그룹 수와 노드 규칙이 자동으로 정해집니다." />
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
         {HOIST_MODES.map(m => {
@@ -204,6 +208,12 @@ export default function HoistPositionPanel() {
           )
         })}
       </div>
+
+      {/* ── STEP 2. 권상 위치 지정 ── */}
+      <StepHeader n={2} title="권상 위치 지정" done={allGroupsValid} disabled={!mode}
+        desc={mode
+          ? '그룹을 누른 뒤 3D 뷰에서 Shift+노드 클릭으로 권상점을 찍으세요. (민트색 = 같은 높이 후보)'
+          : '먼저 STEP 1에서 권상 방식을 선택하세요.'} />
 
       {Array.from({ length: groupCount }, (_, i) => i + 1).map(id => {
         const nodes = groups[id] ?? []
@@ -376,6 +386,10 @@ export default function HoistPositionPanel() {
           </Tooltip>
         )
       })()}
+
+      {/* ── STEP 3. 옵션 ── */}
+      <StepHeader n={3} title="옵션 (선택 사항)"
+        desc="후보 강조 범위·Wire 길이·배관 외경 기준. 비워두면 자동값으로 진행됩니다." />
 
       {/* 권상 후보 강조 Tolerance — 가상판 ±이 값 이내의 "같은 레벨" 노드를 후보(민트)로 강조 */}
       <div style={{
@@ -606,6 +620,10 @@ export default function HoistPositionPanel() {
         </div>
       </div>
 
+      {/* ── STEP 4. 평가 실행 ── */}
+      <StepHeader n={4} title="자세안정성 평가 실행" done={!!stabilityReport}
+        desc={canRunEvaluation ? '준비 완료 — 아래 버튼으로 평가를 실행하세요.' : 'STEP 1·2를 완료하면 실행할 수 있습니다.'} />
+
       {/* 자세안정성 평가 실행 */}
       <div style={{
         marginTop: 4,
@@ -706,6 +724,61 @@ export default function HoistPositionPanel() {
             </button>
           </Tooltip>
         )}
+      </div>
+    </div>
+  )
+}
+
+// ── 진행 로드맵(미니 스테퍼) — 초심자가 전체 흐름(방식→위치→옵션→실행)을 한눈에 ──
+function StepFlow({ mode, groupsValid, hasResult }) {
+  const steps = [
+    { n: 1, label: '방식', done: !!mode },
+    { n: 2, label: '위치', done: !!mode && groupsValid },
+    { n: 3, label: '옵션', done: false },
+    { n: 4, label: '실행', done: !!hasResult },
+  ]
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 2,
+      padding: '6px 7px', borderRadius: 7,
+      background: '#0e0e22', border: '1px solid #20203a',
+    }}>
+      {steps.map((s, i) => (
+        <Fragment key={s.n}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
+            <span style={{
+              width: 17, height: 17, borderRadius: '50%', flexShrink: 0,
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              background: s.done ? '#1FA86A' : '#16233a',
+              color: s.done ? '#06121e' : '#90E8FF',
+              border: `1px solid ${s.done ? '#2BD380' : '#2a3a55'}`,
+              fontSize: 9.5, fontWeight: 900,
+            }}>{s.done ? '✓' : s.n}</span>
+            <span style={{ fontSize: 9.5, fontWeight: 700, color: s.done ? '#9fe6c2' : '#8fa9bf', whiteSpace: 'nowrap' }}>{s.label}</span>
+          </div>
+          {i < steps.length - 1 && <span style={{ flex: 1, height: 1, background: '#2a2a4a', minWidth: 6 }} />}
+        </Fragment>
+      ))}
+    </div>
+  )
+}
+
+// ── 단계 헤더 — 번호 배지 + 제목 + 한 줄 가이드(초심자 안내) ──
+function StepHeader({ n, title, desc, done = false, disabled = false }) {
+  const accent = done ? '#1FA86A' : disabled ? '#33384a' : '#00D1FF'
+  return (
+    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginTop: 4, opacity: disabled ? 0.6 : 1 }}>
+      <span style={{
+        width: 20, height: 20, borderRadius: '50%', flexShrink: 0,
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        background: done ? '#1FA86A' : 'transparent',
+        color: done ? '#06121e' : accent,
+        border: `1.5px solid ${accent}`,
+        fontSize: 11, fontWeight: 900,
+      }}>{done ? '✓' : n}</span>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 1, minWidth: 0 }}>
+        <span style={{ fontSize: 12, fontWeight: 900, color: done ? '#9fe6c2' : '#e6f1ff', letterSpacing: 0.2 }}>{title}</span>
+        {desc && <span style={{ fontSize: 10, color: '#7a8aaa', lineHeight: 1.4 }}>{desc}</span>}
       </div>
     </div>
   )
