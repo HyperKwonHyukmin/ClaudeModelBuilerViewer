@@ -59,6 +59,7 @@ export default function AnalyzePanel() {
       flexShrink: 0,
       position: 'relative',
       background: '#0b0b1e',
+      borderRight: '1px solid #1e1e38',
       display: 'flex',
       flexDirection: 'column',
       height: '100%',

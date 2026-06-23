@@ -102,11 +102,14 @@ function validateAddRigid(params, stageData, existingIntents, errors, warnings) 
     }
   }
 
-  // cm: 1~6자리 숫자 (선택)
+  // cm: 1~6 중복 없는 숫자 1~6자리 (선택). 예: 123, 26, 123456
   if (params?.cm != null && params.cm !== '') {
     const cm = String(params.cm)
-    if (!/^[1-6]{1,6}$/.test(cm)) {
-      errors.push(`DOF(cm) 형식이 올바르지 않습니다: ${cm} (1~6자리, 각 자리 1~6)`)
+    const cmChars = cm.split('')
+    // 정규식만으로는 '1111' 같은 중복을 통과시켜, CLI apply-edit 가 exit 65 로 전체 실패한다.
+    // C# IsValidCm/NormalizeCm 과 동일하게 각 자리 1~6 + 중복 금지를 함께 검사.
+    if (!/^[1-6]{1,6}$/.test(cm) || new Set(cmChars).size !== cmChars.length) {
+      errors.push(`DOF(cm) 형식이 올바르지 않습니다: ${cm} (1~6 중 중복 없이 입력, 예: 123, 26)`)
     }
   }
 

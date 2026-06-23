@@ -45,7 +45,7 @@ const DAMPING_TAIL = 800  // ms to keep rendering after drag ends (for inertia)
  *
  * Bottom-left corner: live XYZ axes indicator.
  */
-export default function ThreeViewport({ stageData, layers, onReady, onPick, onHover, colorMode = 'category', freeNodeFilters, groupFilters, selectedEntity, isolateSelection = false, renderMode = 'cylinder', isEditTargetStage = true, hoistPickEnabled = false }) {
+export default function ThreeViewport({ stageData, layers, onReady, onPick, onHover, colorMode = 'category', freeNodeFilters, groupFilters, selectedEntity, isolateSelection = false, renderMode = 'cylinder', displayStyle = 'shaded', pickFilters, isEditTargetStage = true, hoistPickEnabled = false }) {
   const [sceneError, setSceneError] = useState(null)
   const containerRef = useRef(null)
   const rendererRef  = useRef(null)
@@ -56,6 +56,7 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
   const axesCamRef   = useRef(null)
   const stageDataRef = useRef(stageData)
   const sceneDataRef = useRef(null)   // { root, layers, pickables }
+  const pickFiltersRef = useRef(pickFilters)
   const renderScheduled = useRef(false)
   const animRafRef   = useRef(null)
   const raycasterRef   = useRef((() => {
@@ -74,6 +75,10 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
   useEffect(() => {
     stageDataRef.current = stageData
   }, [stageData])
+
+  useEffect(() => {
+    pickFiltersRef.current = pickFilters
+  }, [pickFilters])
 
   // ── Edit intents (deleteGroup / addRigid) → derived deleteMask ────────
   // 편집 모드 토글과 무관하게 intents 가 1개 이상이면 미리보기를 항상 적용한다.
@@ -411,15 +416,12 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
       const camDist = camera.position.distanceTo(controlsRef.current?.target ?? new THREE.Vector3())
       raycaster.params.Line.threshold = Math.max(0.05, camDist * 0.01)
 
-      const { structure, pipe, nodes, beams, masses, rigidLines = [] } = sceneDataRef.current.pickables
+      const pickables = sceneDataRef.current.pickables
       const editState = editStateRef.current
       const hoistPickMode = editState.isTarget && editState.hoistPickEnabled && editState.hoistMode && e.shiftKey
       const rigidPickMode = !hoistPickMode && editState.enabled && editState.isTarget && (e.shiftKey || editState.hasPendingNodes)
       const nodeOnlyPickMode = hoistPickMode || rigidPickMode
-      const baseTargets = nodeOnlyPickMode
-        ? [nodes]
-        : (beams ? [...beams, nodes, masses] : [structure, pipe, nodes, masses])
-      const targets = nodeOnlyPickMode ? baseTargets.filter(Boolean) : [...baseTargets, ...rigidLines].filter(Boolean)
+      const targets = getPickTargets(pickables, pickFiltersRef.current, nodeOnlyPickMode)
       // 레이어가 꺼진 객체는 picking 대상에서도 제외 — 화면에 안 보이는 객체를 잘못 집지 않도록.
       // RBE LineSegments 는 'rigids' 그룹 자식이라 그룹의 visible 을 거슬러 올라가 확인.
       const isVisible = (t) => {
@@ -539,9 +541,7 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
       const camDist = camera.position.distanceTo(controlsRef.current?.target ?? new THREE.Vector3())
       raycaster.params.Line.threshold = Math.max(0.05, camDist * 0.01)
 
-      const { structure, pipe, nodes, beams, masses, rigidLines = [] } = sceneDataRef.current.pickables
-      const baseTargets = beams ? [...beams, nodes, masses] : [structure, pipe, nodes, masses]
-      const targets = [...baseTargets, ...rigidLines].filter(Boolean)
+      const targets = getPickTargets(sceneDataRef.current.pickables, pickFiltersRef.current, false)
       const isVisible = (t) => {
         if (t.visible === false) return false
         let p = t.parent
@@ -732,7 +732,7 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
       scene.add(sceneData.root)
       sceneDataRef.current = sceneData
 
-      applyFullVisibility(sceneData, layers, groupFilters, stageData, isolateSelection, selectedElementIdsRef.current, freeNodeFilters, deleteMask, hideNodeIds)
+      applyFullVisibility(sceneData, layers, groupFilters, stageData, isolateSelection, selectedElementIdsRef.current, freeNodeFilters, deleteMask, hideNodeIds, displayStyle)
 
       fitCamera(stageData, cameraRef.current, controlsRef.current)
       // Save state so double-click can restore this exact view
@@ -752,9 +752,9 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
   // ── Layer visibility ─────────────────────────────────────────────────
   useEffect(() => {
     if (!sceneDataRef.current) return
-    applyFullVisibility(sceneDataRef.current, layers, groupFilters, stageData, isolateSelection, selectedElementIdsRef.current, freeNodeFilters, deleteMask, hideNodeIds)
+    applyFullVisibility(sceneDataRef.current, layers, groupFilters, stageData, isolateSelection, selectedElementIdsRef.current, freeNodeFilters, deleteMask, hideNodeIds, displayStyle)
     requestRender()
-  }, [layers, groupFilters, stageData, isolateSelection, selectedEntity, freeNodeFilters, deleteMask, hideNodeIds, requestRender])
+  }, [layers, groupFilters, stageData, isolateSelection, selectedEntity, freeNodeFilters, deleteMask, hideNodeIds, displayStyle, requestRender])
 
   // ── Free Node filters ────────────────────────────────────────────────
   useEffect(() => {
@@ -894,7 +894,7 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
   // ── Group visibility filters ──────────────────────────────────────────
   useEffect(() => {
     if (!sceneDataRef.current || !stageData) return
-    applyFullVisibility(sceneDataRef.current, layers, groupFilters, stageData, isolateSelection, selectedElementIdsRef.current, freeNodeFilters, deleteMask, hideNodeIds)
+    applyFullVisibility(sceneDataRef.current, layers, groupFilters, stageData, isolateSelection, selectedElementIdsRef.current, freeNodeFilters, deleteMask, hideNodeIds, displayStyle)
     requestRender()
   }, [groupFilters, stageData, layers, isolateSelection, selectedEntity, freeNodeFilters, deleteMask, hideNodeIds, requestRender])
 
@@ -1218,7 +1218,7 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
     selectedElementIdsRef.current = new Set()
 
     if (!selectedEntity || !stageData) {
-      if (sceneDataRef.current) applyFullVisibility(sceneDataRef.current, layers, groupFilters, stageData, isolateSelection, selectedElementIdsRef.current, freeNodeFilters, deleteMask, hideNodeIds)
+      if (sceneDataRef.current) applyFullVisibility(sceneDataRef.current, layers, groupFilters, stageData, isolateSelection, selectedElementIdsRef.current, freeNodeFilters, deleteMask, hideNodeIds, displayStyle)
       requestRender()
       return
     }
@@ -1265,9 +1265,9 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
       scene.add(group)
       highlightRef.current = group
     }
-    if (sceneDataRef.current) applyFullVisibility(sceneDataRef.current, layers, groupFilters, stageData, isolateSelection, selectedElementIdsRef.current, freeNodeFilters, deleteMask, hideNodeIds)
+    if (sceneDataRef.current) applyFullVisibility(sceneDataRef.current, layers, groupFilters, stageData, isolateSelection, selectedElementIdsRef.current, freeNodeFilters, deleteMask, hideNodeIds, displayStyle)
     requestRender()
-  }, [selectedEntity, stageData, layers, isolateSelection, requestRender]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedEntity, stageData, layers, isolateSelection, displayStyle, requestRender]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden' }}>
@@ -1295,9 +1295,10 @@ const _pos = new THREE.Vector3()
 const _rot = new THREE.Quaternion()
 const _scl = new THREE.Vector3()
 
-function applyFullVisibility(sceneData, layerState, groupFilters, stageData, isolateSelection, selectedElementIds, freeNodeFilters, deleteMask, hideNodeIds) {
+function applyFullVisibility(sceneData, layerState, groupFilters, stageData, isolateSelection, selectedElementIds, freeNodeFilters, deleteMask, hideNodeIds, displayStyle = 'shaded') {
   if (!sceneData) return
   applyLayers(sceneData.layers, layerState)
+  applyDisplayStyle(sceneData.layers, displayStyle)
   applyGroupFilters(sceneData.pickables, groupFilters, stageData)
   // NodePoints 는 매번 freeNodeFilters 로 복원해야 — applyDeleteMask 가 hide 한 노드를
   // 마스크 해제 시 (편집 모드 OFF 등) 다시 보이게 하려면 이 단계가 필수.
@@ -1308,11 +1309,90 @@ function applyFullVisibility(sceneData, layerState, groupFilters, stageData, iso
   if (deleteMask) applyDeleteMask(sceneData, deleteMask)
 }
 
+function getPickTargets(pickables, pickFilters, forceNodesOnly = false) {
+  if (!pickables) return []
+  const { structure, pipe, nodes, beams, masses, rigidLines = [] } = pickables
+  if (forceNodesOnly) return [nodes].filter(Boolean)
+
+  const allowNode = pickFilters?.node !== false
+  const allowElement = pickFilters?.element !== false
+  const allowRigid = pickFilters?.rigid !== false
+  const allowMass = pickFilters?.mass !== false
+
+  const targets = []
+  if (allowElement) {
+    if (beams) targets.push(...beams)
+    else targets.push(structure, pipe)
+  }
+  if (allowNode) targets.push(nodes)
+  if (allowMass) targets.push(masses)
+  if (allowRigid) targets.push(...rigidLines)
+  return targets.filter(Boolean)
+}
+
 function applyLayers(threeLayerMap, layerState) {
   if (!layerState) return
   for (const key of LAYER_KEYS) {
     if (threeLayerMap[key]) threeLayerMap[key].visible = layerState[key] ?? true
   }
+}
+
+function applyDisplayStyle(threeLayerMap, style) {
+  if (!threeLayerMap) return
+
+  const editableLayers = [
+    threeLayerMap.structure,
+    threeLayerMap.pipe,
+    threeLayerMap.nodes,
+    threeLayerMap.masses,
+  ].filter(Boolean)
+
+  for (const root of editableLayers) {
+    root.traverse?.(obj => {
+      const mats = obj.material ? (Array.isArray(obj.material) ? obj.material : [obj.material]) : []
+      for (const mat of mats) applyMaterialDisplayStyle(mat, style)
+    })
+  }
+
+  if (style === 'nodeOnly') {
+    for (const key of ['structure', 'pipe', 'rigids', 'masses', 'boundaries', 'uboltMarkers', 'uboltDof']) {
+      if (threeLayerMap[key]) threeLayerMap[key].visible = false
+    }
+  }
+}
+
+function applyMaterialDisplayStyle(mat, style) {
+  if (!mat) return
+  if (!mat.userData.viewerOriginalDisplay) {
+    mat.userData.viewerOriginalDisplay = {
+      wireframe: !!mat.wireframe,
+      transparent: !!mat.transparent,
+      opacity: mat.opacity,
+      depthWrite: mat.depthWrite,
+      depthTest: mat.depthTest,
+    }
+  }
+
+  const o = mat.userData.viewerOriginalDisplay
+  mat.wireframe = o.wireframe
+  mat.transparent = o.transparent
+  mat.opacity = o.opacity
+  mat.depthWrite = o.depthWrite
+  mat.depthTest = o.depthTest
+
+  if (style === 'wire') {
+    mat.wireframe = true
+    mat.transparent = false
+    mat.opacity = 1
+    mat.depthWrite = true
+  } else if (style === 'xray') {
+    mat.wireframe = false
+    mat.transparent = true
+    mat.opacity = 0.32
+    mat.depthWrite = false
+    mat.depthTest = true
+  }
+  mat.needsUpdate = true
 }
 
 function applyGroupFilters(pickables, groupFilters, stageData) {

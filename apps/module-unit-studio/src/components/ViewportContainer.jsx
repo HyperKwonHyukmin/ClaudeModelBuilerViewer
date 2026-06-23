@@ -24,7 +24,7 @@ import { useEditStore } from '../store/useEditStore.js'
  * Each viewport has its own LayerPanel overlay (bottom-left).
  */
 export default function ViewportContainer() {
-  const { viewports, removeViewport, setActiveViewport, activeViewportId, layers, cameraLinked, setPickedEntity, pickedEntity, focusSelectionRequest, isolateSelection, renderMode, activeMode } = useViewerStore()
+  const { viewports, removeViewport, setActiveViewport, setViewportStage, activeViewportId, layers, cameraLinked, setPickedEntity, pickedEntity, focusSelectionRequest, isolateSelection, renderMode, displayStyle, pickFilters, activeMode } = useViewerStore()
   // 권상 픽킹(Shift+Node)·권상 오버레이는 상단 Hoist 탭에서만 활성화한다.
   // (hoistMode 가 설정된 채 다른 탭에서 Shift+클릭하면 권상 픽킹이 Edit 의 다중선택을 가로채는 것을 방지)
   const hoistActive = activeMode === 'hoist'
@@ -96,10 +96,10 @@ export default function ViewportContainer() {
 
   if (stages.length === 0) {
     return (
-      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12, color: '#555' }}>
+      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12, color: '#7a8aaa' }}>
         <div style={{ fontSize: 48 }}>🏗️</div>
         <p style={{ fontSize: 15 }}>파이프라인 JSON 파일을 선택하세요</p>
-        <p style={{ fontSize: 12, color: '#444' }}>csv/01/20260424_172924/ 폴더의 JSON 파일들</p>
+        <p style={{ fontSize: 12, color: '#505070' }}>csv/01/20260424_172924/ 폴더의 JSON 파일들</p>
       </div>
     )
   }
@@ -142,8 +142,29 @@ export default function ViewportContainer() {
                 display: 'flex', alignItems: 'center', gap: 8,
                 padding: '3px 8px', background: '#12122a', flexShrink: 0,
               }}>
+                {/* 단계가 2개 이상일 때만 viewport 별 단계 선택 dropdown 노출 (원본↔편집모델 비교 등) */}
+                {stages.length > 1 && (
+                  <select
+                    value={vp.stageIndex}
+                    onClick={e => e.stopPropagation()}
+                    onChange={e => setViewportStage(vp.id, Number(e.target.value))}
+                    style={{
+                      flex: 1, minWidth: 0, fontSize: 10,
+                      background: '#0d0d1a', color: '#9fb4cc',
+                      border: '1px solid #2a2a4a', borderRadius: 4,
+                      padding: '1px 4px', cursor: 'pointer',
+                    }}
+                    title="이 뷰포트에 표시할 단계 선택"
+                  >
+                    {stages.map((s, i) => (
+                      <option key={i} value={i}>
+                        {String(i + 1).padStart(2, '0')} · {s.sourceFileName || `단계 ${i + 1}`}
+                      </option>
+                    ))}
+                  </select>
+                )}
                 {stage && (
-                  <span style={{ flex: 1, fontSize: 10, color: '#555', whiteSpace: 'nowrap' }}>
+                  <span style={{ flex: stages.length > 1 ? '0 0 auto' : 1, fontSize: 10, color: '#555', whiteSpace: 'nowrap' }}>
                     N:{stage.healthMetrics?.totals?.nodeCount?.toLocaleString()} E:{stage.healthMetrics?.totals?.elementCount?.toLocaleString()}
                   </span>
                 )}
@@ -175,6 +196,8 @@ export default function ViewportContainer() {
                   selectedEntity={pickedEntity}
                   isolateSelection={isolateSelection}
                   renderMode={renderMode}
+                  displayStyle={displayStyle}
+                  pickFilters={pickFilters}
                   isEditTargetStage={isEditTargetStage}
                   hoistPickEnabled={hoistActive}
                 />

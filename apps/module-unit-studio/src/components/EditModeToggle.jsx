@@ -85,7 +85,7 @@ export default function EditModeToggle() {
       {showHint && (
         <div style={{
           position: 'fixed',
-          left: 198,
+          left: 282,  // 좌측 편집 도크(EditModePanel) 고정 폭 274 + 8px gap — 도크 옆에 붙임 (이전 198은 구 190px 도크 시절 값)
           top: '50%',
           transform: 'translateY(-50%)',
           width: 218,

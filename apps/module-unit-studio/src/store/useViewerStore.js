@@ -26,6 +26,13 @@ const DEFAULT_LAYOUT_BOUNDS = {
   inspectorWidth: 0,    // 우측 인스펙터는 뷰포트 위 floating 으로 전환 — 더 이상 dock 폭을 차지하지 않는다.
 }
 
+const DEFAULT_PICK_FILTERS = {
+  node: true,
+  element: true,
+  rigid: true,
+  mass: true,
+}
+
 let nextId = 1
 
 export const useViewerStore = create((set, get) => ({
@@ -138,6 +145,15 @@ export const useViewerStore = create((set, get) => ({
     set(s => ({ layers: { ...s.layers, [key]: !!on } }))
   },
 
+  // CAE-style display and picking controls
+  displayStyle: 'shaded', // 'shaded' | 'wire' | 'xray' | 'nodeOnly'
+  setDisplayStyle: (style) => set({ displayStyle: style }),
+
+  pickFilters: { ...DEFAULT_PICK_FILTERS },
+  togglePickFilter: (key) => {
+    set(s => ({ pickFilters: { ...s.pickFilters, [key]: !s.pickFilters[key] } }))
+  },
+
   // Camera sync
   cameraLinked: false,
   toggleCameraLink: () => set(s => ({ cameraLinked: !s.cameraLinked })),
@@ -165,9 +181,13 @@ export const useViewerStore = create((set, get) => ({
       inspectorTab: '메타',
       activeMode: 'model',
       layers: { ...DEFAULT_LAYERS },
+      displayStyle: 'shaded',
+      pickFilters: { ...DEFAULT_PICK_FILTERS },
       cameraLinked: false,
       pickedEntity: null,
       renderMode: 'cylinder',
+      isolateSelection: false,        // 모델 전환 시 격리 모드 잔류로 새 모델이 통째로 은폐되는 버그 방지
+      focusSelectionRequest: 0,       // 포커스 요청 카운터도 새 모델 로드 시 초기화
     })
   },
 }))

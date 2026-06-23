@@ -6,13 +6,13 @@ const _dummy = new THREE.Object3D()
 
 // freeNode 모드 색상
 const COLOR_NORMAL   = new THREE.Color(COLORS.node)   // Shared Node (2+) — 빨강
-const COLOR_FREE_END = new THREE.Color(0xFFDD00)       // Free Node (1 연결) — 노란색
-const COLOR_ORPHAN   = new THREE.Color(0xCC44FF)       // Orphan Node (0 연결) — 보라색
+const COLOR_FREE_END = new THREE.Color(0xF2C94C)       // Free Node (1 연결) — amber
+const COLOR_ORPHAN   = new THREE.Color(0xB46DFF)       // Orphan Node (0 연결) — violet
 
 // 권상 모드에서 RBE 연결 노드(선택 불가)를 시각적으로 미리 표시 — 연한 분홍.
 // 클릭 차단(ThreeViewport.jsx, getRbeConnectedNodeIds)과 짝이 되어
 // 사용자가 시도-에러 없이 선택 가능한 노드를 즉시 구분할 수 있게 한다.
-const COLOR_RBE_HOIST = new THREE.Color(0xFFB6C1)      // 연한 분홍 (light pink)
+const COLOR_RBE_HOIST = new THREE.Color(0xE9A8B8)      // 연한 분홍 (light pink)
 
 /**
  * Builds an InstancedMesh of shaded spheres, one per node.

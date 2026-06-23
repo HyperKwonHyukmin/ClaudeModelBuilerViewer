@@ -27,7 +27,10 @@ export default function App() {
     return () => { cancelled = true }
   }, [])
 
-  // Esc 글로벌 단축키 — 현재 선택된 node/element/rigid/mass + 권상 그룹 노드 모두 해제.
+  // Esc 글로벌 단축키 — 현재 선택된 node/element/rigid/mass 해제 (전 모드 공통).
+  // 권상 그룹 비우기는 파괴적 동작이므로 Hoist 탭(activeMode === 'hoist')에서만 수행한다.
+  // (표준 §16: Esc 같은 단축키는 관련 편집 모드에서만 제한적으로 동작) — 다른 탭에서 Esc 로
+  // 권상 선택이 통째로 날아가던 over-broad 동작을 막는다.
   // 권상 도형(직선/삼각형/사각형) 미리보기는 hoistGroups 에서 파생되므로 그룹을 비우면 자동으로 사라진다.
   // 입력 필드(input/textarea/contenteditable)에 포커스가 있을 때는 무시해 폼 동작과 충돌하지 않도록 함.
   useEffect(() => {
@@ -36,8 +39,10 @@ export default function App() {
       const t = e.target
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
       useViewerStore.getState().clearPickedEntity()
-      const editState = useEditStore.getState()
-      for (const id of [1, 2, 3, 4]) editState.clearHoistGroup(id)
+      if (useViewerStore.getState().activeMode === 'hoist') {
+        const editState = useEditStore.getState()
+        for (const id of [1, 2, 3, 4]) editState.clearHoistGroup(id)
+      }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)

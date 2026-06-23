@@ -1,5 +1,5 @@
 import { useRef, useState, useCallback, useEffect } from 'react'
-import { Box, FileJson, FolderOpen, RotateCcw } from 'lucide-react'
+import { Box, FileJson, FolderOpen, RotateCcw, Plus, Link, MousePointer2 } from 'lucide-react'
 import { useViewerStore } from '../store/useViewerStore.js'
 import LayerPanel from './LayerPanel.jsx'
 import { useStageStore } from '../store/useStageStore.js'
@@ -10,15 +10,29 @@ import { getHost } from '../host/host.js'
 import Tooltip from './Tooltip.jsx'
 
 const LAYER_DEFS = [
-  { key: 'nodes',        label: 'Node',         color: '#FF4455', desc: '모든 노드 점 표시. 배관 토글이 OFF 면 배관 전용 노드는 자동 숨김 (이 토글을 OFF→ON 하면 다시 모두 표시).' },
-  { key: 'structure',    label: '구조',         color: '#5BA8E5', desc: 'Structure 카테고리 BEAM 표시 (보·형강 등 구조 부재).' },
-  { key: 'pipe',         label: '배관',         color: '#FFAA22', desc: 'Pipe 카테고리 BEAM 표시. OFF 시 배관 전용 노드도 함께 숨겨집니다.' },
-  { key: 'rigids',       label: 'RBE',          color: '#FF44FF', desc: 'RBE2 강체 연결 표시 (independent ↔ dependent 라인).' },
-  { key: 'masses',       label: '질량',         color: '#FF99BB', desc: 'CONM2 집중질량 마커 (구슬 형태).' },
-  { key: 'boundaries',   label: '경계조건',     color: '#22DD66', desc: '경계조건 노드 (Boundary 태그) 다이아몬드 마커. 검증 단계에서 사용.' },
+  { key: 'nodes',        label: 'Node',         color: '#E65F6A', desc: '모든 노드 점 표시. 배관 토글이 OFF 면 배관 전용 노드는 자동 숨김 (이 토글을 OFF→ON 하면 다시 모두 표시).' },
+  { key: 'structure',    label: '구조',         color: '#7FB3D5', desc: 'Structure 카테고리 BEAM 표시 (보·형강 등 구조 부재).' },
+  { key: 'pipe',         label: '배관',         color: '#D7A04A', desc: 'Pipe 카테고리 BEAM 표시. OFF 시 배관 전용 노드도 함께 숨겨집니다.' },
+  { key: 'rigids',       label: 'RBE',          color: '#C77DFF', desc: 'RBE2 강체 연결 표시 (independent ↔ dependent 라인).' },
+  { key: 'masses',       label: '질량',         color: '#E59AB3', desc: 'CONM2 집중질량 마커 (구슬 형태).' },
+  { key: 'boundaries',   label: '경계조건',     color: '#5DD39E', desc: '경계조건 노드 (Boundary 태그) 다이아몬드 마커. 검증 단계에서 사용.' },
   { key: 'uboltMarkers', label: 'U-bolt 위치',  color: '#00E5FF', desc: 'U-bolt 위치 마커. 위치 검토 시에만 켜는 것을 권장.' },
   { key: 'uboltDof',     label: 'U-bolt DOF',   color: '#FFE066', desc: 'U-bolt DOF 라벨 오버레이. 자유도 검증 필요할 때만.' },
   { key: 'cog',          label: '무게중심',     color: '#FFD700', desc: '모델 전체 무게중심 (00_StageSummary.json 또는 _COG.json) 표시.' },
+]
+
+const DISPLAY_STYLE_DEFS = [
+  { key: 'shaded',   label: 'Shaded',   desc: '기본 음영 표시' },
+  { key: 'wire',     label: 'Wire',     desc: '부재를 와이어 스타일로 확인' },
+  { key: 'xray',     label: 'X-Ray',    desc: '가려진 연결 관계를 반투명으로 확인' },
+  { key: 'nodeOnly', label: 'Node',     desc: 'Node만 빠르게 검토' },
+]
+
+const PICK_FILTER_DEFS = [
+  { key: 'node',    label: 'Node',    color: '#E65F6A' },
+  { key: 'element', label: 'Element', color: '#7FB3D5' },
+  { key: 'rigid',   label: 'RBE',     color: '#C77DFF' },
+  { key: 'mass',    label: 'Mass',    color: '#E59AB3' },
 ]
 
 const MIN_WIDTH = 130
@@ -29,7 +43,12 @@ export default function Sidebar() {
   const { loading, error, loadStages, loadSummary, stages, reset: resetStages } = useStageStore()
   const {
     activeViewportId,
+    viewports,
+    addViewport,
+    cameraLinked, toggleCameraLink,
     renderMode, setRenderMode,
+    displayStyle, setDisplayStyle,
+    pickFilters, togglePickFilter,
     layers, toggleLayer,
     reset: resetViewer,
   } = useViewerStore()
@@ -143,6 +162,7 @@ export default function Sidebar() {
     <div style={{
       width, flexShrink: 0, position: 'relative',
       background: '#0b0b1e',
+      borderRight: '1px solid #1e1e38',
       display: 'flex', flexDirection: 'column',
       height: '100%',
       overflowY: 'auto', overflowX: 'hidden',
@@ -184,8 +204,44 @@ export default function Sidebar() {
         </Section>
       )}
 
-      {/* ── 섹션 3: 렌더 ─────────────────────────────── */}
-      <Section label="렌더">
+      {/* ── 섹션 2: 뷰포트 ───────────────────────────── */}
+      {stages.length > 0 && (
+        <Section label="뷰포트">
+          <Tooltip placement="right" content={<><strong style={{ color: '#90E8FF' }}>뷰 추가</strong><br/>뷰포트를 하나 더 열어 같은/다른 단계를 나란히 비교합니다. 최대 4개.</>}>
+            <SideBtn onClick={addViewport} disabled={viewports.length >= 4} accent="#2e6a94">
+              <Plus size={14} /> 뷰 추가
+              <span style={{ marginLeft: 'auto', fontSize: 9, fontWeight: 800, color: '#7a8aaa' }}>{viewports.length}/4</span>
+            </SideBtn>
+          </Tooltip>
+          <Tooltip placement="right" content={<><strong style={{ color: '#90E8FF' }}>카메라 동기화</strong><br/>모든 뷰포트의 카메라를 함께 회전·확대합니다.</>}>
+            <span style={{ display: 'flex', width: '100%' }}>
+              <ToggleBtn
+                active={cameraLinked}
+                onClick={toggleCameraLink}
+                activeColor="#2e6a94"
+                label="카메라 동기화"
+                icon={<Link size={13} />}
+              />
+            </span>
+          </Tooltip>
+        </Section>
+      )}
+
+      {/* ── 섹션 3: Display ─────────────────────────── */}
+      <Section label="Display">
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
+          {DISPLAY_STYLE_DEFS.map(({ key, label, desc }) => (
+            <Tooltip key={key} placement="right" content={<><strong style={{ color: '#90E8FF' }}>{label}</strong><br/>{desc}</>}>
+              <button
+                onClick={() => setDisplayStyle(key)}
+                aria-label={`${label} 표시 방식`}
+                style={segBtnStyle(displayStyle === key, '#5f9fc8')}
+              >
+                {label}
+              </button>
+            </Tooltip>
+          ))}
+        </div>
         <Tooltip placement="right" content={<><strong style={{ color: '#FFAA55' }}>3D 단면 렌더링</strong><br/>BEAM 을 단순 cylinder 가 아닌 실제 단면 모양(Bar/Rod/Tube/L/H)으로 렌더링합니다. 비주얼은 무거워지지만 단면 차이를 직관적으로 확인 가능.</>}>
           <span style={{ display: 'flex', width: '100%' }}>
             <ToggleBtn
@@ -199,7 +255,30 @@ export default function Sidebar() {
         </Tooltip>
       </Section>
 
-      {/* ── 섹션 4: 레이어 ───────────────────────────── */}
+      {/* ── 섹션 4: Pick ─────────────────────────────── */}
+      {stages.length > 0 && (
+        <Section label="Pick">
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
+            {PICK_FILTER_DEFS.map(({ key, label, color }) => {
+              const on = pickFilters[key] !== false
+              return (
+                <Tooltip key={key} placement="right" content={<><strong style={{ color }}>{label} 선택 {on ? 'ON' : 'OFF'}</strong><br/>클릭/호버 picking 대상에서 {label}을 {on ? '포함합니다.' : '제외합니다.'}</>}>
+                  <button
+                    onClick={() => togglePickFilter(key)}
+                    aria-label={`${label} 선택 ${on ? '끄기' : '켜기'}`}
+                    style={segBtnStyle(on, color)}
+                  >
+                    <MousePointer2 size={11} />
+                    {label}
+                  </button>
+                </Tooltip>
+              )
+            })}
+          </div>
+        </Section>
+      )}
+
+      {/* ── 섹션 5: 레이어 ───────────────────────────── */}
       <Section label="레이어">
         {LAYER_DEFS.map(({ key, label, color, desc }) => {
           const on = layers[key] ?? true
@@ -247,7 +326,7 @@ export default function Sidebar() {
 
       {/* ── 편집 모드 토글은 Edit 모드 좌측 패널(EditPanelDock)로 이동 ── */}
 
-      {/* ── 섹션 5: 모델 확인 (이전 뷰포트 floating → 사이드바 이동) ──
+      {/* ── 섹션 6: 모델 확인 (이전 뷰포트 floating → 사이드바 이동) ──
           색상 기준(Default/Node Check/Group)·노드/그룹 필터·해석 결과 표시 토글.
           그룹 삭제(휴지통)는 Edit 모드 전용이라 Model 사이드바(여기)에선 표시되지 않고,
           Edit 모드 좌측 패널(EditPanel)의 그룹 삭제 섹션에서 수행한다. */}
@@ -258,6 +337,19 @@ export default function Sidebar() {
           isEditTargetStage
           embedded
         />
+      )}
+
+      {/* ── 섹션 7: 단계 ───────────────────────────── */}
+      {stages.length > 0 && (
+        <Section label="단계">
+          <div style={{
+            background: '#0f0f22', border: '1px solid #2e2e50', borderRadius: 6,
+            padding: '6px 10px', display: 'flex', alignItems: 'baseline', gap: 4,
+          }}>
+            <span style={{ fontSize: 16, fontWeight: 800, color: '#5BA8E5' }}>{stages.length}</span>
+            <span style={{ fontSize: 10, color: '#7a8aaa' }}>개 단계 로드됨</span>
+          </div>
+        </Section>
       )}
 
       {/* ── 초기화 버튼 ─────────── */}
@@ -366,6 +458,23 @@ function SideBtn({ onClick, disabled, accent, children }) {
       {children}
     </button>
   )
+}
+
+function segBtnStyle(active, accent) {
+  return {
+    minWidth: 0,
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4,
+    padding: '6px 4px',
+    background: active ? `${accent}24` : '#0f0f22',
+    color: active ? '#edf6ff' : '#7070a0',
+    border: `1px solid ${active ? accent + 'aa' : '#2e2e50'}`,
+    borderRadius: 6,
+    fontSize: 10,
+    fontWeight: 800,
+    cursor: 'pointer',
+    transition: 'all 0.15s ease',
+    whiteSpace: 'nowrap',
+  }
 }
 
 // ── ON/OFF 토글 버튼 ──────────────────────────────────────────────────────

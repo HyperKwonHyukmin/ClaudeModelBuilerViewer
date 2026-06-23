@@ -126,6 +126,7 @@ export default function HoistPositionPanel() {
       flexShrink: 0,
       position: 'relative',
       background: '#0b0b1e',
+      borderRight: '1px solid #1e1e38',
       height: '100%',
       overflowY: 'auto',
       overflowX: 'hidden',
