@@ -1,5 +1,5 @@
 import { useRef, useState, useCallback, useEffect } from 'react'
-import { Box, FileJson, FolderOpen, RotateCcw, Plus, Link } from 'lucide-react'
+import { FileJson, FolderOpen, RotateCcw } from 'lucide-react'
 import { useViewerStore } from '../store/useViewerStore.js'
 import { useStageStore } from '../store/useStageStore.js'
 import { useEditStore } from '../store/useEditStore.js'
@@ -20,13 +20,6 @@ const LAYER_DEFS = [
   { key: 'cog',          label: '무게중심',     color: '#FFD700', desc: '모델 전체 무게중심 (00_StageSummary.json 또는 _COG.json) 표시.' },
 ]
 
-const DISPLAY_STYLE_DEFS = [
-  { key: 'shaded',   label: 'Shaded',   desc: '기본 음영 표시' },
-  { key: 'wire',     label: 'Wire',     desc: '부재를 와이어 스타일로 확인' },
-  { key: 'xray',     label: 'X-Ray',    desc: '가려진 연결 관계를 반투명으로 확인' },
-  { key: 'nodeOnly', label: 'Node',     desc: 'Node만 빠르게 검토' },
-]
-
 const MIN_WIDTH = 130
 const MAX_WIDTH = 432
 const DEFAULT_WIDTH = 274   // 좌측 패널 기본 폭 (228 → +20%)
@@ -34,11 +27,6 @@ const DEFAULT_WIDTH = 274   // 좌측 패널 기본 폭 (228 → +20%)
 export default function Sidebar() {
   const { loading, error, loadStages, loadSummary, stages, reset: resetStages } = useStageStore()
   const {
-    viewports,
-    addViewport,
-    cameraLinked, toggleCameraLink,
-    renderMode, setRenderMode,
-    displayStyle, setDisplayStyle,
     layers, toggleLayer,
     reset: resetViewer,
   } = useViewerStore()
@@ -192,58 +180,7 @@ export default function Sidebar() {
         </Section>
       )}
 
-      {/* ── 섹션 2: 뷰포트 ───────────────────────────── */}
-      {stages.length > 0 && (
-        <Section label="뷰포트">
-          <Tooltip placement="right" content={<><strong style={{ color: '#90E8FF' }}>뷰 추가</strong><br/>뷰포트를 하나 더 열어 같은/다른 단계를 나란히 비교합니다. 최대 4개.</>}>
-            <SideBtn onClick={addViewport} disabled={viewports.length >= 4} accent="#2e6a94">
-              <Plus size={14} /> 뷰 추가
-              <span style={{ marginLeft: 'auto', fontSize: 9, fontWeight: 800, color: '#7a8aaa' }}>{viewports.length}/4</span>
-            </SideBtn>
-          </Tooltip>
-          <Tooltip placement="right" content={<><strong style={{ color: '#90E8FF' }}>카메라 동기화</strong><br/>모든 뷰포트의 카메라를 함께 회전·확대합니다.</>}>
-            <span style={{ display: 'flex', width: '100%' }}>
-              <ToggleBtn
-                active={cameraLinked}
-                onClick={toggleCameraLink}
-                activeColor="#2e6a94"
-                label="카메라 동기화"
-                icon={<Link size={13} />}
-              />
-            </span>
-          </Tooltip>
-        </Section>
-      )}
-
-      {/* ── 섹션 3: Display ─────────────────────────── */}
-      <Section label="Display">
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
-          {DISPLAY_STYLE_DEFS.map(({ key, label, desc }) => (
-            <Tooltip key={key} placement="right" content={<><strong style={{ color: '#90E8FF' }}>{label}</strong><br/>{desc}</>}>
-              <button
-                onClick={() => setDisplayStyle(key)}
-                aria-label={`${label} 표시 방식`}
-                style={segBtnStyle(displayStyle === key, '#5f9fc8')}
-              >
-                {label}
-              </button>
-            </Tooltip>
-          ))}
-        </div>
-        <Tooltip placement="right" content={<><strong style={{ color: '#FFAA55' }}>3D 단면 렌더링</strong><br/>BEAM 을 단순 cylinder 가 아닌 실제 단면 모양(Bar/Rod/Tube/L/H)으로 렌더링합니다. 비주얼은 무거워지지만 단면 차이를 직관적으로 확인 가능.</>}>
-          <span style={{ display: 'flex', width: '100%' }}>
-            <ToggleBtn
-              active={renderMode === 'section3d'}
-              onClick={() => setRenderMode(renderMode === 'section3d' ? 'cylinder' : 'section3d')}
-              activeColor="#b06828"
-              label="3D 단면"
-              icon={<Box size={13} />}
-            />
-          </span>
-        </Tooltip>
-      </Section>
-
-      {/* ── 섹션 4: 레이어 ───────────────────────────── */}
+      {/* ── 섹션 2: 레이어 ───────────────────────────── */}
       <Section label="레이어">
         {LAYER_DEFS.map(({ key, label, color, desc }) => {
           const on = layers[key] ?? true
@@ -291,19 +228,6 @@ export default function Sidebar() {
 
       {/* ── 편집 모드 토글은 Edit 모드 좌측 패널(EditPanelDock)로 이동 ── */}
       {/* ── 모델 확인(색상 기준·노드/그룹 필터)은 Model Check 리본(ModelCheckPanelDock)으로 분리 ── */}
-
-      {/* ── 섹션 5: 단계 ───────────────────────────── */}
-      {stages.length > 0 && (
-        <Section label="단계">
-          <div style={{
-            background: '#0f0f22', border: '1px solid #2e2e50', borderRadius: 6,
-            padding: '6px 10px', display: 'flex', alignItems: 'baseline', gap: 4,
-          }}>
-            <span style={{ fontSize: 16, fontWeight: 800, color: '#5BA8E5' }}>{stages.length}</span>
-            <span style={{ fontSize: 10, color: '#7a8aaa' }}>개 단계 로드됨</span>
-          </div>
-        </Section>
-      )}
 
       {/* ── 초기화 버튼 ─────────── */}
       <div style={{ padding: '10px 8px', borderBottom: '1px solid #1e1e38' }}>
@@ -409,52 +333,6 @@ function SideBtn({ onClick, disabled, accent, children }) {
       }}
     >
       {children}
-    </button>
-  )
-}
-
-function segBtnStyle(active, accent) {
-  return {
-    minWidth: 0,
-    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4,
-    padding: '6px 4px',
-    background: active ? `${accent}24` : '#0f0f22',
-    color: active ? '#edf6ff' : '#7070a0',
-    border: `1px solid ${active ? accent + 'aa' : '#2e2e50'}`,
-    borderRadius: 6,
-    fontSize: 10,
-    fontWeight: 800,
-    cursor: 'pointer',
-    transition: 'all 0.15s ease',
-    whiteSpace: 'nowrap',
-  }
-}
-
-// ── ON/OFF 토글 버튼 ──────────────────────────────────────────────────────
-
-function ToggleBtn({ active, onClick, activeColor, label, icon }) {
-  return (
-    <button
-      onClick={onClick}
-      style={{
-        display: 'flex', alignItems: 'center', gap: 7,
-        background: active ? `${activeColor}28` : '#0f0f22',
-        color: active ? '#f0f0f0' : '#7070a0',
-        border: `1px solid ${active ? activeColor + 'aa' : '#2e2e50'}`,
-        borderRadius: 6,
-        padding: '7px 10px',
-        fontSize: 11, fontWeight: 600,
-        cursor: 'pointer',
-        transition: 'all 0.15s ease',
-        width: '100%', textAlign: 'left',
-        boxShadow: active ? `0 0 8px ${activeColor}30` : 'none',
-      }}
-    >
-      <span style={{ fontSize: 11, lineHeight: 1 }}>{icon}</span>
-      <span style={{ flex: 1 }}>{label}</span>
-      <span style={{ fontSize: 8, fontWeight: 800, color: active ? activeColor + 'ee' : '#505070' }}>
-        {active ? 'ON' : 'OFF'}
-      </span>
     </button>
   )
 }
