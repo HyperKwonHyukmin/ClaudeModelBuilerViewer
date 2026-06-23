@@ -97,6 +97,7 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
   const addHoistNode           = useEditStore(s => s.addHoistNode)
   const flashHoistGuide        = useEditStore(s => s.flashHoistGuide)
   const pipeDiameterThreshold  = useEditStore(s => s.pipeDiameterThreshold)
+  const hoistToleranceMm       = useEditStore(s => s.hoistToleranceMm)
   // 편집 대상 단계(마지막 단계)가 아닌 viewport 에서는 미리보기를 적용하지 않는다.
   // 그 단계의 group/node ID 가 마지막 단계와 다를 수 있어 의도와 무관한 노드가 hide 될 위험.
   const deleteMask = useMemo(
@@ -446,7 +447,7 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
       // 편집 모드 미리보기에서 삭제된 (또는 통째로 사라진) 인스턴스는 picking 무시 —
       // scale 이 0.0001 이라 시각적으로 없는데 raycast 에 매우 정밀 클릭 시 잡힐 위험이 있음.
       const mask = editState.mask
-      if (obj === nodes) {
+      if (obj === pickables.nodes) {
         const nodeId = obj.userData.nodeIds?.[iid]
         if (mask?.deletedNodeIds?.has(nodeId)) {
           if (nodeOnlyPickMode) return
@@ -485,7 +486,7 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
           return
         }
         onPick({ type: 'node', nodeId }, e)
-      } else if (obj === masses) {
+      } else if (obj === pickables.masses) {
         if (nodeOnlyPickMode) return
         const data = obj.userData.massData?.[iid]
         if (data && mask?.deletedMassIds?.has(data.id)) { onPick(null, e); return }
@@ -530,6 +531,7 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
 
     const computeHoverPick = (ev) => {
       if (!sceneDataRef.current?.pickables) return null
+      const pickables = sceneDataRef.current.pickables
       if (ev.shiftKey || ev.altKey) return null  // 편집 모드 modifier 충돌 회피
       const rect = renderer.domElement.getBoundingClientRect()
       const ndc = new THREE.Vector2(
@@ -541,7 +543,7 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
       const camDist = camera.position.distanceTo(controlsRef.current?.target ?? new THREE.Vector3())
       raycaster.params.Line.threshold = Math.max(0.05, camDist * 0.01)
 
-      const targets = getPickTargets(sceneDataRef.current.pickables, pickFiltersRef.current, false)
+      const targets = getPickTargets(pickables, pickFiltersRef.current, false)
       const isVisible = (t) => {
         if (t.visible === false) return false
         let p = t.parent
@@ -556,12 +558,12 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
       const iid = hit.instanceId
       const mask = editStateRef.current.mask
 
-      if (obj === nodes) {
+      if (obj === pickables.nodes) {
         const nodeId = obj.userData.nodeIds?.[iid]
         if (nodeId == null || mask?.deletedNodeIds?.has(nodeId)) return null
         return { type: 'node', nodeId }
       }
-      if (obj === masses) {
+      if (obj === pickables.masses) {
         const data = obj.userData.massData?.[iid]
         if (!data || mask?.deletedMassIds?.has(data.id)) return null
         return { type: 'mass', ...data }
@@ -1132,9 +1134,11 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
     requestRender()
   }, [hoistGroups, activeHoistGroupId, isEditTargetStage, stageData, renderMode, colorMode, requestRender])
 
-  // ── 평판 위/아래 가장 가까운 레벨의 후보 노드 강조 ──────────────────────
-  // 평판(활성 그룹 첫 노드 Z)을 기준으로 바로 위(주황)·아래(흰색) 레벨의 노드를 강조해
-  // 사용자가 그 후보 중에서 권상점을 고르도록 돕는다. 평판과 같은 dep/조건으로 갱신된다.
+  // ── 가상판 ±Tolerance 이내 같은 레벨의 후보 노드 강조 ──────────────────
+  // 평판(활성 그룹 첫 노드 Z)에서 |Δz| ≤ Tolerance 인 같은 레벨 노드를 후보로 강조해
+  // 사용자가 그 후보 중에서 권상점을 고르도록 돕는다. Tolerance 는 사용자 지정값(hoistToleranceMm)
+  // 우선, 없으면 모델 높이 기반 자동값. 평판과 같은 dep/조건 + Tolerance 변경 시 갱신된다.
+  // (X·Y 무관 Z 단면 — 과거 전역 위/아래 레벨 방식의 구역 의존 버그를 제거.)
   useEffect(() => {
     const scene = sceneRef.current
     if (!scene) return
@@ -1148,13 +1152,13 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
       requestRender()
       return
     }
-    const candidates = buildHoistCandidateNodes(hoistGroups, stageData, activeHoistGroupId)
+    const candidates = buildHoistCandidateNodes(hoistGroups, stageData, activeHoistGroupId, hoistToleranceMm)
     if (candidates.children.length > 0) {
       scene.add(candidates)
       candidateNodesRef.current = candidates
     }
     requestRender()
-  }, [hoistGroups, activeHoistGroupId, isEditTargetStage, stageData, renderMode, colorMode, requestRender])
+  }, [hoistGroups, activeHoistGroupId, hoistToleranceMm, isEditTargetStage, stageData, renderMode, colorMode, requestRender])
 
   // ── 권상 그룹 도형의 무게중심 마커 (>=2 노드일 때 등장) ────────────────
   // 모델 전체 무게중심과 그룹별 무게중심의 배치를 비교할 수 있게 한다.

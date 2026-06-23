@@ -79,6 +79,10 @@ export const useEditStore = create((set, get) => ({
   // 권상 가능 배관 진단용 임계 외경(mm). null 이면 비교 미적용. setHoistMode/reset 으로 영향받지 않음.
   pipeDiameterThreshold: null,
 
+  // 권상 후보 강조 Tolerance(mm). null 이면 모델 높이 기반 자동값(autoHoistToleranceMm)을 쓴다.
+  // 가상판(선택 노드 Z)에서 |Δz| ≤ 이 값 인 같은 레벨 노드를 후보로 강조한다.
+  hoistToleranceMm: null,
+
   // 권상 UX 가이드 토스트 (예: "권상 방식을 먼저 선택해 주세요"). { id, message, kind } | null
   // id 는 새 토스트마다 증가해 같은 메시지여도 자동 dismiss 타이머가 리셋되도록 한다.
   hoistGuide: null,
@@ -275,6 +279,12 @@ export const useEditStore = create((set, get) => ({
   setPipeDiameterThreshold: (val) => {
     const num = (val == null || val === '') ? null : Number(val)
     set({ pipeDiameterThreshold: Number.isFinite(num) && num > 0 ? num : null })
+  },
+
+  // 권상 후보 강조 Tolerance(mm). 빈 값/0이하/NaN 은 null(자동값)로 처리.
+  setHoistTolerance: (val) => {
+    const num = (val == null || val === '') ? null : Number(val)
+    set({ hoistToleranceMm: Number.isFinite(num) && num > 0 ? num : null })
   },
 
   /**
@@ -507,6 +517,7 @@ export const useEditStore = create((set, get) => ({
     hoistGroups: { 1: [], 2: [], 3: [], 4: [] },
     wireLengthM: HOIST_DEFAULT_WIRE_M.hydro,
     pipeDiameterThreshold: null,
+    hoistToleranceMm: null,
     hoistGuide: null,
   }),
 

@@ -7,6 +7,9 @@ import {
   getHoistMinNodesPerGroup,
 } from '../store/useEditStore.js'
 import { useStabilityStore } from '../store/useStabilityStore.js'
+import { useStageStore } from '../store/useStageStore.js'
+import { autoHoistToleranceMm } from '../three/HoistCandidateNodes.js'
+import { COLORS } from '../utils/colors.js'
 import Tooltip from './Tooltip.jsx'
 
 const HOIST_MODES = [
@@ -21,6 +24,9 @@ const HOIST_GROUP_COLORS = {
   3: '#6AE07A',  // 녹색
   4: '#FF66AA',  // 핫핑크
 }
+
+// 권상 후보 강조 색(민트) — 3D 오버레이(HoistCandidateNodes)와 동일 토큰을 공유한다.
+const CANDIDATE_CSS = `#${COLORS.hoistCandidate.toString(16).padStart(6, '0')}`
 
 const LOCATION_LABEL = {
   backend: 'Workbench 백엔드(userConnection)',
@@ -64,6 +70,8 @@ export default function HoistPositionPanel() {
   const removeGroup = useEditStore(s => s.removeHoistGroup)
   const pipeDiameter = useEditStore(s => s.pipeDiameterThreshold)
   const setPipeDiameter = useEditStore(s => s.setPipeDiameterThreshold)
+  const hoistToleranceMm = useEditStore(s => s.hoistToleranceMm)
+  const setHoistTolerance = useEditStore(s => s.setHoistTolerance)
   const wireLengthM = useEditStore(s => s.wireLengthM)
   const setWireLength = useEditStore(s => s.setWireLength)
   const exportPosture = useEditStore(s => s.exportPostureStabilityToFile)
@@ -76,6 +84,11 @@ export default function HoistPositionPanel() {
 
   const maxGroupsForMode = getHoistMaxGroups(mode)
   const minNodesForMode  = getHoistMinNodesPerGroup(mode)   // ceiling=3, 그 외=2
+
+  // 후보 강조 Tolerance 자동값(placeholder/안내용) — 마지막 stage bbox Z 높이 기반.
+  const stages = useStageStore(s => s.stages)
+  const lastStage = stages?.[stages.length - 1] ?? null
+  const autoTolMm = autoHoistToleranceMm(lastStage?.bbox ? lastStage.bbox.maxZ - lastStage.bbox.minZ : 0)
 
   // 모든 활성 그룹이 모드별 최소~4 노드를 가지고 모드가 선택돼야 평가 실행 가능.
   const activeGroupIds = Array.from({ length: groupCount }, (_, i) => i + 1)
@@ -363,6 +376,80 @@ export default function HoistPositionPanel() {
           </Tooltip>
         )
       })()}
+
+      {/* 권상 후보 강조 Tolerance — 가상판 ±이 값 이내의 "같은 레벨" 노드를 후보(민트)로 강조 */}
+      <div style={{
+        marginTop: 2,
+        borderTop: '1px solid #2a2a4a',
+        paddingTop: 7,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 4,
+      }}>
+        <label style={{ fontSize: 11, color: '#90E8FF', fontWeight: 800, letterSpacing: 0.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+          <span>후보 강조 Tolerance (mm)</span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, color: '#9fb4cc', fontWeight: 600 }}>
+            <span style={{ width: 9, height: 9, borderRadius: '50%', background: CANDIDATE_CSS, boxShadow: `0 0 6px ${CANDIDATE_CSS}aa` }} />
+            권상 후보
+          </span>
+        </label>
+        <div style={{ fontSize: 10, color: '#60708a', lineHeight: 1.4 }}>
+          선택한 권상 노드의 가상판에서 <span style={{ color: CANDIDATE_CSS, fontWeight: 700 }}>±이 값</span> 이내의 같은 레벨 노드를 후보로 강조합니다. 비우면 자동(모델 높이 기반 ≈ {Math.round(autoTolMm)}mm).
+        </div>
+        <div style={{ display: 'flex', gap: 4 }}>
+          <Tooltip
+            placement="top"
+            content={
+              <>
+                <strong style={{ color: CANDIDATE_CSS }}>후보 강조 Tolerance (mm)</strong><br/>
+                선택한 권상 노드의 수평 가상판에서 |Δz| 가 이 값 이하인 같은 레벨 노드를 후보로 강조합니다.<br/>
+                X·Y 위치와 무관하게 Z 레벨만 보므로 모델 어느 구역에서나 일관되게 동작합니다.<br/>
+                비우면 모델 높이의 0.4%(최소 2mm)로 자동 설정됩니다.
+              </>
+            }>
+            <input
+              type="number"
+              min="0"
+              step="any"
+              value={hoistToleranceMm ?? ''}
+              placeholder={`자동 ≈ ${Math.round(autoTolMm)}`}
+              onChange={e => setHoistTolerance(e.target.value)}
+              aria-label="권상 후보 강조 Tolerance (mm)"
+              style={{
+                flex: 1,
+                padding: '5px 7px',
+                borderRadius: 4,
+                background: '#0c0c1c',
+                border: `1px solid ${hoistToleranceMm ? CANDIDATE_CSS + '66' : '#2a2a4a'}`,
+                color: '#e8f4ff',
+                fontSize: 12,
+                outline: 'none',
+                minWidth: 0,
+                width: '100%',
+              }}
+            />
+          </Tooltip>
+          <Tooltip placement="top" content="Tolerance 를 자동값(모델 높이 기반)으로 되돌립니다.">
+            <button
+              type="button"
+              onClick={() => setHoistTolerance(null)}
+              disabled={hoistToleranceMm == null}
+              aria-label="Tolerance 자동으로 리셋"
+              style={{
+                padding: '0 9px',
+                borderRadius: 4,
+                background: hoistToleranceMm == null ? '#0a0a18' : '#101024',
+                border: '1px solid #2a2a4a',
+                color: hoistToleranceMm == null ? '#3a3a52' : '#7070a0',
+                cursor: hoistToleranceMm == null ? 'not-allowed' : 'pointer',
+                fontSize: 10,
+                fontWeight: 700,
+              }}>
+              자동
+            </button>
+          </Tooltip>
+        </div>
+      </div>
 
       {/* Wire 길이 — 모드 전환 시 기본값(Hydro 8m / Goliat 24m / 천장 Crane 5m) 자동 설정, 사용자가 변경 가능 */}
       {(() => {

@@ -33,8 +33,11 @@ const COLOR_RBE_HOIST = new THREE.Color(0xE9A8B8)      // 연한 분홍 (light p
  */
 export function buildNodePoints(stageData, colorMode = 'category', renderMode = 'cylinder') {
   const ids = [...stageData.nodeMap.keys()]
-  const geo = new THREE.SphereGeometry(NODE_RADIUS, 10, 7)
-  const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, metalness: 0.15, roughness: 0.55, flatShading: true })
+  // STUDIO 표준 §11: 저폴리(10×7)+flatShading 금지 → 매끈한 16×12 + 반투명(depthWrite false).
+  // 반투명이라 부재(Line/Tube)가 노드를 통과해 비쳐 "연결 여부" 판단이 쉽고 더 전문적이다(ModelBuilder 노드 룩 통일).
+  // opacity 는 0.78 — 기존 0.65 대비 색감 +20%(요청). 너무 투명하면 노드 색이 옅게 보이던 문제 개선.
+  const geo = new THREE.SphereGeometry(NODE_RADIUS, 16, 12)
+  const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.35, metalness: 0.05, transparent: true, opacity: 0.78, depthWrite: false })
 
   // 3D 단면 모드에서는 단면 메쉬(Angle/Channel 등)가 sphere 보다 커서 Node 를 가린다.
   // 권상위치를 찍을 때 Node 가 반드시 보여야 하므로 section3d 일 때만 depth test 를 끄고

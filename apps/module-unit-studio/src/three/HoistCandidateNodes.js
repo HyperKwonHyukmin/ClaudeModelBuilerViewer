@@ -1,25 +1,67 @@
 import * as THREE from 'three'
+import { COLORS } from '../utils/colors.js'
 
-// 활성 권상 그룹의 가이드 평판(첫 노드의 Z 레벨) 기준으로 "바로 위 / 바로 아래" 레벨의
-// 노드를 후보로 강조한다. 사용자가 평판 근처의 실제 노드 중에서 권상점을 고르기 쉽도록 돕는다.
+// 활성 권상 그룹의 가상판(첫 노드의 Z 레벨)에서 ±Tolerance(mm) 이내의 "같은 레벨" 노드를
+// 후보로 강조한다. 사용자가 가상판 근처의 실제 노드 중에서 권상점을 고르기 쉽도록 돕는다.
 //
-// · 위 레벨   → 주황(ABOVE_COLOR)
-// · 아래 레벨 → 흰색(BELOW_COLOR)  — 그룹 강조(cyan/보라/녹색/핑크)·무게중심(노랑)과 색이 겹치지 않게 선택.
-// 각 레벨에는 후보 노드 마커(구) + 방향/오프셋 라벨(▲/▼)을 함께 그린다.
+// ── 동작(v0.0.46~) ──
+//   · 기준 = 선택 노드의 수평 가상판(plateZ). 후보 = |node.z − plateZ| ≤ tol 인 같은 레벨 노드.
+//   · X·Y 는 보지 않으므로 모델 어느 구역에서나 일관되게 동작한다.
+//     (과거: 전역에서 "바로 위/아래 레벨"을 찾던 방식 → 경사·단차 구역에서 엉뚱한 곳을 잡던 버그를 제거.)
+//   · tol 은 사용자 지정값(useEditStore.hoistToleranceMm) 우선, 없으면 모델 높이 기반 자동값.
+//
+// ── 스타일(STUDIO 표준 §6/§11) ──
+//   · "대상을 가리지 말 것" — 솔리드 구가 아니라 바깥 와이어프레임 구(외곽선) + 작은 코어 구 2겹.
+//   · 색은 도메인/그룹/선택 색과 겹치지 않는 민트(COLORS.hoistCandidate, "한 색 = 한 의미").
 
-const ABOVE_COLOR = 0xFF9F45   // 위 레벨 — 주황
-const BELOW_COLOR = 0xF2F6FF   // 아래 레벨 — 흰색(아주 옅은 청백)
-const NODE_R = 0.115           // 후보 마커 반경 (그룹 하이라이트 0.13 보다 약간 작게)
+const CAND_COLOR  = COLORS.hoistCandidate
+const NODE_RADIUS = 0.0448          // NodePoints 와 동일한 노드 반경(스타일 통일)
+const SHELL_R     = NODE_RADIUS * 1.7   // 바깥 와이어프레임 외곽선
+const CORE_R      = NODE_RADIUS * 0.62  // 안쪽 코어 점
 
 /**
- * 활성 권상 그룹 평판의 위/아래 가장 가까운 레벨에 속한 노드를 후보로 강조하는 overlay 를 만든다.
+ * 후보 레벨 판정 자동 Tolerance(mm). 사용자가 값을 비우면 이 값을 쓴다.
+ * 모델 높이의 0.4%(최소 2mm) — 같은 층의 미세 Z 편차를 한 레벨로 묶을 정도.
+ * @param {number} heightMm  모델 bbox Z 높이(mm)
+ * @returns {number}
+ */
+export function autoHoistToleranceMm(heightMm) {
+  const h = Number.isFinite(heightMm) ? Math.max(0, heightMm) : 0
+  return Math.max(2, h * 0.004)
+}
+
+/**
+ * 가상판(plateZ)에서 ±tolMm 이내의 같은 레벨 노드 ID 를 고른다(순수 함수, 렌더링과 무관).
+ * X·Y 는 무시하고 Z 단면만 본다 → 구역에 무관하게 일관 동작.
+ *
+ * @param {Iterable<[number, {z:number}]>} nodeEntries  nodeMap 처럼 [id, {x,y,z}] 를 순회 가능한 것
+ * @param {number} plateZ   기준 가상판 Z(mm)
+ * @param {number} tolMm    허용오차(mm, 비음수)
+ * @param {Set<number>|number[]} [usedIds]  이미 그룹에 속해 제외할 노드 ID
+ * @returns {number[]}
+ */
+export function selectHoistCandidateNodes(nodeEntries, plateZ, tolMm, usedIds) {
+  const out = []
+  if (!nodeEntries || !Number.isFinite(plateZ) || !Number.isFinite(tolMm)) return out
+  const used = usedIds instanceof Set ? usedIds : new Set(usedIds ?? [])
+  for (const [id, n] of nodeEntries) {
+    if (used.has(id)) continue
+    if (!n || !Number.isFinite(n.z)) continue
+    if (Math.abs(n.z - plateZ) <= tolMm) out.push(id)
+  }
+  return out
+}
+
+/**
+ * 활성 권상 그룹 가상판의 ±Tolerance 이내 같은 레벨 노드를 후보로 강조하는 overlay 를 만든다.
  *
  * @param {Record<number, number[]>} hoistGroups
  * @param {import('../data/StageData.js').StageData} stageData
- * @param {number|null} activeGroupId  - 평판 기준이 되는 활성 그룹 ID
+ * @param {number|null} activeGroupId  - 가상판 기준이 되는 활성 그룹 ID
+ * @param {number|null} [toleranceMm]  - 사용자 지정 Tolerance(mm). null/0이하면 자동값 사용
  * @returns {THREE.Group}
  */
-export function buildHoistCandidateNodes(hoistGroups, stageData, activeGroupId) {
+export function buildHoistCandidateNodes(hoistGroups, stageData, activeGroupId, toleranceMm = null) {
   const root = new THREE.Group()
   root.name = 'HoistCandidateNodes'
   if (!stageData || !hoistGroups || !stageData.nodeMap) return root
@@ -30,65 +72,58 @@ export function buildHoistCandidateNodes(hoistGroups, stageData, activeGroupId) 
 
   const firstNode = stageData.nodeMap.get(activeNodes[0])
   if (!firstNode) return root
-  const plateZ = firstNode.z   // mm — 평판이 놓인 Z 레벨
+  const plateZ = firstNode.z   // mm — 가상판이 놓인 Z 레벨
 
-  // 레벨 판정 허용오차 — 모델 높이의 0.4%(최소 2mm). 같은 층의 미세 Z 편차를 한 레벨로 묶는다.
   const bbox = stageData.bbox
   const heightMm = bbox ? Math.max(0, bbox.maxZ - bbox.minZ) : 0
-  const levelTol = Math.max(2, heightMm * 0.004)
+  const tol = Number.isFinite(toleranceMm) && toleranceMm > 0
+    ? toleranceMm
+    : autoHoistToleranceMm(heightMm)
 
   // 이미 어떤 권상 그룹에든 포함된 노드는 후보에서 제외(이미 강조돼 있으므로 중복 방지).
   const used = new Set()
   for (const gid of [1, 2, 3, 4]) for (const n of hoistGroups[gid] ?? []) used.add(n)
 
-  // 평판보다 위/아래에서 "가장 가까운 레벨 Z" 를 찾는다.
-  let aboveZ = null
-  let belowZ = null
-  for (const [, n] of stageData.nodeMap) {
-    const dz = n.z - plateZ
-    if (dz > levelTol) {
-      if (aboveZ == null || n.z < aboveZ) aboveZ = n.z
-    } else if (dz < -levelTol) {
-      if (belowZ == null || n.z > belowZ) belowZ = n.z
-    }
-  }
+  const ids = selectHoistCandidateNodes(stageData.nodeMap, plateZ, tol, used)
+  if (ids.length === 0) return root
 
-  // 각 레벨(levelZ ± levelTol)에 속하는 후보 노드 ID 를 모은다 (used 제외).
-  const collect = (levelZ) => {
-    if (levelZ == null) return []
-    const out = []
-    for (const [id, n] of stageData.nodeMap) {
-      if (used.has(id)) continue
-      if (Math.abs(n.z - levelZ) <= levelTol) out.push(id)
-    }
-    return out
-  }
-  const aboveIds = collect(aboveZ)
-  const belowIds = collect(belowZ)
-  if (aboveIds.length === 0 && belowIds.length === 0) return root
+  const positions = ids.map(id => stageData.getNodePos(id)).filter(Boolean)
+  if (positions.length === 0) return root
 
-  if (aboveIds.length > 0) {
-    root.add(buildLevelMarkers(aboveIds, stageData, ABOVE_COLOR))
-    root.add(makeLevelLabel(`▲ 위 레벨 +${Math.round(aboveZ - plateZ)}mm · ${aboveIds.length}점`, ABOVE_COLOR, aboveIds, stageData))
-  }
-  if (belowIds.length > 0) {
-    root.add(buildLevelMarkers(belowIds, stageData, BELOW_COLOR))
-    root.add(makeLevelLabel(`▼ 아래 레벨 ${Math.round(belowZ - plateZ)}mm · ${belowIds.length}점`, BELOW_COLOR, belowIds, stageData))
-  }
-
+  root.add(buildShellMarkers(positions))
+  root.add(buildCoreMarkers(positions))
+  root.add(makeCandidateLabel(`권상 후보 · ${ids.length}점 (±${Math.round(tol)}mm)`, positions))
   return root
 }
 
-function buildLevelMarkers(ids, stageData, color) {
-  const positions = ids.map(id => stageData.getNodePos(id)).filter(Boolean)
-  const geo = new THREE.SphereGeometry(NODE_R, 16, 12)
+// 바깥 와이어프레임 외곽선 — 노드를 가리지 않게 비가림(depthTest off).
+function buildShellMarkers(positions) {
+  const geo = new THREE.SphereGeometry(SHELL_R, 16, 12)
   const mat = new THREE.MeshBasicMaterial({
-    color,
+    color: CAND_COLOR,
+    wireframe: true,
     transparent: true,
-    opacity: 0.9,
+    opacity: 0.55,
     depthTest: false,
     depthWrite: false,
   })
+  return makeInstanced(geo, mat, positions, 44)
+}
+
+// 안쪽 코어 점 — 후보 위치를 또렷이 찍어준다.
+function buildCoreMarkers(positions) {
+  const geo = new THREE.SphereGeometry(CORE_R, 12, 8)
+  const mat = new THREE.MeshBasicMaterial({
+    color: CAND_COLOR,
+    transparent: true,
+    opacity: 0.95,
+    depthTest: false,
+    depthWrite: false,
+  })
+  return makeInstanced(geo, mat, positions, 45)
+}
+
+function makeInstanced(geo, mat, positions, renderOrder) {
   const mesh = new THREE.InstancedMesh(geo, mat, positions.length)
   const m = new THREE.Matrix4()
   mesh.count = 0
@@ -97,18 +132,17 @@ function buildLevelMarkers(ids, stageData, color) {
     mesh.setMatrixAt(mesh.count++, m)
   }
   mesh.instanceMatrix.needsUpdate = true
-  mesh.renderOrder = 45
+  mesh.renderOrder = renderOrder
   return mesh
 }
 
-// 후보 노드 무리의 XY 중심 + 레벨 Z 위에 방향/오프셋 라벨 스프라이트를 띄운다.
-function makeLevelLabel(text, color, ids, stageData) {
-  const positions = ids.map(id => stageData.getNodePos(id)).filter(Boolean)
+// 후보 노드 무리의 XY 중심 위에 "권상 후보 · N점 (±Tmm)" 라벨 스프라이트를 띄운다.
+function makeCandidateLabel(text, positions) {
   const c = new THREE.Vector3()
   for (const p of positions) c.add(p)
   if (positions.length > 0) c.multiplyScalar(1 / positions.length)
 
-  const css = `#${color.toString(16).padStart(6, '0')}`
+  const css = `#${CAND_COLOR.toString(16).padStart(6, '0')}`
   const canvas = document.createElement('canvas')
   canvas.width = 320
   canvas.height = 72
@@ -140,7 +174,7 @@ function makeLevelLabel(text, color, ids, stageData) {
     depthTest: false,
     depthWrite: false,
   }))
-  sprite.position.set(c.x, c.y, c.z + NODE_R * 3.2)
+  sprite.position.set(c.x, c.y, c.z + SHELL_R * 2.4)
   sprite.scale.set(1.15, 0.26, 1)
   sprite.renderOrder = 46
   return sprite

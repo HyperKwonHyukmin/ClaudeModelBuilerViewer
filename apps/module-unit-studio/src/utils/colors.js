@@ -7,4 +7,5 @@ export const COLORS = {
   mass:        0xE59AB3,  // Rose for concentrated mass
   boundary:    0x5DD39E,  // Green for boundary condition markers
   weld:        0xF27A86,  // Pink-red for weld markers
+  hoistCandidate: 0x35E8B0,  // Mint — 권상 후보 노드 강조 전용(도메인·그룹·선택 색과 비충돌)
 }
