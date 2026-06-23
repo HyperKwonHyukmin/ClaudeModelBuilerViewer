@@ -1,7 +1,6 @@
 import { useRef, useState, useCallback, useEffect } from 'react'
-import { Box, FileJson, FolderOpen, RotateCcw, Plus, Link, MousePointer2 } from 'lucide-react'
+import { Box, FileJson, FolderOpen, RotateCcw, Plus, Link } from 'lucide-react'
 import { useViewerStore } from '../store/useViewerStore.js'
-import LayerPanel from './LayerPanel.jsx'
 import { useStageStore } from '../store/useStageStore.js'
 import { useEditStore } from '../store/useEditStore.js'
 import { useStabilityStore } from '../store/useStabilityStore.js'
@@ -28,13 +27,6 @@ const DISPLAY_STYLE_DEFS = [
   { key: 'nodeOnly', label: 'Node',     desc: 'Node만 빠르게 검토' },
 ]
 
-const PICK_FILTER_DEFS = [
-  { key: 'node',    label: 'Node',    color: '#E65F6A' },
-  { key: 'element', label: 'Element', color: '#7FB3D5' },
-  { key: 'rigid',   label: 'RBE',     color: '#C77DFF' },
-  { key: 'mass',    label: 'Mass',    color: '#E59AB3' },
-]
-
 const MIN_WIDTH = 130
 const MAX_WIDTH = 432
 const DEFAULT_WIDTH = 274   // 좌측 패널 기본 폭 (228 → +20%)
@@ -42,13 +34,11 @@ const DEFAULT_WIDTH = 274   // 좌측 패널 기본 폭 (228 → +20%)
 export default function Sidebar() {
   const { loading, error, loadStages, loadSummary, stages, reset: resetStages } = useStageStore()
   const {
-    activeViewportId,
     viewports,
     addViewport,
     cameraLinked, toggleCameraLink,
     renderMode, setRenderMode,
     displayStyle, setDisplayStyle,
-    pickFilters, togglePickFilter,
     layers, toggleLayer,
     reset: resetViewer,
   } = useViewerStore()
@@ -156,8 +146,6 @@ export default function Sidebar() {
     window.addEventListener('mouseup', onMouseUp)
   }, [width])
 
-  const lastStage = stages.length > 0 ? stages[stages.length - 1] : null
-
   return (
     <div style={{
       width, flexShrink: 0, position: 'relative',
@@ -255,30 +243,7 @@ export default function Sidebar() {
         </Tooltip>
       </Section>
 
-      {/* ── 섹션 4: Pick ─────────────────────────────── */}
-      {stages.length > 0 && (
-        <Section label="Pick">
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
-            {PICK_FILTER_DEFS.map(({ key, label, color }) => {
-              const on = pickFilters[key] !== false
-              return (
-                <Tooltip key={key} placement="right" content={<><strong style={{ color }}>{label} 선택 {on ? 'ON' : 'OFF'}</strong><br/>클릭/호버 picking 대상에서 {label}을 {on ? '포함합니다.' : '제외합니다.'}</>}>
-                  <button
-                    onClick={() => togglePickFilter(key)}
-                    aria-label={`${label} 선택 ${on ? '끄기' : '켜기'}`}
-                    style={segBtnStyle(on, color)}
-                  >
-                    <MousePointer2 size={11} />
-                    {label}
-                  </button>
-                </Tooltip>
-              )
-            })}
-          </div>
-        </Section>
-      )}
-
-      {/* ── 섹션 5: 레이어 ───────────────────────────── */}
+      {/* ── 섹션 4: 레이어 ───────────────────────────── */}
       <Section label="레이어">
         {LAYER_DEFS.map(({ key, label, color, desc }) => {
           const on = layers[key] ?? true
@@ -325,21 +290,9 @@ export default function Sidebar() {
       </Section>
 
       {/* ── 편집 모드 토글은 Edit 모드 좌측 패널(EditPanelDock)로 이동 ── */}
+      {/* ── 모델 확인(색상 기준·노드/그룹 필터)은 Model Check 리본(ModelCheckPanelDock)으로 분리 ── */}
 
-      {/* ── 섹션 6: 모델 확인 (이전 뷰포트 floating → 사이드바 이동) ──
-          색상 기준(Default/Node Check/Group)·노드/그룹 필터·해석 결과 표시 토글.
-          그룹 삭제(휴지통)는 Edit 모드 전용이라 Model 사이드바(여기)에선 표시되지 않고,
-          Edit 모드 좌측 패널(EditPanel)의 그룹 삭제 섹션에서 수행한다. */}
-      {stages.length > 0 && (
-        <LayerPanel
-          viewportId={activeViewportId}
-          stageData={lastStage}
-          isEditTargetStage
-          embedded
-        />
-      )}
-
-      {/* ── 섹션 7: 단계 ───────────────────────────── */}
+      {/* ── 섹션 5: 단계 ───────────────────────────── */}
       {stages.length > 0 && (
         <Section label="단계">
           <div style={{

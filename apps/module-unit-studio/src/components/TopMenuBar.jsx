@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Box, Pencil, Cable, Activity } from 'lucide-react'
+import { Box, Pencil, Cable, Activity, CheckCircle2 } from 'lucide-react'
 import { useViewerStore } from '../store/useViewerStore.js'
 
 // 화면 최상단 가로 바 — 좌측 브랜드 + 4개 모드 탭(Model | Edit | Hoist | Analyze).
@@ -9,10 +9,11 @@ import { useViewerStore } from '../store/useViewerStore.js'
 // 활성 모드는 useViewerStore.activeMode 로 읽고, 클릭 시 setActiveMode 로 전환한다(props 없음).
 // 'Hoist' 본문 라벨은 한글 "권상" 과 코드 hoist* 식별자(hoistMode/HoistPositionPanel)와 1:1 대응.
 const TABS = [
-  { key: 'model',   label: 'Model',   Icon: Box },
-  { key: 'edit',    label: 'Edit',    Icon: Pencil },
-  { key: 'hoist',   label: 'Hoist',   Icon: Cable },
-  { key: 'analyze', label: 'Analyze', Icon: Activity },
+  { key: 'model',      label: 'Model',       Icon: Box },
+  { key: 'modelCheck', label: 'Model Check', Icon: CheckCircle2 },
+  { key: 'edit',       label: 'Edit',        Icon: Pencil },
+  { key: 'hoist',      label: 'Hoist',       Icon: Cable },
+  { key: 'analyze',    label: 'Analyze',     Icon: Activity },
 ]
 
 export default function TopMenuBar() {

@@ -1,5 +1,6 @@
 import { useViewerStore } from '../store/useViewerStore.js'
 import ModelPanel from './panels/ModelPanel.jsx'
+import ModelCheckPanelDock from './panels/ModelCheckPanelDock.jsx'
 import EditPanelDock from './panels/EditPanelDock.jsx'
 import HoistPanelDock from './panels/HoistPanelDock.jsx'
 import AnalyzePanelDock from './panels/AnalyzePanelDock.jsx'
@@ -10,6 +11,7 @@ import AnalyzePanelDock from './panels/AnalyzePanelDock.jsx'
 // LeftDock 자체는 스크롤/폭 컨테이너를 만들지 않고 '내용 분기'만 담당한다.
 export default function LeftDock() {
   const activeMode = useViewerStore(s => s.activeMode)
+  if (activeMode === 'modelCheck') return <ModelCheckPanelDock />
   if (activeMode === 'edit')    return <EditPanelDock />
   if (activeMode === 'hoist')   return <HoistPanelDock />
   if (activeMode === 'analyze') return <AnalyzePanelDock />
