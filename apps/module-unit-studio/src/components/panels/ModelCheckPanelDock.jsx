@@ -2,9 +2,10 @@ import { useViewerStore } from '../../store/useViewerStore.js'
 import { useStageStore } from '../../store/useStageStore.js'
 import LayerPanel from '../LayerPanel.jsx'
 
-// Model Check 모드 좌측 도크 — 색상 기준(Default / Node Check / Group)·노드/그룹 필터·해석 결과 토글.
-// 기존엔 Model 사이드바(Sidebar)에 embedded 로 붙어 있던 "모델 확인"을, ModelBuilderStudio 처럼
-// 독립 리본(Model Check)으로 분리한다. 내용·로직은 LayerPanel 을 그대로 재사용해 동작 변경 0.
+// Model Check 모드 좌측 도크 — 색상 기준(Default / Group / Node Check)·노드 필터·해석 결과 토글(LayerPanel).
+// ModelBuilderStudio 처럼 독립 리본으로 분리한 "모델 확인" 전용 도크.
+// 그룹 삭제·새로고침 같은 편집 행위는 Edit 리본(GroupManager)으로 일원화하고,
+// 여기서는 색상 기준 'Group' 모드로 그룹 확인만 한다(중복 그룹 관리 패널 제거).
 export default function ModelCheckPanelDock() {
   const activeViewportId = useViewerStore(s => s.activeViewportId)
   const stages = useStageStore(s => s.stages)
@@ -22,7 +23,7 @@ export default function ModelCheckPanelDock() {
         <LayerPanel viewportId={activeViewportId} stageData={lastStage} isEditTargetStage embedded />
       ) : (
         <div style={{ margin: '14px 10px', padding: 12, color: '#7a8aaa', fontSize: 12, lineHeight: 1.6 }}>
-          파일을 로드하면 색상 기준(Default / Node Check / Group)과 노드·그룹 필터가 여기에 표시됩니다.
+          파일을 로드하면 색상 기준(Default / Group / Node Check)·노드 필터와 해석 결과 표시가 여기에 나타납니다.
         </div>
       )}
     </div>

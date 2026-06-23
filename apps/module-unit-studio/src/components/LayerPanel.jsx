@@ -1,9 +1,7 @@
-import { useRef, useState, useMemo } from 'react'
+import { useRef, useState } from 'react'
 import { SlidersHorizontal, Trash2, RotateCcw } from 'lucide-react'
 import { useViewerStore } from '../store/useViewerStore.js'
 import { useEditStore } from '../store/useEditStore.js'
-import { getGroupDisplayCount, groupColorCss } from '../utils/groupPalette.js'
-import { computeDeleteMask } from '../data/applyEditIntents.js'
 
 const FREE_NODE_DEFS = [
   { key: 'normal', label: 'Shared',  color: '#FF4455' },
@@ -13,8 +11,8 @@ const FREE_NODE_DEFS = [
 
 const MODE_DEFS = [
   { key: 'category', icon: '▬', label: 'Default Mode', desc: '구조 / 배관 구분색' },
-  { key: 'freeNode', icon: '○', label: 'Node Check', desc: '노드 연결 상태' },
   { key: 'group',    icon: '⊞', label: 'Group',      desc: '연결 그룹' },
+  { key: 'freeNode', icon: '○', label: 'Node Check', desc: '노드 연결 상태' },
 ]
 
 export default function LayerPanel({ viewportId, stageData, isEditTargetStage = true, embedded = false }) {
@@ -25,8 +23,6 @@ export default function LayerPanel({ viewportId, stageData, isEditTargetStage = 
     viewports,
     setViewportColorMode,
     toggleViewportFreeNodeFilter,
-    toggleViewportGroupFilter,
-    setAllViewportGroupFilters,
     layers,
     toggleLayer,
   } = useViewerStore()
@@ -36,36 +32,19 @@ export default function LayerPanel({ viewportId, stageData, isEditTargetStage = 
   const addEditIntent    = useEditStore(s => s.addIntent)
   const removeEditIntent = useEditStore(s => s.removeIntent)
 
-  // derived 카운트 — intents 가 그룹/노드/요소를 얼마나 줄이는지.
-  // intents 가 1개 이상이면 편집 모드 토글과 무관하게 미리보기를 보여준다 (편집 모드를 꺼도 적용 유지).
-  // 마지막 단계 viewport 에서만 의미있음 (intent 가 그 단계 기준이라).
-  const deleteMask = useMemo(
-    () => (isEditTargetStage && editIntents.length > 0) ? computeDeleteMask(stageData, editIntents) : null,
-    [isEditTargetStage, stageData, editIntents],
-  )
-
   // editAllowed 는 새 intent 를 추가/삭제하는 액션 권한이므로 편집 모드일 때만 true.
-  // 미리보기 표시(deleteMask)와는 별도 개념.
   const editAllowed = editEnabled && isEditTargetStage
 
   const vp = viewports.find(v => v.id === viewportId)
   if (!vp) return null
 
-  const { colorMode, freeNodeFilters, groupFilters } = vp
+  const { colorMode, freeNodeFilters } = vp
 
   const showHint = (text) => {
     setHint(text)
     window.clearTimeout(hintTimerRef.current)
     hintTimerRef.current = window.setTimeout(() => setHint(null), 2600)
   }
-
-  // 마지막 stage 기준 그룹 분류로 색·번호 통일 (없으면 stage 자기 그룹 사용)
-  const groups = stageData?.finalGroups ?? stageData?.groups ?? []
-  const { maxIndividual, hasOthers, displayCount } = getGroupDisplayCount(groups)
-  const totalOthers = hasOthers ? groups.length - maxIndividual : 0
-  const othersElemCount = totalOthers > 0
-    ? groups.slice(maxIndividual).reduce((s, g) => s + g.elementIds.length, 0)
-    : 0
 
   // embedded(사이드바) 모드에서는 항상 펼쳐진 정적 블록으로 렌더 — 접기 FAB 없음.
   if (collapsed && !embedded) {
@@ -227,83 +206,9 @@ export default function LayerPanel({ viewportId, stageData, isEditTargetStage = 
         </SubSection>
       )}
 
-      {/* Group 서브 컨트롤 */}
-      {colorMode === 'group' && groups.length > 0 && (
-        <SubSection title={
-          deleteMask && deleteMask.deletedGroupIds.size > 0
-            ? `그룹 (${deleteMask.derivedGroupCount} / 원본 ${groups.length})`
-            : `그룹 (${groups.length}개)`
-        }>
-          <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
-            <button
-              onClick={() => {
-                setAllViewportGroupFilters(viewportId, true, groups, maxIndividual)
-                showHint('모든 그룹을 다시 표시합니다.')
-              }}
-              style={allBtnStyle('#1e3a5a')}
-            >전체 표시</button>
-            <button
-              onClick={() => {
-                setAllViewportGroupFilters(viewportId, false, groups, maxIndividual)
-                showHint('모든 그룹을 숨깁니다. 필요한 그룹만 다시 켤 수 있습니다.')
-              }}
-              style={allBtnStyle('#2a1a3a')}
-            >전체 숨김</button>
-          </div>
-          {editEnabled && !isEditTargetStage && (
-            <div style={{
-              fontSize: 10, color: '#FFAA55', lineHeight: 1.4,
-              padding: '5px 7px',
-              background: 'rgba(255,170,85,0.08)',
-              border: '1px solid rgba(255,170,85,0.35)',
-              borderRadius: 4,
-            }}>
-              편집은 마지막 단계에서만 가능합니다 — 단계를 마지막으로 변경하세요.
-            </div>
-          )}
-          {groups.slice(0, maxIndividual).map((g, i) => {
-            const deleteIntent = editAllowed ? findDeleteIntent(editIntents, g.id) : null
-            return (
-              <GroupRow
-                key={g.id}
-                color={groupColorCss(i, displayCount)}
-                label={`그룹 ${i + 1}`}
-                sub={`${g.elementIds.length}개 요소 / ${g.nodeCount ?? g.nodeIds?.length ?? 0}개 노드`}
-                visible={groupFilters[i] !== false}
-                onToggle={() => {
-                  toggleViewportGroupFilter(viewportId, i)
-                  showHint(`${i + 1}번 그룹 표시를 전환했습니다.`)
-                }}
-                editEnabled={editAllowed}
-                deleteIntent={deleteIntent}
-                onAddDelete={() => {
-                  addEditIntent({ kind: 'deleteGroup', params: {
-                    groupId: g.id, memberNodeCount: g.nodeCount ?? g.nodeIds?.length ?? 0,
-                  } })
-                  showHint(`${i + 1}번 그룹 삭제 의도를 추가했습니다. 우측 편집 탭에서 확인하세요.`)
-                }}
-                onCancelDelete={() => {
-                  if (deleteIntent) removeEditIntent(deleteIntent.id)
-                  showHint(`${i + 1}번 그룹 삭제 의도를 취소했습니다.`)
-                }}
-              />
-            )
-          })}
-          {hasOthers && (
-            <FilterBtn on={groupFilters['others'] !== false}
-              color={groupColorCss(maxIndividual, displayCount)}
-              label={`기타 (${totalOthers}개)`} sub={`${othersElemCount}개 요소`}
-              onClick={() => {
-                toggleViewportGroupFilter(viewportId, 'others')
-                showHint('기타 그룹 묶음 표시를 전환했습니다.')
-              }} />
-          )}
-        </SubSection>
-      )}
-
-      {colorMode === 'group' && groups.length === 0 && (
-        <div style={{ padding: '6px 12px 8px', fontSize: 11, color: '#444' }}>그룹 데이터 없음</div>
-      )}
+      {/* 그룹 관리(확인·단독·삭제 + "그룹 새로고침")는 GroupManager 로 분리 —
+          Model Check 리본(ModelCheckPanelDock)·Edit 리본 공용. 여기서는 색상 기준 'Group'
+          선택 시 3D 뷰를 그룹색으로 칠하는 역할만 한다. */}
 
       <SubSection title="해석 결과 표시">
         <FilterBtn
@@ -422,70 +327,6 @@ function FilterBtn({ on, color, label, sub, onClick }) {
       </div>
     </button>
   )
-}
-
-const allBtnStyle = (bg) => ({
-  flex: 1, padding: '5px 0',
-  background: bg, color: '#aaa',
-  border: '1px solid rgba(255,255,255,0.09)',
-  borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer',
-})
-
-// 그룹 row — visibility 토글 버튼 + (편집 모드 시) 삭제 의도 버튼
-function GroupRow({
-  color, label, sub, visible, onToggle,
-  editEnabled, deleteIntent, onAddDelete, onCancelDelete,
-}) {
-  const pendingDelete = !!deleteIntent
-  return (
-    <div style={{ display: 'flex', gap: 4 }}>
-      <div style={{ flex: 1, minWidth: 0, opacity: pendingDelete ? 0.55 : 1 }}>
-        <FilterBtn
-          on={visible}
-          color={pendingDelete ? '#FF6B6B' : color}
-          label={pendingDelete ? `${label} · 삭제 예정` : label}
-          sub={sub}
-          onClick={onToggle}
-        />
-      </div>
-      {editEnabled && (
-        <button
-          onClick={pendingDelete ? onCancelDelete : onAddDelete}
-          title={pendingDelete ? '삭제 의도 취소' : '이 그룹 삭제 의도 추가'}
-          style={{
-            width: 28, flexShrink: 0,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            background: pendingDelete ? 'rgba(255,107,107,0.18)' : 'transparent',
-            color: pendingDelete ? '#FFB3B3' : '#7070a0',
-            border: `1px solid ${pendingDelete ? 'rgba(255,107,107,0.55)' : '#252535'}`,
-            borderRadius: 6,
-            cursor: 'pointer',
-            transition: 'all 0.15s ease',
-          }}
-          onMouseEnter={(e) => {
-            if (!pendingDelete) {
-              e.currentTarget.style.background = 'rgba(192,74,74,0.18)'
-              e.currentTarget.style.color = '#e07070'
-              e.currentTarget.style.borderColor = '#7a3a3a'
-            }
-          }}
-          onMouseLeave={(e) => {
-            if (!pendingDelete) {
-              e.currentTarget.style.background = 'transparent'
-              e.currentTarget.style.color = '#7070a0'
-              e.currentTarget.style.borderColor = '#252535'
-            }
-          }}
-        >
-          {pendingDelete ? <RotateCcw size={12} /> : <Trash2 size={12} />}
-        </button>
-      )}
-    </div>
-  )
-}
-
-function findDeleteIntent(intents, groupId) {
-  return intents.find(i => i.kind === 'deleteGroup' && i.params?.groupId === groupId) ?? null
 }
 
 function findOrphanIntent(intents) {
