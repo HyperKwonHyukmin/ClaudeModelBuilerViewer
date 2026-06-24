@@ -20,7 +20,7 @@ import { buildStabilityIssueOverlay } from '../three/StabilityIssueOverlay.js'
 import { buildSlingAngleOverlay, hasSlingAngleIssues } from '../three/SlingAngleOverlay.js'
 import { buildNastranResultOverlay } from '../three/NastranResultOverlay.js'
 import { useUnitStructuralStore } from '../store/useUnitStructuralStore.js'
-import { useEditStore } from '../store/useEditStore.js'
+import { useEditStore, computeMassFallback } from '../store/useEditStore.js'
 import { useStageStore } from '../store/useStageStore.js'
 import { useStabilityStore } from '../store/useStabilityStore.js'
 import { computeDeleteMask } from '../data/applyEditIntents.js'
@@ -142,6 +142,7 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
 
   // 무게중심 시각화 — useStageStore 의 stageSummary 가 있고 layer 토글이 켜져 있을 때만.
   const stageSummary = useStageStore(s => s.stageSummary)
+  const pipeFluidEmptied = useStageStore(s => s.pipeFluidEmptied)
   const stabilityReport = useStabilityStore(s => s.report)
 
   // 배관/구조 토글이 OFF 면 그 카테고리 전용 노드를 자동 숨김.
@@ -917,7 +918,7 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
       requestRender()
       return
     }
-    const cogMm = getCogMm(stageSummary, stabilityReport, stageData)
+    const cogMm = getCogMm(stageSummary, stabilityReport, stageData, pipeFluidEmptied)
     if (!cogMm) {
       requestRender()
       return
@@ -943,7 +944,7 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
     requestRender()
     // renderMode/colorMode 변경 시 scene rebuild effect 가 cogRef 를 제거하므로
     // 같은 deps 를 본다 — 빠지면 3D 단면 등 다른 모드 전환 시 마커가 사라진다.
-  }, [layers?.cog, stageData, stageSummary, stabilityReport, renderMode, colorMode, requestRender])
+  }, [layers?.cog, stageData, stageSummary, stabilityReport, renderMode, colorMode, requestRender, pipeFluidEmptied])
 
   // ── 권상 그룹 도형(직선/삼각형/사각형) 미리보기 ────────────────────────
   // hoistGroups 에서 직접 파생되므로 노드 추가/삭제·그룹 전환에 즉시 반응한다.
@@ -1526,7 +1527,13 @@ function focusEntity(entity, stageData, camera, controls, requestRender) {
   requestRender()
 }
 
-function getCogMm(stageSummary, stabilityReport, stageData) {
+function getCogMm(stageSummary, stabilityReport, stageData, pipeFluidEmptied = false) {
+  // 배관 유체를 비웠으면 mutated stage 기준 재계산값을 최우선 (BEAM 자중 포함).
+  if (pipeFluidEmptied) {
+    const recomputed = computeMassFallback(stageData)?.centerOfGravityMm
+    if (isCog(recomputed)) return recomputed
+  }
+
   const fromSummary = stageSummary?.massProperties?.centerOfGravityMm
   if (isCog(fromSummary)) return fromSummary
 
