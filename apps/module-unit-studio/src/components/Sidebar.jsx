@@ -1,12 +1,13 @@
 import { useRef, useState, useCallback, useEffect } from 'react'
-import { FileJson, FolderOpen, RotateCcw } from 'lucide-react'
+import { Box, Droplet, FileJson, FolderOpen, RotateCcw } from 'lucide-react'
 import { useViewerStore } from '../store/useViewerStore.js'
 import { useStageStore } from '../store/useStageStore.js'
-import { useEditStore } from '../store/useEditStore.js'
+import { useEditStore, computeMassFallback } from '../store/useEditStore.js'
 import { useStabilityStore } from '../store/useStabilityStore.js'
 import { useUnitStructuralStore } from '../store/useUnitStructuralStore.js'
 import { getHost } from '../host/host.js'
 import Tooltip from './Tooltip.jsx'
+import { collectPipeMaterialIds, PIPE_STEEL_RHO } from '../data/pipeFluid.js'
 
 const LAYER_DEFS = [
   { key: 'nodes',        label: 'Node',         color: '#E65F6A', desc: '모든 노드 점 표시. 배관 토글이 OFF 면 배관 전용 노드는 자동 숨김 (이 토글을 OFF→ON 하면 다시 모두 표시).' },
@@ -27,6 +28,7 @@ const DEFAULT_WIDTH = 274   // 좌측 패널 기본 폭 (228 → +20%)
 export default function Sidebar() {
   const { loading, error, loadStages, loadSummary, stages, reset: resetStages } = useStageStore()
   const {
+    renderMode, setRenderMode,
     layers, toggleLayer,
     reset: resetViewer,
   } = useViewerStore()
@@ -63,6 +65,35 @@ export default function Sidebar() {
       }
     })()
   }, [resetStages, resetViewer, resetEdit, resetStability, resetUnitStructural])
+
+  const pipeFluidEmptied = useStageStore(s => s.pipeFluidEmptied)
+  const [emptyResult, setEmptyResult] = useState(null) // { delta:number|null, count:number }
+
+  const pipeMaterialCount = (() => {
+    const last = stages.length > 0 ? stages[stages.length - 1] : null
+    return last ? collectPipeMaterialIds(last).size : 0
+  })()
+
+  const handleEmptyPipeFluid = useCallback(() => {
+    const st = useStageStore.getState()
+    const cur = st.stages
+    if (!cur.length) return
+    const ok = window.confirm(
+      '모든 배관(Pipe) material 의 밀도를 7.85e-9 로 바꿔 내부 유체 중량을 제거합니다.\n' +
+      '되돌리려면 모델을 다시 로드해야 합니다. 계속할까요?'
+    )
+    if (!ok) return
+    const last = cur[cur.length - 1]
+    const before = computeMassFallback(last)?.totalMassTon ?? null
+    const { materialIds, changedCount } = st.emptyPipeFluid()
+    const after = computeMassFallback(last)?.totalMassTon ?? null
+    useEditStore.getState().addIntent({
+      kind: 'emptyPipeFluid',
+      params: { materialIds, targetRho: PIPE_STEEL_RHO },
+    })
+    const delta = (before != null && after != null) ? (before - after) : null
+    setEmptyResult({ delta, count: changedCount })
+  }, [])
 
   const [width, setWidth] = useState(DEFAULT_WIDTH)
   const dragRef = useRef(null)  // { startX, startWidth }
@@ -180,7 +211,22 @@ export default function Sidebar() {
         </Section>
       )}
 
-      {/* ── 섹션 2: 레이어 ───────────────────────────── */}
+      {/* ── 섹션 2: Display (3D 단면 렌더링 토글) ─────── */}
+      <Section label="Display">
+        <Tooltip placement="right" content={<><strong style={{ color: '#FFAA55' }}>3D 단면 렌더링</strong><br/>BEAM 을 단순 cylinder 가 아닌 실제 단면 모양(Bar/Rod/Tube/L/H)으로 렌더링합니다. 비주얼은 무거워지지만 단면 차이를 직관적으로 확인 가능.</>}>
+          <span style={{ display: 'flex', width: '100%' }}>
+            <ToggleBtn
+              active={renderMode === 'section3d'}
+              onClick={() => setRenderMode(renderMode === 'section3d' ? 'cylinder' : 'section3d')}
+              activeColor="#b06828"
+              label="3D 단면"
+              icon={<Box size={13} />}
+            />
+          </span>
+        </Tooltip>
+      </Section>
+
+      {/* ── 섹션 3: 레이어 ───────────────────────────── */}
       <Section label="레이어">
         {LAYER_DEFS.map(({ key, label, color, desc }) => {
           const on = layers[key] ?? true
@@ -228,6 +274,42 @@ export default function Sidebar() {
 
       {/* ── 편집 모드 토글은 Edit 모드 좌측 패널(EditPanelDock)로 이동 ── */}
       {/* ── 모델 확인(색상 기준·노드/그룹 필터)은 Model Check 리본(ModelCheckPanelDock)으로 분리 ── */}
+
+      {/* ── 섹션: 모델 조작 ─────────────────────────── */}
+      <Section label="모델 조작">
+        <Tooltip placement="right" content={<>
+          <strong style={{ color: '#7ab2d4' }}>Pipe 내부 유체 비우기</strong><br/>
+          모든 배관 material 의 밀도를 순수 강재(7.85e-9)로 되돌려 내부 물 중량을 제거합니다.
+          모델 중량·무게중심이 즉시 재계산되고, 구조해석(Nastran) BDF 에도 반영됩니다.
+          단방향이며 되돌리려면 모델을 다시 로드하세요.
+        </>}>
+          <button
+            type="button"
+            onClick={handleEmptyPipeFluid}
+            disabled={pipeFluidEmptied || pipeMaterialCount === 0 || stages.length === 0}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6, width: '100%',
+              padding: '7px 10px', borderRadius: 7, cursor: (pipeFluidEmptied || pipeMaterialCount === 0) ? 'default' : 'pointer',
+              fontSize: 12, fontWeight: 700,
+              background: pipeFluidEmptied ? 'rgba(110,231,183,0.10)' : 'rgba(122,178,212,0.12)',
+              color: pipeFluidEmptied ? '#6ee7b7' : '#bcd6e8',
+              border: `1px solid ${pipeFluidEmptied ? 'rgba(110,231,183,0.45)' : 'rgba(122,178,212,0.35)'}`,
+              opacity: (pipeMaterialCount === 0 && !pipeFluidEmptied) ? 0.5 : 1,
+            }}
+          >
+            <Droplet size={14} />
+            {pipeFluidEmptied ? '유체 비움 완료 ✓' : 'Pipe 내부 유체 비우기'}
+          </button>
+        </Tooltip>
+        {pipeMaterialCount === 0 && !pipeFluidEmptied && (
+          <div style={{ fontSize: 10, color: '#7a8aaa', marginTop: 4 }}>배관 부재가 없습니다.</div>
+        )}
+        {emptyResult && (
+          <div style={{ fontSize: 10, color: '#9fd0b6', marginTop: 4 }}>
+            material {emptyResult.count}개 비움{emptyResult.delta != null ? ` · −${emptyResult.delta.toFixed(1)} ton` : ''}, 무게중심 갱신됨
+          </div>
+        )}
+      </Section>
 
       {/* ── 초기화 버튼 ─────────── */}
       <div style={{ padding: '10px 8px', borderBottom: '1px solid #1e1e38' }}>
@@ -333,6 +415,35 @@ function SideBtn({ onClick, disabled, accent, children }) {
       }}
     >
       {children}
+    </button>
+  )
+}
+
+// ── ON/OFF 토글 버튼 ──────────────────────────────────────────────────────
+
+function ToggleBtn({ active, onClick, activeColor, label, icon }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 7,
+        background: active ? `${activeColor}28` : '#0f0f22',
+        color: active ? '#f0f0f0' : '#7070a0',
+        border: `1px solid ${active ? activeColor + 'aa' : '#2e2e50'}`,
+        borderRadius: 6,
+        padding: '7px 10px',
+        fontSize: 11, fontWeight: 600,
+        cursor: 'pointer',
+        transition: 'all 0.15s ease',
+        width: '100%', textAlign: 'left',
+        boxShadow: active ? `0 0 8px ${activeColor}30` : 'none',
+      }}
+    >
+      <span style={{ fontSize: 11, lineHeight: 1 }}>{icon}</span>
+      <span style={{ flex: 1 }}>{label}</span>
+      <span style={{ fontSize: 8, fontWeight: 800, color: active ? activeColor + 'ee' : '#505070' }}>
+        {active ? 'ON' : 'OFF'}
+      </span>
     </button>
   )
 }
