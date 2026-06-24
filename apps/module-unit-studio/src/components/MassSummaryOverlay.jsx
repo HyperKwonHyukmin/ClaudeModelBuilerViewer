@@ -23,17 +23,20 @@ const G = 9.80665  // m/s² — 표준 중력가속도
 export default function MassSummaryOverlay() {
   const stageSummary = useStageStore(s => s.stageSummary)
   const stages = useStageStore(s => s.stages)
+  const pipeFluidEmptied = useStageStore(s => s.pipeFluidEmptied)
 
   // 마지막 stage 기반 fallback — stages 변동 시에만 재계산 (큰 모델에서 성능 보호).
+  // 배관 유체 비움(pipeFluidEmptied) 시에는 stageSummary 무시하고 항상 재계산.
   const fallback = useMemo(() => {
-    if (stageSummary?.massProperties) return null
+    if (!pipeFluidEmptied && stageSummary?.massProperties) return null
     const last = stages.length > 0 ? stages[stages.length - 1] : null
     if (!last) return null
     return computeMassFallback(last)
-  }, [stageSummary, stages])
+  }, [stageSummary, stages, pipeFluidEmptied])
 
   // 표시할 mass — summary 우선, 없으면 fallback. 둘 다 없으면 null.
-  const massData = pickMassData(stageSummary?.massProperties, fallback)
+  // 배관 유체 비움 시에는 stageSummary 를 무시하고 fallback(재계산)을 우선 사용.
+  const massData = pickMassData(pipeFluidEmptied ? null : stageSummary?.massProperties, fallback)
   if (!massData) return null
 
   // 권상 하중 (kN) = 질량(ton) × g → ton·m/s² = kN.
@@ -43,9 +46,11 @@ export default function MassSummaryOverlay() {
   return (
     <div
       title={
-        massData.source === 'stageSummary'
-          ? '모델 전체 질량 / 권상 하중 / 무게중심 (00_StageSummary.json 기준)'
-          : `모델 전체 질량 / 권상 하중 / 무게중심 (자동 계산: ${massData.source})`
+        pipeFluidEmptied
+          ? '모델 전체 질량 / 권상 하중 / 무게중심 (배관 유체 비움 — 자동 재계산)'
+          : massData.source === 'stageSummary'
+            ? '모델 전체 질량 / 권상 하중 / 무게중심 (00_StageSummary.json 기준)'
+            : `모델 전체 질량 / 권상 하중 / 무게중심 (자동 계산: ${massData.source})`
       }
       style={{
         position: 'absolute',
