@@ -20,7 +20,7 @@
 
 export const EDIT_INTENT_SCHEMA_VERSION = '1.0'
 
-const VALID_KINDS = new Set(['addRigid', 'deleteGroup', 'deleteElement', 'deleteCategory', 'deleteOrphanNodes'])
+const VALID_KINDS = new Set(['addRigid', 'deleteGroup', 'deleteElement', 'deleteCategory', 'deleteOrphanNodes', 'emptyPipeFluid'])
 
 /**
  * 새 EditIntent 1건을 만든다 (검증은 별도, validateIntent 호출 후 합치기).
@@ -66,6 +66,8 @@ export function validateIntent(intent, stageData, existingIntents = []) {
     validateDeleteCategory(intent.params, stageData, existingIntents, errors, warnings)
   } else if (intent.kind === 'deleteOrphanNodes') {
     validateDeleteOrphanNodes(intent.params, stageData, existingIntents, errors, warnings)
+  } else if (intent.kind === 'emptyPipeFluid') {
+    validateEmptyPipeFluid(intent.params, stageData, existingIntents, errors, warnings)
   } else {
     errors.push(`알 수 없는 intent kind: ${intent.kind}`)
   }
@@ -267,6 +269,10 @@ export function summarizeIntent(intent) {
     const tail = ids.length > 4 ? `…외 ${ids.length - 4}` : ''
     return `Orphan 노드 ${ids.length}개 삭제 (${head}${tail})`
   }
+  if (intent.kind === 'emptyPipeFluid') {
+    const ids = Array.isArray(intent.params?.materialIds) ? intent.params.materialIds : []
+    return `배관 내부 유체 비우기 (${ids.length}개 material → ρ=7.85e-9)`
+  }
   return `알 수 없는 intent: ${intent.kind}`
 }
 
@@ -366,6 +372,32 @@ function validateDeleteOrphanNodes(params, stageData, existingIntents, errors, w
     if (exIds.size === ids.length && ids.every(n => exIds.has(n))) {
       errors.push('동일한 Orphan 삭제 intent 가 이미 추가되어 있습니다.')
       break
+    }
+  }
+}
+
+function validateEmptyPipeFluid(params, stageData, existingIntents, errors, warnings) {
+  const ids = params?.materialIds
+  if (!Array.isArray(ids) || ids.length === 0) {
+    errors.push('materialIds 가 비어 있습니다 (비울 배관 material 없음).')
+    return
+  }
+  if (ids.some(m => !Number.isInteger(m))) {
+    errors.push('materialIds 배열에 정수가 아닌 값이 있습니다.')
+    return
+  }
+  // 단방향 — 같은 intent 중복 추가 차단
+  for (const ex of existingIntents) {
+    if (ex.kind === 'emptyPipeFluid') {
+      errors.push('배관 유체 비우기 intent 가 이미 추가되어 있습니다.')
+      return
+    }
+  }
+  // 현재 stage 에 없는 material 은 경고만 (다른 stage 기준일 수 있음)
+  if (stageData?.materialMap) {
+    const missing = ids.filter(m => !stageData.materialMap.has(m))
+    if (missing.length > 0) {
+      warnings.push(`material ${missing.slice(0, 5).join(',')} 가 현재 stage 에 없습니다.`)
     }
   }
 }

@@ -268,3 +268,28 @@ describe('summarizeIntent', () => {
     expect(label).toContain('…외')
   })
 })
+
+// ── emptyPipeFluid intent ─────────────────────────────────────
+describe('emptyPipeFluid intent', () => {
+  const stage = {
+    materialMap: new Map([[2, { id: 2, rho: 1.3e-8 }], [3, { id: 3, rho: 1.6e-8 }]]),
+  }
+  it('정상 params 면 createIntent 성공 + validate ok', () => {
+    const intent = createIntent('emptyPipeFluid', { materialIds: [2, 3], targetRho: 7.85e-9 })
+    expect(intent.kind).toBe('emptyPipeFluid')
+    expect(validateIntent(intent, stage, []).status).toBe('ok')
+  })
+  it('materialIds 가 비면 error', () => {
+    const intent = createIntent('emptyPipeFluid', { materialIds: [], targetRho: 7.85e-9 })
+    expect(validateIntent(intent, stage, []).status).toBe('error')
+  })
+  it('이미 emptyPipeFluid intent 가 있으면 중복 error (단방향)', () => {
+    const existing = [createIntent('emptyPipeFluid', { materialIds: [2], targetRho: 7.85e-9 })]
+    const intent = createIntent('emptyPipeFluid', { materialIds: [3], targetRho: 7.85e-9 })
+    expect(validateIntent(intent, stage, existing).status).toBe('error')
+  })
+  it('summarizeIntent 가 material 개수를 표시', () => {
+    const intent = createIntent('emptyPipeFluid', { materialIds: [2, 3], targetRho: 7.85e-9 })
+    expect(summarizeIntent(intent)).toContain('2개')
+  })
+})
