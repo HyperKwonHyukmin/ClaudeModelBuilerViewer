@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { collectPipeMaterialIds, applyPipeFluidEmpty, PIPE_STEEL_RHO } from './pipeFluid.js'
+import { collectPipeMaterialIds, applyPipeFluidEmpty, isPipeFluidEmpty, PIPE_STEEL_RHO } from './pipeFluid.js'
 
 function makeStage() {
   const materials = [
@@ -47,5 +47,36 @@ describe('applyPipeFluidEmpty', () => {
     const stage = makeStage()
     const changed = applyPipeFluidEmpty([stage], new Set([1]))
     expect(changed).toBe(0)
+  })
+})
+
+describe('isPipeFluidEmpty', () => {
+  it('배관 material 에 유체가 남아있으면(rho > 강재) false', () => {
+    expect(isPipeFluidEmpty(makeStage())).toBe(false)
+  })
+  it('모든 배관 material rho 가 7.85e-9 면 true (이미 비워진 모델)', () => {
+    const stage = makeStage()
+    applyPipeFluidEmpty([stage], collectPipeMaterialIds(stage)) // 배관만 강재로 비움
+    expect(isPipeFluidEmpty(stage)).toBe(true)
+  })
+  it('처음부터 모든 배관이 강재 밀도면 true', () => {
+    const stage = makeStage()
+    stage.materialMap.get(2).rho = PIPE_STEEL_RHO
+    stage.materialMap.get(3).rho = PIPE_STEEL_RHO
+    expect(isPipeFluidEmpty(stage)).toBe(true)
+  })
+  it('배관 요소가 없으면 false (비울 유체 자체가 없음 → 완료 아님)', () => {
+    const stage = makeStage()
+    stage.elements = stage.elements.filter(e => e.category !== 'Pipe')
+    expect(isPipeFluidEmpty(stage)).toBe(false)
+  })
+  it('아주 작은 부동소수 오차는 비움으로 간주(허용오차)', () => {
+    const stage = makeStage()
+    stage.materialMap.get(2).rho = PIPE_STEEL_RHO * (1 + 1e-9)
+    stage.materialMap.get(3).rho = PIPE_STEEL_RHO
+    expect(isPipeFluidEmpty(stage)).toBe(true)
+  })
+  it('stage 가 null 이면 false', () => {
+    expect(isPipeFluidEmpty(null)).toBe(false)
   })
 })

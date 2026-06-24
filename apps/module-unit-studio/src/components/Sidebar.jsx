@@ -7,7 +7,7 @@ import { useStabilityStore } from '../store/useStabilityStore.js'
 import { useUnitStructuralStore } from '../store/useUnitStructuralStore.js'
 import { getHost } from '../host/host.js'
 import Tooltip from './Tooltip.jsx'
-import { collectPipeMaterialIds, PIPE_STEEL_RHO } from '../data/pipeFluid.js'
+import { collectPipeMaterialIds, isPipeFluidEmpty, PIPE_STEEL_RHO } from '../data/pipeFluid.js'
 
 const LAYER_DEFS = [
   { key: 'nodes',        label: 'Node',         color: '#E65F6A', desc: '모든 노드 점 표시. 배관 토글이 OFF 면 배관 전용 노드는 자동 숨김 (이 토글을 OFF→ON 하면 다시 모두 표시).' },
@@ -69,10 +69,12 @@ export default function Sidebar() {
   const pipeFluidEmptied = useStageStore(s => s.pipeFluidEmptied)
   const [emptyResult, setEmptyResult] = useState(null) // { delta:number|null, count:number }
 
-  const pipeMaterialCount = (() => {
-    const last = stages.length > 0 ? stages[stages.length - 1] : null
-    return last ? collectPipeMaterialIds(last).size : 0
-  })()
+  const lastStage = stages.length > 0 ? stages[stages.length - 1] : null
+  const pipeMaterialCount = lastStage ? collectPipeMaterialIds(lastStage).size : 0
+  // 로드된 모델의 모든 배관 material 이 이미 순수 강재(7.85e-9)면 '유체 비움 완료' 로 인식.
+  // (사용자가 직접 비운 pipeFluidEmptied 와 합쳐서 버튼을 완료 상태로 표시)
+  const pipeFluidAlreadyEmpty = isPipeFluidEmpty(lastStage)
+  const isEmptied = pipeFluidEmptied || pipeFluidAlreadyEmpty
 
   const handleEmptyPipeFluid = useCallback(() => {
     const st = useStageStore.getState()
@@ -286,23 +288,29 @@ export default function Sidebar() {
           <button
             type="button"
             onClick={handleEmptyPipeFluid}
-            disabled={pipeFluidEmptied || pipeMaterialCount === 0 || stages.length === 0}
+            disabled={isEmptied || pipeMaterialCount === 0 || stages.length === 0}
             style={{
               display: 'flex', alignItems: 'center', gap: 6, width: '100%',
-              padding: '7px 10px', borderRadius: 7, cursor: (pipeFluidEmptied || pipeMaterialCount === 0) ? 'default' : 'pointer',
+              padding: '7px 10px', borderRadius: 7, cursor: (isEmptied || pipeMaterialCount === 0) ? 'default' : 'pointer',
               fontSize: 12, fontWeight: 700,
-              background: pipeFluidEmptied ? 'rgba(110,231,183,0.10)' : 'rgba(122,178,212,0.12)',
-              color: pipeFluidEmptied ? '#6ee7b7' : '#bcd6e8',
-              border: `1px solid ${pipeFluidEmptied ? 'rgba(110,231,183,0.45)' : 'rgba(122,178,212,0.35)'}`,
-              opacity: (pipeMaterialCount === 0 && !pipeFluidEmptied) ? 0.5 : 1,
+              background: isEmptied ? 'rgba(110,231,183,0.10)' : 'rgba(122,178,212,0.12)',
+              color: isEmptied ? '#6ee7b7' : '#bcd6e8',
+              border: `1px solid ${isEmptied ? 'rgba(110,231,183,0.45)' : 'rgba(122,178,212,0.35)'}`,
+              opacity: (pipeMaterialCount === 0 && !isEmptied) ? 0.5 : 1,
             }}
           >
             <Droplet size={14} />
-            {pipeFluidEmptied ? '유체 비움 완료 ✓' : 'Pipe 내부 유체 비우기'}
+            {isEmptied ? '유체 비움 완료 ✓' : 'Pipe 내부 유체 비우기'}
           </button>
         </Tooltip>
-        {pipeMaterialCount === 0 && !pipeFluidEmptied && (
+        {pipeMaterialCount === 0 && !isEmptied && (
           <div style={{ fontSize: 10, color: '#7a8aaa', marginTop: 4 }}>배관 부재가 없습니다.</div>
+        )}
+        {/* 이미 비워진 채 로드된 모델 — 사용자가 비운 게 아님을 구분해 안내(혼란 방지) */}
+        {pipeFluidAlreadyEmpty && !pipeFluidEmptied && (
+          <div style={{ fontSize: 10, color: '#9fd0b6', marginTop: 4 }}>
+            이미 순수 강재 밀도입니다 (내부 유체 없음).
+          </div>
         )}
         {emptyResult && (
           <div style={{ fontSize: 10, color: '#9fd0b6', marginTop: 4 }}>

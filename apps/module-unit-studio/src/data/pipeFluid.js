@@ -45,3 +45,30 @@ export function applyPipeFluidEmpty(stages, materialIds, rho = PIPE_STEEL_RHO) {
   }
   return changed
 }
+
+/**
+ * stage 의 모든 Pipe material rho 가 이미 순수 강재값(7.85e-9)인지 판정.
+ *
+ * 용도: 배관 유체가 이미 비워진(또는 애초에 물 중량이 없던) 모델을 로드했을 때
+ * UI 가 "유체 비움 완료" 상태로 인식하도록 한다.
+ *
+ * 규칙:
+ *   - Pipe 요소가 하나도 없으면 false ('비울 유체' 자체가 없음 → 완료가 아니라 '대상 없음').
+ *   - Pipe material 중 rho 가 강재값과 (허용오차 초과로) 다른 것이 하나라도 있으면 false.
+ *   - 모든 Pipe material rho 가 강재값이면 true.
+ *
+ * @param {object|null} stage  StageData (elements/propertyMap/materialMap 보유)
+ * @param {number} [rho]  순수 강재 밀도 기준값
+ * @returns {boolean}
+ */
+export function isPipeFluidEmpty(stage, rho = PIPE_STEEL_RHO) {
+  if (!stage) return false
+  const ids = collectPipeMaterialIds(stage)
+  if (ids.size === 0) return false
+  const tol = Math.abs(rho) * 1e-6   // JSON 왕복/표현 오차를 흡수하는 작은 허용오차
+  for (const mid of ids) {
+    const mat = stage.materialMap?.get?.(mid)
+    if (mat && Math.abs((mat.rho ?? 0) - rho) > tol) return false
+  }
+  return true
+}
