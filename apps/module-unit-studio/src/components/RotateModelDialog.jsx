@@ -9,8 +9,9 @@ import { useEditStore, computeMassFallback } from '../store/useEditStore.js'
  *  props.onApplied(result): 회전 적용 후 결과 전달 ({axis, angleDeg, changedNodeCount, invalidatedStability})
  */
 export default function RotateModelDialog({ onClose, onApplied }) {
-  const [axis, setAxis] = useState('Z')
-  const [angleText, setAngleText] = useState('90')
+  // 초기값: 모델 로드 직후 가장 흔한 보정인 X축 180° 를 기본값으로 둔다(사용자가 변경 가능).
+  const [axis, setAxis] = useState('X')
+  const [angleText, setAngleText] = useState('180')
 
   const handleKeyDown = useCallback((e) => {
     if (e.key === 'Escape') { e.stopPropagation(); onClose?.() }
@@ -82,7 +83,7 @@ export default function RotateModelDialog({ onClose, onApplied }) {
         </Section>
 
         <Section title="회전 각도 (°)">
-          <input type="number" value={angleText} onChange={e => setAngleText(e.target.value)} step="1" placeholder="90"
+          <input type="number" value={angleText} onChange={e => setAngleText(e.target.value)} step="1" placeholder="180"
             style={inputStyle} />
           <div style={{ fontSize: 9, color: '#7a8aaa' }}>
             무게중심(CoG) 기준으로 회전합니다. 회전은 누적되며 되돌리려면 모델을 다시 로드하세요.
