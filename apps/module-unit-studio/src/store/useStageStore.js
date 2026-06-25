@@ -106,13 +106,16 @@ export const useStageStore = create((set) => ({
     set({ stages: [...stages], modelRotated: true })
 
     let invalidatedStability = false
-    const stab = useStabilityStore.getState()
-    if (stab.report || stab.stabilityPath || stab.overallStatus) {
-      stab.reset()
-      invalidatedStability = true
+    // 실제로 회전이 적용된 경우에만 stale 결과 무효화 (emptyPipeFluid 의 changedCount>0 가드와 동일)
+    if (changedNodeCount > 0) {
+      const stab = useStabilityStore.getState()
+      if (stab.report || stab.stabilityPath || stab.overallStatus) {
+        stab.reset()
+        invalidatedStability = true
+      }
+      const us = useUnitStructuralStore.getState()
+      if (us.status || us.result) us.reset()
     }
-    const us = useUnitStructuralStore.getState()
-    if (us.status || us.result) us.reset()
 
     return { axis, angleDeg, changedNodeCount, invalidatedStability }
   },
