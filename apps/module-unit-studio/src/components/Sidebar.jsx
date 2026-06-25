@@ -82,19 +82,20 @@ export default function Sidebar() {
     if (!cur.length) return
     const ok = window.confirm(
       '모든 배관(Pipe) material 의 밀도를 7.85e-9 로 바꿔 내부 유체 중량을 제거합니다.\n' +
+      '무게중심이 바뀌므로 기존 자세안정성 평가 결과는 초기화되고, 다시 평가해야 합니다.\n' +
       '되돌리려면 모델을 다시 로드해야 합니다. 계속할까요?'
     )
     if (!ok) return
     const last = cur[cur.length - 1]
     const before = computeMassFallback(last)?.totalMassTon ?? null
-    const { materialIds, changedCount } = st.emptyPipeFluid()
+    const { materialIds, changedCount, invalidatedStability } = st.emptyPipeFluid()
     const after = computeMassFallback(last)?.totalMassTon ?? null
     useEditStore.getState().addIntent({
       kind: 'emptyPipeFluid',
       params: { materialIds, targetRho: PIPE_STEEL_RHO },
     })
     const delta = (before != null && after != null) ? (before - after) : null
-    setEmptyResult({ delta, count: changedCount })
+    setEmptyResult({ delta, count: changedCount, invalidated: invalidatedStability })
   }, [])
 
   const [width, setWidth] = useState(DEFAULT_WIDTH)
@@ -315,6 +316,11 @@ export default function Sidebar() {
         {emptyResult && (
           <div style={{ fontSize: 10, color: '#9fd0b6', marginTop: 4 }}>
             material {emptyResult.count}개 비움{emptyResult.delta != null ? ` · −${emptyResult.delta.toFixed(1)} ton` : ''}, 무게중심 갱신됨
+          </div>
+        )}
+        {emptyResult?.invalidated && (
+          <div style={{ fontSize: 10, color: '#ffcc66', marginTop: 4, lineHeight: 1.4 }}>
+            ⚠ 무게중심이 바뀌어 자세안정성 평가 결과를 초기화했습니다. 자세안정성 평가를 다시 실행하세요.
           </div>
         )}
       </Section>

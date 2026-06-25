@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { useEditStore, getHoistMaxGroups, getHoistDefaultWireLengthM } from './useEditStore.js'
+import { useEditStore, getHoistMaxGroups, getHoistDefaultWireLengthM, buildPostureStabilityPayload } from './useEditStore.js'
 import { useStageStore } from './useStageStore.js'
 import { useStabilityStore } from './useStabilityStore.js'
 import { StageData } from '../data/StageData.js'
@@ -20,6 +20,43 @@ const makeStageData = () => new StageData({
     groups: [{ id: 0, nodeIds: [1, 2, 3, 4], elementIds: [101] }] },
   healthMetrics: { totals: { nodeCount: 4, elementCount: 0, rigidCount: 0, pointMassCount: 0,
     bbox: { minX: 0, maxX: 3000, minY: 0, maxY: 0, minZ: 0, maxZ: 0 } }, issues: {} },
+})
+
+describe('buildPostureStabilityPayload — 배관 유체 비움 시 무게중심', () => {
+  // pointMass 만으로 fallback CoG = (100,0,0) 이 되는 최소 stage.
+  const makePmStage = () => ({
+    nodeMap: new Map([[1, { id: 1, x: 100, y: 0, z: 0 }]]),
+    pointMasses: [{ nodeId: 1, mass: 2 }],
+    elements: [],
+    meta: {},
+  })
+  const hoisting = { mode: 'single', groupCount: 0, wireLengthM: null, groups: [] }
+
+  afterEach(() => {
+    useStageStore.setState({ stageSummary: null, pipeFluidEmptied: false })
+  })
+
+  it('pipeFluidEmptied=false 면 stageSummary(유체 포함) CoG 를 그대로 사용', () => {
+    const stage = makePmStage()
+    useStageStore.setState({
+      stageSummary: { massProperties: { totalMassTon: 99, centerOfGravityMm: { x: 9999, y: 0, z: 0 } } },
+      pipeFluidEmptied: false,
+    })
+    const payload = buildPostureStabilityPayload({}, hoisting, stage, null)
+    expect(payload.model.centerOfGravityMm.x).toBe(9999)
+    expect(payload.model.massSource).toBe('stageSummary')
+  })
+
+  it('pipeFluidEmptied=true 면 stale stageSummary 무시하고 비워진 stage 로 재계산', () => {
+    const stage = makePmStage()
+    useStageStore.setState({
+      stageSummary: { massProperties: { totalMassTon: 99, centerOfGravityMm: { x: 9999, y: 0, z: 0 } } },
+      pipeFluidEmptied: true,
+    })
+    const payload = buildPostureStabilityPayload({}, hoisting, stage, null)
+    expect(payload.model.centerOfGravityMm.x).toBe(100)        // fallback(=비워진 stage) 결과
+    expect(payload.model.massSource).toMatch(/^computed/)       // stageSummary 가 아님
+  })
 })
 
 describe('useEditStore', () => {

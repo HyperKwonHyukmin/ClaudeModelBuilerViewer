@@ -794,7 +794,7 @@ function buildPosturePayloadFileName(stage) {
  * editedFileName 이 있으면 stageRef.editedFile 로 함께 내보내 평가기가 어떤 모델을
  * 기준으로 평가해야 하는지 명시한다 (편집 적용 후 모델).
  */
-function buildPostureStabilityPayload(state, hoisting, stage, editedFileName) {
+export function buildPostureStabilityPayload(state, hoisting, stage, editedFileName) {
   const groups = (hoisting.groups ?? []).map(g => {
     const nodes = g.nodeIds
       .map(id => {
@@ -814,7 +814,11 @@ function buildPostureStabilityPayload(state, hoisting, stage, editedFileName) {
 
   // 우선 stageSummary(00_StageSummary.json 또는 _COG.json) 가 있으면 그 값을 ground truth 로 사용.
   // 없으면 stage 의 PointMass + (가능하면) BEAM 단면×재질 밀도로 직접 계산해 폴백한다.
-  const summary = useStageStore.getState().stageSummary
+  // ★ 배관 유체 비움(pipeFluidEmptied) 시 stageSummary 는 '유체 포함' 상태로 계산된 stale 값이므로
+  //    무시하고, 비워진 rho 가 반영된 stage 로부터 computeMassFallback 으로 재계산한다.
+  //    (이 분기가 없으면 유체를 비운 뒤 자세안정성 평가를 다시 실행해도 옛 무게중심이 들어간다.)
+  const stageState = useStageStore.getState()
+  const summary = stageState.pipeFluidEmptied ? null : stageState.stageSummary
   const fromSummary = summary?.massProperties ?? null
   let totalMassTon = fromSummary?.totalMassTon ?? null
   let centerOfGravityMm = fromSummary?.centerOfGravityMm ?? null

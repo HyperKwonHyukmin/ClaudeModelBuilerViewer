@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { useStageStore } from './useStageStore.js'
+import { useStabilityStore } from './useStabilityStore.js'
+import { useUnitStructuralStore } from './useUnitStructuralStore.js'
 import { PIPE_STEEL_RHO } from '../data/pipeFluid.js'
 
 function makeStage() {
@@ -20,7 +22,11 @@ function makeStage() {
 }
 
 describe('useStageStore.emptyPipeFluid', () => {
-  beforeEach(() => { useStageStore.setState({ stages: [], pipeFluidEmptied: false }) })
+  beforeEach(() => {
+    useStageStore.setState({ stages: [], pipeFluidEmptied: false })
+    useStabilityStore.getState().reset()
+    useUnitStructuralStore.getState().reset()
+  })
 
   it('기본 pipeFluidEmptied 는 false', () => {
     expect(useStageStore.getState().pipeFluidEmptied).toBe(false)
@@ -41,5 +47,35 @@ describe('useStageStore.emptyPipeFluid', () => {
     const r = useStageStore.getState().emptyPipeFluid()
     expect(r.materialIds).toEqual([])
     expect(useStageStore.getState().pipeFluidEmptied).toBe(false)
+  })
+
+  it('유체를 비우면 기존 자세안정성/구조해석 결과를 무효화한다', () => {
+    const stage = makeStage()
+    useStageStore.setState({ stages: [stage] })
+    // 사전: 평가/해석 결과가 이미 있다고 가정
+    useStabilityStore.setState({ report: { stages: [] }, stabilityPath: '/x/_stability.json', overallStatus: 'pass' })
+    useUnitStructuralStore.setState({ status: 'Success', result: { ok: 1 } })
+
+    const r = useStageStore.getState().emptyPipeFluid()
+
+    expect(r.invalidatedStability).toBe(true)
+    expect(useStabilityStore.getState().report).toBe(null)
+    expect(useStabilityStore.getState().stabilityPath).toBe(null)
+    expect(useStabilityStore.getState().overallStatus).toBe(null)
+    expect(useUnitStructuralStore.getState().status).toBe(null)
+    expect(useUnitStructuralStore.getState().result).toBe(null)
+  })
+
+  it('바뀐 게 없으면(이미 비워짐) 무효화하지 않는다', () => {
+    const stage = makeStage()
+    stage.materialMap.get(2).rho = PIPE_STEEL_RHO // 이미 강재
+    useStageStore.setState({ stages: [stage] })
+    useStabilityStore.setState({ report: { stages: [] }, stabilityPath: '/x', overallStatus: 'pass' })
+
+    const r = useStageStore.getState().emptyPipeFluid()
+
+    expect(r.changedCount).toBe(0)
+    expect(r.invalidatedStability).toBe(false)
+    expect(useStabilityStore.getState().report).not.toBe(null) // 유지
   })
 })

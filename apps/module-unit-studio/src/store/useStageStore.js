@@ -1,6 +1,8 @@
 import { create } from 'zustand'
 import { emptyLoadSummary, loadFiles } from '../data/fileLoader.js'
 import { useViewerStore } from './useViewerStore.js'
+import { useStabilityStore } from './useStabilityStore.js'
+import { useUnitStructuralStore } from './useUnitStructuralStore.js'
 import { collectPipeMaterialIds, applyPipeFluidEmpty, PIPE_STEEL_RHO } from '../data/pipeFluid.js'
 // useEditStore 는 순환 의존(useEditStore → useStageStore)을 피하기 위해 사용 시점에 동적 import 한다.
 
@@ -55,12 +57,26 @@ export const useStageStore = create((set) => ({
   emptyPipeFluid: () => {
     const stages = useStageStore.getState().stages
     if (!Array.isArray(stages) || stages.length === 0) {
-      return { materialIds: [], changedCount: 0 }
+      return { materialIds: [], changedCount: 0, invalidatedStability: false }
     }
     const last = stages[stages.length - 1]
     const ids = collectPipeMaterialIds(last)
     const changedCount = applyPipeFluidEmpty(stages, ids, PIPE_STEEL_RHO)
     set({ stages: [...stages], pipeFluidEmptied: true })
-    return { materialIds: [...ids], changedCount }
+
+    // 유체를 비우면 무게중심이 바뀌므로 기존 자세안정성/구조해석 결과는 stale → 무효화한다.
+    // 자세안정성 평가를 다시 실행해야(구조해석 가드가 stabilityPath 부재로 자동 차단) 새 CoG 가
+    // posture → stability.json → lift-run anchor SPC 까지 일관되게 반영된다.
+    let invalidatedStability = false
+    if (changedCount > 0) {
+      const stab = useStabilityStore.getState()
+      if (stab.report || stab.stabilityPath || stab.overallStatus) {
+        stab.reset()
+        invalidatedStability = true
+      }
+      const us = useUnitStructuralStore.getState()
+      if (us.status || us.result) us.reset()
+    }
+    return { materialIds: [...ids], changedCount, invalidatedStability }
   },
 }))
