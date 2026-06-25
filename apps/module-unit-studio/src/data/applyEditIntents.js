@@ -67,6 +67,9 @@ export function computeDeleteMask(stageData, intents) {
   const deletedElementIds = new Set()
   const deletedGroupIds   = new Set()
 
+  // 주의: rotateModel / emptyPipeFluid 는 geometry/material 을 프론트 in-memory 에서 이미 적용한
+  // "부작용 intent" 다. 여기(computeDeleteMask)나 buildEditedStageJson 에서 절대 재적용하지 말 것
+  // — 좌표를 두 번 회전하는 등 이중 적용 버그가 생긴다. 이 intent 들은 기록(provenance) 전용이다.
   for (const intent of intents) {
     if (intent.kind !== 'deleteGroup') continue
     const groupId = intent.params?.groupId

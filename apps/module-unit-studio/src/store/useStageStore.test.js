@@ -126,4 +126,17 @@ describe('useStageStore.rotateModel', () => {
     expect(r.changedNodeCount).toBe(0)
     expect(useStageStore.getState().modelRotated).toBe(false)
   })
+
+  it('360°/0° 의 배수는 사실상 회전 없음 → no-op (무효화 안 함)', () => {
+    const s = makeStageData()
+    useStageStore.setState({ stages: [s] })
+    useStabilityStore.setState({ report: { stages: [] }, stabilityPath: '/x', overallStatus: 'pass' })
+    const r = useStageStore.getState().rotateModel({ axis: 'Z', angleDeg: 360, pivot: { x: 0, y: 0, z: 0 } })
+    expect(r.changedNodeCount).toBe(0)
+    expect(r.invalidatedStability).toBe(false)
+    expect(useStageStore.getState().modelRotated).toBe(false)
+    expect(useStabilityStore.getState().report).not.toBe(null) // 유지
+    // 좌표도 그대로
+    expect(s.nodeMap.get(2).x).toBe(100)
+  })
 })

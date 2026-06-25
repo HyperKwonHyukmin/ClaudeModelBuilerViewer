@@ -95,6 +95,11 @@ export const useStageStore = create((set) => ({
     if (!Array.isArray(stages) || stages.length === 0) {
       return { axis, angleDeg, changedNodeCount: 0, invalidatedStability: false }
     }
+    // 360° 의 배수(0, 360, -360 …)는 사실상 회전 없음 → no-op.
+    // (실수로 0° 적용 시 modelRotated/무효화로 기존 평가가 날아가는 것을 방지)
+    if (Number.isFinite(angleDeg) && ((angleDeg % 360) + 360) % 360 === 0) {
+      return { axis, angleDeg, changedNodeCount: 0, invalidatedStability: false }
+    }
     const last = stages[stages.length - 1]
     const p = pivot ?? last.center ?? { x: 0, y: 0, z: 0 }
     let changedNodeCount = 0
