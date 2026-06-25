@@ -20,7 +20,7 @@
 
 export const EDIT_INTENT_SCHEMA_VERSION = '1.0'
 
-const VALID_KINDS = new Set(['addRigid', 'deleteGroup', 'deleteElement', 'deleteCategory', 'deleteOrphanNodes', 'emptyPipeFluid'])
+const VALID_KINDS = new Set(['addRigid', 'deleteGroup', 'deleteElement', 'deleteCategory', 'deleteOrphanNodes', 'emptyPipeFluid', 'rotateModel'])
 
 /**
  * 새 EditIntent 1건을 만든다 (검증은 별도, validateIntent 호출 후 합치기).
@@ -68,6 +68,8 @@ export function validateIntent(intent, stageData, existingIntents = []) {
     validateDeleteOrphanNodes(intent.params, stageData, existingIntents, errors, warnings)
   } else if (intent.kind === 'emptyPipeFluid') {
     validateEmptyPipeFluid(intent.params, stageData, existingIntents, errors, warnings)
+  } else if (intent.kind === 'rotateModel') {
+    validateRotateModel(intent.params, stageData, existingIntents, errors, warnings)
   } else {
     errors.push(`알 수 없는 intent kind: ${intent.kind}`)
   }
@@ -273,6 +275,10 @@ export function summarizeIntent(intent) {
     const ids = Array.isArray(intent.params?.materialIds) ? intent.params.materialIds : []
     return `배관 내부 유체 비우기 (${ids.length}개 material → ρ=7.85e-9)`
   }
+  if (intent.kind === 'rotateModel') {
+    const { axis, angleDeg } = intent.params ?? {}
+    return `모델 회전 (${axis}축 ${angleDeg}°)`
+  }
   return `알 수 없는 intent: ${intent.kind}`
 }
 
@@ -400,6 +406,18 @@ function validateEmptyPipeFluid(params, stageData, existingIntents, errors, warn
       warnings.push(`material ${missing.slice(0, 5).join(',')} 가 현재 stage 에 없습니다.`)
     }
   }
+}
+
+function validateRotateModel(params, stageData, existingIntents, errors, warnings) {
+  const axis = params?.axis
+  const angleDeg = params?.angleDeg
+  if (axis !== 'X' && axis !== 'Y' && axis !== 'Z') {
+    errors.push(`회전축이 X/Y/Z 가 아닙니다: ${axis}`)
+  }
+  if (typeof angleDeg !== 'number' || !Number.isFinite(angleDeg)) {
+    errors.push('회전 각도(angleDeg) 가 유한한 숫자가 아닙니다.')
+  }
+  // 누적 회전 허용 — 같은 kind 중복은 막지 않는다.
 }
 
 // ── 내부 유틸 ────────────────────────────────────────────────────────────

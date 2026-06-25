@@ -293,3 +293,35 @@ describe('emptyPipeFluid intent', () => {
     expect(summarizeIntent(intent)).toContain('2개')
   })
 })
+
+describe('rotateModel intent', () => {
+  it('정상 파라미터 검증 통과', () => {
+    const d = createIntent('rotateModel', { axis: 'Z', angleDeg: 45 })
+    const v = validateIntent(d, null, [])
+    expect(v.status).toBe('ok')
+  })
+
+  it('잘못된 축은 error', () => {
+    const d = createIntent('rotateModel', { axis: 'W', angleDeg: 45 })
+    const v = validateIntent(d, null, [])
+    expect(v.status).toBe('error')
+  })
+
+  it('비수치 각도는 error', () => {
+    const d = createIntent('rotateModel', { axis: 'X', angleDeg: 'abc' })
+    const v = validateIntent(d, null, [])
+    expect(v.status).toBe('error')
+  })
+
+  it('누적 허용 — 같은 kind 두 번이어도 error 아님', () => {
+    const first = createIntent('rotateModel', { axis: 'Z', angleDeg: 10 })
+    const second = createIntent('rotateModel', { axis: 'Z', angleDeg: 20 })
+    const v = validateIntent(second, null, [first])
+    expect(v.status).toBe('ok')
+  })
+
+  it('summarizeIntent 라벨', () => {
+    const d = createIntent('rotateModel', { axis: 'Y', angleDeg: 30 })
+    expect(summarizeIntent(d)).toBe('모델 회전 (Y축 30°)')
+  })
+})
