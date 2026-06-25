@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { rotatePointAboutAxis, rotateDirectionAboutAxis, isValidAxis } from './geometry.js'
+import { rotatePointAboutAxis, rotateDirectionAboutAxis, isValidAxis, degToRad } from './geometry.js'
 
 const near = (a, b, eps = 1e-9) => Math.abs(a - b) < eps
 
@@ -39,5 +39,16 @@ describe('geometry — 축 회전', () => {
 
   it('알 수 없는 축은 throw', () => {
     expect(() => rotatePointAboutAxis(1, 0, 0, 'W', 90)).toThrow()
+  })
+
+  it('Y축 90°: (1,0,0) → (0,0,-1)', () => {
+    const [x, y, z] = rotatePointAboutAxis(1, 0, 0, 'Y', 90)
+    expect(near(x, 0)).toBe(true)
+    expect(near(y, 0)).toBe(true)
+    expect(near(z, -1)).toBe(true)
+  })
+
+  it('degToRad(180) ≈ π', () => {
+    expect(near(degToRad(180), Math.PI)).toBe(true)
   })
 })
