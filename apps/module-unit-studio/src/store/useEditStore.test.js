@@ -990,3 +990,39 @@ describe('useEditStore', () => {
     expect(useEditStore.getState().pendingNodeSelection).toEqual([])
   })
 })
+
+describe('buildPostureStabilityPayload — 모델 회전 시 stageSummary 무시', () => {
+  it('modelRotated=true 면 stageSummary 무시하고 재계산 CoG 사용', () => {
+    const stage = new StageData({
+      meta: { phase: 'C', stageName: 'C', unit: 'mm', schemaVersion: '1.1' },
+      nodes: [{ id: 1, x: 100, y: 0, z: 0, tags: [] }],
+      elements: [], rigids: [], properties: [], materials: [],
+      pointMasses: [{ id: 1, nodeId: 1, mass: 2 }],
+    })
+    useStageStore.setState({
+      stages: [stage], pipeFluidEmptied: false, modelRotated: true,
+      stageSummary: { massProperties: { totalMassTon: 5, centerOfGravityMm: { x: 9999, y: 9999, z: 9999 } } },
+    })
+    const hoisting = { mode: 'wire', groupCount: 0, groups: [] }
+    const payload = buildPostureStabilityPayload({}, hoisting, stage, null)
+    expect(payload.model.centerOfGravityMm.x).toBe(100) // pointMass 위치 = 재계산 CoG
+    expect(payload.model.massSource).not.toBe('stageSummary')
+  })
+
+  it('modelRotated=false 면 stageSummary CoG 사용(기존)', () => {
+    const stage = new StageData({
+      meta: { phase: 'C', stageName: 'C', unit: 'mm', schemaVersion: '1.1' },
+      nodes: [{ id: 1, x: 100, y: 0, z: 0, tags: [] }],
+      elements: [], rigids: [], properties: [], materials: [],
+      pointMasses: [{ id: 1, nodeId: 1, mass: 2 }],
+    })
+    useStageStore.setState({
+      stages: [stage], pipeFluidEmptied: false, modelRotated: false,
+      stageSummary: { massProperties: { totalMassTon: 5, centerOfGravityMm: { x: 9999, y: 9999, z: 9999 } } },
+    })
+    const hoisting = { mode: 'wire', groupCount: 0, groups: [] }
+    const payload = buildPostureStabilityPayload({}, hoisting, stage, null)
+    expect(payload.model.centerOfGravityMm.x).toBe(9999)
+    expect(payload.model.massSource).toBe('stageSummary')
+  })
+})
