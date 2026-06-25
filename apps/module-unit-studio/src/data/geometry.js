@@ -5,6 +5,11 @@
  */
 
 const AXES = new Set(['X', 'Y', 'Z'])
+const ROTATION_EPSILON = 1e-14
+
+function cleanRotationRoundoff(value) {
+  return Math.abs(value) < ROTATION_EPSILON ? 0 : value
+}
 
 export function isValidAxis(axis) {
   return AXES.has(axis)
@@ -45,4 +50,5 @@ export function rotatePointAboutAxis(x, y, z, axis, angleDeg, pivot = { x: 0, y:
  */
 export function rotateDirectionAboutAxis(vx, vy, vz, axis, angleDeg) {
   return rotatePointAboutAxis(vx, vy, vz, axis, angleDeg, { x: 0, y: 0, z: 0 })
+    .map(cleanRotationRoundoff)
 }

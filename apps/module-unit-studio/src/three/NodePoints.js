@@ -9,9 +9,9 @@ const COLOR_NORMAL   = new THREE.Color(COLORS.node)   // Shared Node (2+) — �
 const COLOR_FREE_END = new THREE.Color(0xF2C94C)       // Free Node (1 연결) — amber
 const COLOR_ORPHAN   = new THREE.Color(0xB46DFF)       // Orphan Node (0 연결) — violet
 
-// 권상 모드에서 RBE 연결 노드(선택 불가)를 시각적으로 미리 표시 — 연한 분홍.
-// 클릭 차단(ThreeViewport.jsx, getRbeConnectedNodeIds)과 짝이 되어
-// 사용자가 시도-에러 없이 선택 가능한 노드를 즉시 구분할 수 있게 한다.
+// 권상 모드에서 RBE 연결 노드를 시각적으로 표시 — 연한 분홍.
+// Wire CROD 는 RBE2 independent/dependent 노드 모두에 연결 가능하므로 선택을 막지 않는다.
+// 이 색은 선택 제한이 아니라 기존 강체 연결을 통해 하중이 전달된다는 정보 표시다.
 const COLOR_RBE_HOIST = new THREE.Color(0xE9A8B8)      // 연한 분홍 (light pink)
 
 /**
@@ -55,7 +55,6 @@ export function buildNodePoints(stageData, colorMode = 'category', renderMode = 
   // RBE2의 independent/dependent 노드는 BEAM 연결과 무관하게 shared로 강제 분류
   // (RBE로 강체 연결되는 시작점이므로 free/orphan이 아님)
   let usageMap = null
-  let rbeNodeSet = null
   if (colorMode === 'freeNode') {
     usageMap = new Map()
     for (const id of ids) usageMap.set(id, 0)
@@ -66,7 +65,7 @@ export function buildNodePoints(stageData, colorMode = 'category', renderMode = 
   }
   // RBE 연결 노드 Set 은 colorMode 와 무관하게 항상 계산해 둔다 — 권상 모드 토글 시
   // applyHoistModeHighlight() 가 이 집합을 기준으로 instance 색을 분홍/원래로 전환한다.
-  rbeNodeSet = new Set()
+  const rbeNodeSet = new Set()
   for (const r of stageData.rigids ?? []) {
     if (r.independentNode != null) rbeNodeSet.add(r.independentNode)
     for (const d of r.dependentNodes ?? []) rbeNodeSet.add(d)
@@ -118,7 +117,7 @@ export function buildNodePoints(stageData, colorMode = 'category', renderMode = 
  * 권상 모드 토글에 따라 RBE 연결 노드 instance 색을 분홍/원래로 전환한다.
  *
  *   active=true  → RBE 노드 색을 연한 분홍(COLOR_RBE_HOIST)으로 덮어쓴다.
- *                  사용자가 어떤 노드가 선택 불가인지 미리 인지할 수 있게 한다.
+ *                  선택 가능하지만 기존 강체 연결을 사용하는 노드임을 표시한다.
  *   active=false → 빌드 시 저장된 원래 색(nodeBaseColors)으로 복원한다.
  *
  * 컬러 모드(category/freeNode/propertyId/group/...) 와 무관하게 동작하며,

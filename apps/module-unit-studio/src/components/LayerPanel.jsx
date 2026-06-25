@@ -2,6 +2,7 @@ import { useRef, useState } from 'react'
 import { SlidersHorizontal, Trash2, RotateCcw } from 'lucide-react'
 import { useViewerStore } from '../store/useViewerStore.js'
 import { useEditStore } from '../store/useEditStore.js'
+import GroupManager from './GroupManager.jsx'
 
 const FREE_NODE_DEFS = [
   { key: 'normal', label: 'Shared',  color: '#FF4455' },
@@ -206,9 +207,14 @@ export default function LayerPanel({ viewportId, stageData, isEditTargetStage = 
         </SubSection>
       )}
 
-      {/* 그룹 관리(확인·단독·삭제 + "그룹 새로고침")는 GroupManager 로 분리 —
-          Model Check 리본(ModelCheckPanelDock)·Edit 리본 공용. 여기서는 색상 기준 'Group'
-          선택 시 3D 뷰를 그룹색으로 칠하는 역할만 한다. */}
+      {/* 색상 기준 'Group' 선택 시 — 그룹 리스트(눈 토글=확인 · 단독 · 삭제 + "그룹 새로고침")를
+          바로 아래에 노출한다. GroupManager 는 Edit 리본과 공용 컴포넌트(ModelBuilderStudio 의
+          useGroupDeletion 처럼 동일 목록·동일 삭제 방식). Model Check 도크(embedded)에서만 표시. */}
+      {embedded && colorMode === 'group' && (
+        <div style={{ borderTop: '1px solid rgba(255,255,255,0.07)', padding: '8px 8px 9px' }}>
+          <GroupManager />
+        </div>
+      )}
 
       <SubSection title="해석 결과 표시">
         <FilterBtn

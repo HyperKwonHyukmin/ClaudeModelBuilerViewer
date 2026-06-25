@@ -87,6 +87,13 @@ describe('StageData.applyRotation', () => {
     expect(Math.abs(o[2] - 0) < 1e-6).toBe(true)
   })
 
+  it('orientation 회전 후 machine round-off는 정확한 0으로 정규화', () => {
+    const s = makeStage()
+    s.elements[0].orientation = [-0.81862, -7.03e-17, 0.57434]
+    s.applyRotation('Y', 0, { x: 0, y: 0, z: 0 })
+    expect(s.elements[0].orientation).toEqual([-0.81862, 0, 0.57434])
+  })
+
   it('회전 후 bbox/center 재계산', () => {
     const s = makeStage()
     s.applyRotation('Z', 90, { x: 0, y: 0, z: 0 })

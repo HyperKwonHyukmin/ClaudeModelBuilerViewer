@@ -461,13 +461,8 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
         // (별도의 polygon 누적 호출은 두지 않는다 — 그래야 그룹 전환 시 새 도형이 깔끔하게 시작되고
         //  HoistPositionPanel 에서 노드를 삭제하면 즉시 시각화가 비활성화된다.)
         if (hoistPickMode && nodeId != null) {
-          // RBE(독립/종속) 연결 노드는 권상 후보에서 제외 — 강체 연결점에 권상을 걸면
-          // 변형 가정과 충돌하므로 데이터 무결성 차원에서 차단하고 가이드 토스트로 안내.
-          const sd = stageDataRef.current
-          if (sd?.getRbeConnectedNodeIds?.()?.has(nodeId)) {
-            editState.flashHoistGuide?.(`N${nodeId} 은 RBE 연결 노드라 권상 위치로 선택할 수 없습니다.`, 'noMode')
-            return
-          }
+          // Wire 는 일반 CROD 요소이므로 RBE2 independent/dependent 노드에 연결해도
+          // MPC dependent 중복이 발생하지 않는다. RBE 연결 여부와 무관하게 권상점 선택을 허용한다.
           editState.addHoistNode(nodeId)
           return
         }
@@ -771,6 +766,7 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
 
   // ── 권상 모드 RBE 노드 강조 ───────────────────────────────────────────
   // 권상 위치 설정(권상 방식 ON) 중에만 RBE 연결 노드를 연한 분홍으로 표시한다.
+  // 분홍은 선택 불가 표시가 아니라 기존 강체 연결을 사용한다는 정보 표시이며 선택은 허용된다.
   // Node Check(colorMode='freeNode') 에서는 freeNode 색상 체계(빨강/노랑/보라)가 우선이므로
   // 분홍 강조를 적용하지 않고 RBE 노드는 normal 빨강 그대로 둔다 — 사용자 명시 요구.
   // stageData/renderMode/colorMode 가 바뀌면 scene 재빌드로 nodes mesh 가 새로 생성되므로

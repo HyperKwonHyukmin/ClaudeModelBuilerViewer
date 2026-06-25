@@ -403,7 +403,8 @@ export class StageData {
 
   /**
    * RBE2(rigids) 의 independent / dependent 노드 ID 집합. lazy 캐시.
-   * 권상 위치는 강체 연결점 위에 두면 변형 가정과 충돌하므로 권상 후보에서 제외하는 데 사용한다.
+   * 권상 모드에서 기존 강체 연결 노드를 정보성 색상으로 표시하는 데 사용한다.
+   * Wire CROD 연결은 허용되며 이 집합 자체가 선택 제한으로 사용되지는 않는다.
    * @returns {Set<number>}
    */
   getRbeConnectedNodeIds() {
