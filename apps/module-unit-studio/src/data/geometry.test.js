@@ -103,3 +103,35 @@ describe('StageData.applyRotation', () => {
     expect(near(s.healthMetrics.totals.bbox.maxX, 0, 1e-6)).toBe(true)
   })
 })
+
+describe('StageData.shallowClone', () => {
+  const makeStage = () => new StageData({
+    meta: { phase: 'C', stageName: 'C', unit: 'mm', schemaVersion: '1.1' },
+    nodes: [
+      { id: 1, x: 0, y: 0, z: 0, tags: [] },
+      { id: 2, x: 100, y: 0, z: 0, tags: [] },
+    ],
+    elements: [
+      { id: 1, type: 'CBEAM', startNode: 1, endNode: 2, propertyId: 10, orientation: [0, 0, 1] },
+    ],
+    rigids: [], properties: [{ id: 10, kind: 'TUBE', dims: [50, 40] }],
+    materials: [], pointMasses: [],
+  })
+
+  it('새 인스턴스를 반환하되 데이터(nodeMap 등)는 공유한다', () => {
+    const s = makeStage()
+    const c = s.shallowClone()
+    expect(c).not.toBe(s)            // 참조가 달라야 React stageData effect 가 재실행됨
+    expect(c instanceof StageData).toBe(true)
+    expect(c.nodeMap).toBe(s.nodeMap)   // 같은 (회전된) 데이터를 가리킴
+    expect(c.elements).toBe(s.elements)
+  })
+
+  it('프로토타입 메서드가 정상 동작한다 (getNodePos)', () => {
+    const s = makeStage()
+    const c = s.shallowClone()
+    const p = c.getNodePos(2)
+    expect(p).toBeTruthy()
+    expect(Number.isFinite(p.x)).toBe(true)
+  })
+})

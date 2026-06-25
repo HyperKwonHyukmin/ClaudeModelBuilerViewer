@@ -110,6 +110,19 @@ describe('useStageStore.rotateModel', () => {
     expect(useStageStore.getState().modelRotated).toBe(true)
   })
 
+  it('회전 후 stages 의 StageData 가 새 참조로 교체된다 (뷰어 rebuild 트리거)', () => {
+    // 회전이 화면에 반영되려면 ThreeViewport 의 stageData 키 effect 가 재실행되어야 하고,
+    // 그러려면 stages[i] 가 새 객체 참조여야 한다 (in-place mutate 만으로는 rebuild 안 됨).
+    const s = makeStageData()
+    useStageStore.setState({ stages: [s] })
+    useStageStore.getState().rotateModel({ axis: 'Z', angleDeg: 90, pivot: { x: 0, y: 0, z: 0 } })
+    const after = useStageStore.getState().stages[0]
+    expect(after).not.toBe(s)            // 새 참조
+    expect(after.nodeMap).toBe(s.nodeMap) // 같은(회전된) 데이터를 공유
+    const n2 = after.nodeMap.get(2)
+    expect(Math.abs(n2.y - 100) < 1e-6).toBe(true)
+  })
+
   it('회전 시 기존 자세안정성/구조해석 결과 무효화', () => {
     const s = makeStageData()
     useStageStore.setState({ stages: [s] })

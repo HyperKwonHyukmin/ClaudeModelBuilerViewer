@@ -152,6 +152,19 @@ export class StageData {
   }
 
   /**
+   * 같은 데이터(nodeMap/elements/캐시 등)를 가리키는 새 인스턴스를 만든다.
+   * applyRotation 처럼 in-place mutate 한 뒤 호출하면, React 가 stageData "참조 변경"으로
+   * 인식해 ThreeViewport 의 stageData 키 effect(씬 rebuild·오버레이·CoG)를 모두 재실행한다.
+   * 회전은 topology(노드 ID 기반 캐시)를 바꾸지 않으므로 캐시를 그대로 공유해도 안전하다.
+   * @returns {StageData}
+   */
+  shallowClone() {
+    const next = Object.create(StageData.prototype)
+    Object.assign(next, this)
+    return next
+  }
+
+  /**
    * Returns array of node ids that have the given tag.
    * @param {string} tag  e.g. 'Boundary', 'Weld'
    * @returns {number[]}

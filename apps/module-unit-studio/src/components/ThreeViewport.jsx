@@ -143,6 +143,7 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
   // 무게중심 시각화 — useStageStore 의 stageSummary 가 있고 layer 토글이 켜져 있을 때만.
   const stageSummary = useStageStore(s => s.stageSummary)
   const pipeFluidEmptied = useStageStore(s => s.pipeFluidEmptied)
+  const modelRotated = useStageStore(s => s.modelRotated)
   const stabilityReport = useStabilityStore(s => s.report)
 
   // 배관/구조 토글이 OFF 면 그 카테고리 전용 노드를 자동 숨김.
@@ -918,7 +919,7 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
       requestRender()
       return
     }
-    const cogMm = getCogMm(stageSummary, stabilityReport, stageData, pipeFluidEmptied)
+    const cogMm = getCogMm(stageSummary, stabilityReport, stageData, pipeFluidEmptied, modelRotated)
     if (!cogMm) {
       requestRender()
       return
@@ -944,7 +945,7 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
     requestRender()
     // renderMode/colorMode 변경 시 scene rebuild effect 가 cogRef 를 제거하므로
     // 같은 deps 를 본다 — 빠지면 3D 단면 등 다른 모드 전환 시 마커가 사라진다.
-  }, [layers?.cog, stageData, stageSummary, stabilityReport, renderMode, colorMode, requestRender, pipeFluidEmptied])
+  }, [layers?.cog, stageData, stageSummary, stabilityReport, renderMode, colorMode, requestRender, pipeFluidEmptied, modelRotated])
 
   // ── 권상 그룹 도형(직선/삼각형/사각형) 미리보기 ────────────────────────
   // hoistGroups 에서 직접 파생되므로 노드 추가/삭제·그룹 전환에 즉시 반응한다.
@@ -1527,9 +1528,10 @@ function focusEntity(entity, stageData, camera, controls, requestRender) {
   requestRender()
 }
 
-function getCogMm(stageSummary, stabilityReport, stageData, pipeFluidEmptied = false) {
-  // 배관 유체를 비웠으면 mutated stage 기준 재계산값을 최우선 (BEAM 자중 포함).
-  if (pipeFluidEmptied) {
+function getCogMm(stageSummary, stabilityReport, stageData, pipeFluidEmptied = false, modelRotated = false) {
+  // 배관 유체를 비웠거나(질량 변경) 모델을 회전(좌표 변경)했으면 원본 summary CoG 는 stale 이므로
+  // mutated stage 기준 재계산값을 최우선 (BEAM 자중 포함). 회전된 nodeMap 으로 계산되어 형상과 일치.
+  if (pipeFluidEmptied || modelRotated) {
     const recomputed = computeMassFallback(stageData)?.centerOfGravityMm
     if (isCog(recomputed)) return recomputed
   }

@@ -103,12 +103,15 @@ export const useStageStore = create((set) => ({
     const last = stages[stages.length - 1]
     const p = pivot ?? last.center ?? { x: 0, y: 0, z: 0 }
     let changedNodeCount = 0
-    for (const st of stages) {
-      if (typeof st.applyRotation === 'function') {
-        changedNodeCount += st.applyRotation(axis, angleDeg, p)
-      }
-    }
-    set({ stages: [...stages], modelRotated: true })
+    // 좌표를 in-place 로 회전한 뒤, 회전된 stage 는 "새 참조"로 교체한다.
+    // ThreeViewport 의 씬 rebuild/오버레이/CoG effect 가 stageData 참조 변경에 반응하므로,
+    // 같은 객체를 그대로 두면(=배열만 새로 만들면) 회전이 화면에 반영되지 않는다.
+    const rotated = stages.map((st) => {
+      if (typeof st.applyRotation !== 'function') return st
+      changedNodeCount += st.applyRotation(axis, angleDeg, p)
+      return typeof st.shallowClone === 'function' ? st.shallowClone() : st
+    })
+    set({ stages: rotated, modelRotated: true })
 
     let invalidatedStability = false
     // 실제로 회전이 적용된 경우에만 stale 결과 무효화 (emptyPipeFluid 의 changedCount>0 가드와 동일)
