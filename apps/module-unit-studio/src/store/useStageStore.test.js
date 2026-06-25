@@ -3,6 +3,7 @@ import { useStageStore } from './useStageStore.js'
 import { useStabilityStore } from './useStabilityStore.js'
 import { useUnitStructuralStore } from './useUnitStructuralStore.js'
 import { PIPE_STEEL_RHO } from '../data/pipeFluid.js'
+import { StageData } from '../data/StageData.js'
 
 function makeStage() {
   const materials = [
@@ -77,5 +78,52 @@ describe('useStageStore.emptyPipeFluid', () => {
     expect(r.changedCount).toBe(0)
     expect(r.invalidatedStability).toBe(false)
     expect(useStabilityStore.getState().report).not.toBe(null) // 유지
+  })
+})
+
+describe('useStageStore.rotateModel', () => {
+  const makeStageData = () => new StageData({
+    meta: { phase: 'C', stageName: 'C', unit: 'mm', schemaVersion: '1.1' },
+    nodes: [{ id: 1, x: 0, y: 0, z: 0, tags: [] }, { id: 2, x: 100, y: 0, z: 0, tags: [] }],
+    elements: [{ id: 1, type: 'CBEAM', startNode: 1, endNode: 2, propertyId: 10, orientation: [0, 0, 1] }],
+    rigids: [], properties: [{ id: 10, kind: 'TUBE', dims: [50, 40] }], materials: [], pointMasses: [],
+  })
+
+  beforeEach(() => {
+    useStageStore.setState({ stages: [], pipeFluidEmptied: false, modelRotated: false })
+    useStabilityStore.getState().reset()
+    useUnitStructuralStore.getState().reset()
+  })
+
+  it('기본 modelRotated 는 false', () => {
+    expect(useStageStore.getState().modelRotated).toBe(false)
+  })
+
+  it('Z축 90° 회전: node2 → (0,100,0), modelRotated=true', () => {
+    const s = makeStageData()
+    useStageStore.setState({ stages: [s] })
+    const r = useStageStore.getState().rotateModel({ axis: 'Z', angleDeg: 90, pivot: { x: 0, y: 0, z: 0 } })
+    expect(r.changedNodeCount).toBe(2)
+    const n2 = s.nodeMap.get(2)
+    expect(Math.abs(n2.x) < 1e-6).toBe(true)
+    expect(Math.abs(n2.y - 100) < 1e-6).toBe(true)
+    expect(useStageStore.getState().modelRotated).toBe(true)
+  })
+
+  it('회전 시 기존 자세안정성/구조해석 결과 무효화', () => {
+    const s = makeStageData()
+    useStageStore.setState({ stages: [s] })
+    useStabilityStore.setState({ report: { stages: [] }, stabilityPath: '/x', overallStatus: 'pass' })
+    useUnitStructuralStore.setState({ status: 'Success', result: { ok: 1 } })
+    const r = useStageStore.getState().rotateModel({ axis: 'X', angleDeg: 30, pivot: { x: 0, y: 0, z: 0 } })
+    expect(r.invalidatedStability).toBe(true)
+    expect(useStabilityStore.getState().report).toBe(null)
+    expect(useUnitStructuralStore.getState().status).toBe(null)
+  })
+
+  it('stages 비면 no-op', () => {
+    const r = useStageStore.getState().rotateModel({ axis: 'Z', angleDeg: 90 })
+    expect(r.changedNodeCount).toBe(0)
+    expect(useStageStore.getState().modelRotated).toBe(false)
   })
 })

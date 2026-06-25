@@ -13,6 +13,8 @@ export const useStageStore = create((set) => ({
   stageSummary: null,
   // 배관 내부 유체 비우기 적용 여부 (단방향 false→true). 새 폴더 로드/reset 시 false.
   pipeFluidEmptied: false,
+  // 모델 회전 적용 여부 (누적). 새 폴더 로드/reset 시 false. stale stageSummary 게이트에 사용.
+  modelRotated: false,
   loading: false,
   error: null,
   loadSummary: emptyLoadSummary(),
@@ -25,7 +27,7 @@ export const useStageStore = create((set) => ({
 
   setSourceFolderRef: (ref) => set({ sourceFolderRef: ref ?? null }),
 
-  reset: () => set({ stages: [], inputAudit: null, stageSummary: null, loading: false, error: null, loadSummary: emptyLoadSummary(), sourceFolderRef: null, pipeFluidEmptied: false }),
+  reset: () => set({ stages: [], inputAudit: null, stageSummary: null, loading: false, error: null, loadSummary: emptyLoadSummary(), sourceFolderRef: null, pipeFluidEmptied: false, modelRotated: false }),
 
   loadStages: async (fileList) => {
     set({ loading: true, error: null })
@@ -35,7 +37,7 @@ export const useStageStore = create((set) => ({
         set({ loading: false, loadSummary: summary, error: 'JSON 파일을 찾을 수 없습니다. .json 파일을 선택해 주세요.' })
         return
       }
-      set({ stages, inputAudit, stageSummary, loading: false, loadSummary: summary, pipeFluidEmptied: false })
+      set({ stages, inputAudit, stageSummary, loading: false, loadSummary: summary, pipeFluidEmptied: false, modelRotated: false })
       // 모든 viewport를 마지막 단계(보통 Validation)로 시작 — 최종 모델을 먼저 보여준다
       useViewerStore.getState().resetViewportStages(stages.length - 1)
       // 새 폴더로 노드 ID 체계가 바뀔 수 있으므로 권상 그룹 노드 선택을 모두 초기화한다
@@ -78,5 +80,40 @@ export const useStageStore = create((set) => ({
       if (us.status || us.result) us.reset()
     }
     return { materialIds: [...ids], changedCount, invalidatedStability }
+  },
+
+  /**
+   * 모델 전체를 axis(X/Y/Z) 중심으로 angleDeg 회전한다 (누적, in-place).
+   * - pivot 미지정 시 최종 stage 의 bbox center 로 폴백 (호출자 Sidebar 가 CoG 를 전달).
+   * - 모든 stage 를 같은 pivot 으로 회전해 phase 간 정합 유지.
+   * - 회전으로 형상이 바뀌므로 기존 자세안정성/구조해석 결과는 무효화(재평가 강제).
+   * @param {{axis:'X'|'Y'|'Z', angleDeg:number, pivot?:{x:number,y:number,z:number}}} arg
+   * @returns {{ axis:string, angleDeg:number, changedNodeCount:number, invalidatedStability:boolean }}
+   */
+  rotateModel: ({ axis, angleDeg, pivot = null }) => {
+    const stages = useStageStore.getState().stages
+    if (!Array.isArray(stages) || stages.length === 0) {
+      return { axis, angleDeg, changedNodeCount: 0, invalidatedStability: false }
+    }
+    const last = stages[stages.length - 1]
+    const p = pivot ?? last.center ?? { x: 0, y: 0, z: 0 }
+    let changedNodeCount = 0
+    for (const st of stages) {
+      if (typeof st.applyRotation === 'function') {
+        changedNodeCount += st.applyRotation(axis, angleDeg, p)
+      }
+    }
+    set({ stages: [...stages], modelRotated: true })
+
+    let invalidatedStability = false
+    const stab = useStabilityStore.getState()
+    if (stab.report || stab.stabilityPath || stab.overallStatus) {
+      stab.reset()
+      invalidatedStability = true
+    }
+    const us = useUnitStructuralStore.getState()
+    if (us.status || us.result) us.reset()
+
+    return { axis, angleDeg, changedNodeCount, invalidatedStability }
   },
 }))
