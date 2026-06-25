@@ -326,32 +326,32 @@ export default function Sidebar() {
             ⚠ 무게중심이 바뀌어 자세안정성 평가 결과를 초기화했습니다. 자세안정성 평가를 다시 실행하세요.
           </div>
         )}
-          <Tooltip text="모델을 X/Y/Z 축 중심(무게중심 기준)으로 회전합니다. 회전된 모델로 자세안정성·구조해석·BDF 출력이 모두 수행됩니다.">
-            <button
-              onClick={() => setShowRotateDialog(true)}
-              disabled={!lastStage}
-              style={{
-                width: '100%', display: 'flex', alignItems: 'center', gap: 6,
-                padding: '7px 10px', marginTop: 6,
-                background: lastStage ? '#12122c' : '#0c0c1c',
-                border: '1px solid #2e2e50', borderRadius: 6,
-                color: lastStage ? '#cad8e8' : '#54546e',
-                fontSize: 11, fontWeight: 700, cursor: lastStage ? 'pointer' : 'not-allowed',
-              }}
-            >
-              <RotateCcw size={13} /> 모델 회전
-            </button>
-          </Tooltip>
-          {rotateResult && (
-            <div style={{ fontSize: 10, color: '#9fd0ff', marginTop: 4, lineHeight: 1.4 }}>
-              ↻ {rotateResult.axis}축 {rotateResult.angleDeg}° 회전 적용 ({rotateResult.changedNodeCount} 노드)
-            </div>
-          )}
-          {rotateResult?.invalidatedStability && (
-            <div style={{ fontSize: 10, color: '#ffcc66', marginTop: 2, lineHeight: 1.4 }}>
-              ⚠ 형상이 바뀌어 자세안정성/구조해석 결과를 초기화했습니다. 자세안정성 평가를 다시 실행하세요.
-            </div>
-          )}
+        <Tooltip placement="right" content="모델을 X/Y/Z 축 중심(무게중심 기준)으로 회전합니다. 회전된 모델로 자세안정성·구조해석·BDF 출력이 모두 수행됩니다.">
+          <button
+            onClick={() => setShowRotateDialog(true)}
+            disabled={!lastStage}
+            style={{
+              width: '100%', display: 'flex', alignItems: 'center', gap: 6,
+              padding: '7px 10px', marginTop: 6,
+              background: lastStage ? '#12122c' : '#0c0c1c',
+              border: '1px solid #2e2e50', borderRadius: 6,
+              color: lastStage ? '#cad8e8' : '#54546e',
+              fontSize: 11, fontWeight: 700, cursor: lastStage ? 'pointer' : 'not-allowed',
+            }}
+          >
+            <RotateCcw size={13} /> 모델 회전
+          </button>
+        </Tooltip>
+        {rotateResult && (
+          <div style={{ fontSize: 10, color: '#9fd0ff', marginTop: 4, lineHeight: 1.4 }}>
+            ↻ {rotateResult.axis}축 {rotateResult.angleDeg}° 회전 적용 ({rotateResult.changedNodeCount} 노드)
+          </div>
+        )}
+        {rotateResult?.invalidatedStability && (
+          <div style={{ fontSize: 10, color: '#ffcc66', marginTop: 2, lineHeight: 1.4 }}>
+            ⚠ 형상이 바뀌어 자세안정성/구조해석 결과를 초기화했습니다. 자세안정성 평가를 다시 실행하세요.
+          </div>
+        )}
       </Section>
 
       {/* ── 초기화 버튼 ─────────── */}
