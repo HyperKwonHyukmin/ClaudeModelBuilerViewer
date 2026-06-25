@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { rotatePointAboutAxis, rotateDirectionAboutAxis } from './geometry.js'
 
 /**
  * Wraps one parsed pipeline stage JSON.
@@ -110,6 +111,40 @@ export class StageData {
       (n.y - this.center.y) / 1000,
       (n.z - this.center.z) / 1000,
     )
+  }
+
+  /**
+   * 모델 전체를 axis(X/Y/Z) 중심·pivot 기준으로 angleDeg 회전한다 (in-place mutate).
+   * - 모든 노드 좌표(mm) 회전
+   * - 모든 CBEAM/CBAR orientation 벡터(방향) 회전 — 단면 방향/응력 일관 유지
+   * - 좌표 의존 캐시(bbox/center) 재계산 (topology 캐시는 노드 ID 기반이라 유지)
+   * @param {'X'|'Y'|'Z'} axis
+   * @param {number} angleDeg
+   * @param {{x:number,y:number,z:number}} pivot  회전 기준점(보통 CoG)
+   * @returns {number} 회전한 노드 수
+   */
+  applyRotation(axis, angleDeg, pivot) {
+    const p = pivot ?? this.center ?? { x: 0, y: 0, z: 0 }
+    let count = 0
+    for (const n of this.nodeMap.values()) {
+      const [x, y, z] = rotatePointAboutAxis(n.x, n.y, n.z, axis, angleDeg, p)
+      n.x = x; n.y = y; n.z = z
+      count++
+    }
+    for (const e of this.elements ?? []) {
+      if (Array.isArray(e.orientation) && e.orientation.length === 3) {
+        const [vx, vy, vz] = rotateDirectionAboutAxis(e.orientation[0], e.orientation[1], e.orientation[2], axis, angleDeg)
+        e.orientation = [vx, vy, vz]
+      }
+    }
+    // 좌표 의존 파생값 갱신 (getNodePos 가 center 를 사용하므로 회전 후 반드시 재계산)
+    this.bbox = this._computeBbox([...this.nodeMap.values()])
+    this.center = {
+      x: (this.bbox.minX + this.bbox.maxX) / 2,
+      y: (this.bbox.minY + this.bbox.maxY) / 2,
+      z: (this.bbox.minZ + this.bbox.maxZ) / 2,
+    }
+    return count
   }
 
   /**

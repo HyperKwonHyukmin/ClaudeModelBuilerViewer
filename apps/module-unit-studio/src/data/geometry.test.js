@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { rotatePointAboutAxis, rotateDirectionAboutAxis, isValidAxis, degToRad } from './geometry.js'
+import { StageData } from './StageData.js'
 
 const near = (a, b, eps = 1e-9) => Math.abs(a - b) < eps
 
@@ -50,5 +51,46 @@ describe('geometry — 축 회전', () => {
 
   it('degToRad(180) ≈ π', () => {
     expect(near(degToRad(180), Math.PI)).toBe(true)
+  })
+})
+
+describe('StageData.applyRotation', () => {
+  const makeStage = () => new StageData({
+    meta: { phase: 'C', stageName: 'C', unit: 'mm', schemaVersion: '1.1' },
+    nodes: [
+      { id: 1, x: 0, y: 0, z: 0, tags: [] },
+      { id: 2, x: 100, y: 0, z: 0, tags: [] },
+    ],
+    elements: [
+      { id: 1, type: 'CBEAM', startNode: 1, endNode: 2, propertyId: 10, orientation: [0, 0, 1] },
+    ],
+    rigids: [], properties: [{ id: 10, kind: 'TUBE', dims: [50, 40] }],
+    materials: [], pointMasses: [],
+  })
+
+  it('Z축 90°: node2 (100,0,0) → (0,100,0)', () => {
+    const s = makeStage()
+    const count = s.applyRotation('Z', 90, { x: 0, y: 0, z: 0 })
+    expect(count).toBe(2)
+    const n2 = s.nodeMap.get(2)
+    expect(Math.abs(n2.x - 0) < 1e-6).toBe(true)
+    expect(Math.abs(n2.y - 100) < 1e-6).toBe(true)
+  })
+
+  it('X축 90°: orientation [0,0,1] → [0,-1,0]', () => {
+    const s = makeStage()
+    s.applyRotation('X', 90, { x: 0, y: 0, z: 0 })
+    const o = s.elements[0].orientation
+    expect(Math.abs(o[0] - 0) < 1e-6).toBe(true)
+    expect(Math.abs(o[1] - (-1)) < 1e-6).toBe(true)
+    expect(Math.abs(o[2] - 0) < 1e-6).toBe(true)
+  })
+
+  it('회전 후 bbox/center 재계산', () => {
+    const s = makeStage()
+    s.applyRotation('Z', 90, { x: 0, y: 0, z: 0 })
+    // (0,0,0)~(0,100,0) → center y = 50
+    expect(Math.abs(s.center.y - 50) < 1e-6).toBe(true)
+    expect(Math.abs(s.center.x - 0) < 1e-6).toBe(true)
   })
 })
