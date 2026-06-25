@@ -8,6 +8,7 @@ import { useUnitStructuralStore } from '../store/useUnitStructuralStore.js'
 import { getHost } from '../host/host.js'
 import Tooltip from './Tooltip.jsx'
 import { collectPipeMaterialIds, isPipeFluidEmpty, PIPE_STEEL_RHO } from '../data/pipeFluid.js'
+import RotateModelDialog from './RotateModelDialog.jsx'
 
 const LAYER_DEFS = [
   { key: 'nodes',        label: 'Node',         color: '#E65F6A', desc: '모든 노드 점 표시. 배관 토글이 OFF 면 배관 전용 노드는 자동 숨김 (이 토글을 OFF→ON 하면 다시 모두 표시).' },
@@ -68,6 +69,8 @@ export default function Sidebar() {
 
   const pipeFluidEmptied = useStageStore(s => s.pipeFluidEmptied)
   const [emptyResult, setEmptyResult] = useState(null) // { delta:number|null, count:number }
+  const [showRotateDialog, setShowRotateDialog] = useState(false)
+  const [rotateResult, setRotateResult] = useState(null) // { axis, angleDeg, changedNodeCount, invalidatedStability }
 
   const lastStage = stages.length > 0 ? stages[stages.length - 1] : null
   const pipeMaterialCount = lastStage ? collectPipeMaterialIds(lastStage).size : 0
@@ -323,6 +326,32 @@ export default function Sidebar() {
             ⚠ 무게중심이 바뀌어 자세안정성 평가 결과를 초기화했습니다. 자세안정성 평가를 다시 실행하세요.
           </div>
         )}
+          <Tooltip text="모델을 X/Y/Z 축 중심(무게중심 기준)으로 회전합니다. 회전된 모델로 자세안정성·구조해석·BDF 출력이 모두 수행됩니다.">
+            <button
+              onClick={() => setShowRotateDialog(true)}
+              disabled={!lastStage}
+              style={{
+                width: '100%', display: 'flex', alignItems: 'center', gap: 6,
+                padding: '7px 10px', marginTop: 6,
+                background: lastStage ? '#12122c' : '#0c0c1c',
+                border: '1px solid #2e2e50', borderRadius: 6,
+                color: lastStage ? '#cad8e8' : '#54546e',
+                fontSize: 11, fontWeight: 700, cursor: lastStage ? 'pointer' : 'not-allowed',
+              }}
+            >
+              <RotateCcw size={13} /> 모델 회전
+            </button>
+          </Tooltip>
+          {rotateResult && (
+            <div style={{ fontSize: 10, color: '#9fd0ff', marginTop: 4, lineHeight: 1.4 }}>
+              ↻ {rotateResult.axis}축 {rotateResult.angleDeg}° 회전 적용 ({rotateResult.changedNodeCount} 노드)
+            </div>
+          )}
+          {rotateResult?.invalidatedStability && (
+            <div style={{ fontSize: 10, color: '#ffcc66', marginTop: 2, lineHeight: 1.4 }}>
+              ⚠ 형상이 바뀌어 자세안정성/구조해석 결과를 초기화했습니다. 자세안정성 평가를 다시 실행하세요.
+            </div>
+          )}
       </Section>
 
       {/* ── 초기화 버튼 ─────────── */}
@@ -368,6 +397,13 @@ export default function Sidebar() {
           </button>
         </Tooltip>
       </div>
+
+      {showRotateDialog && (
+        <RotateModelDialog
+          onClose={() => setShowRotateDialog(false)}
+          onApplied={setRotateResult}
+        />
+      )}
 
       {/* ── 리사이즈 핸들 ─────────────────────────────────────────────── */}
       <div
