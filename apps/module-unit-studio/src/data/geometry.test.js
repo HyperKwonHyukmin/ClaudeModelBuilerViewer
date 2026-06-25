@@ -73,8 +73,9 @@ describe('StageData.applyRotation', () => {
     const count = s.applyRotation('Z', 90, { x: 0, y: 0, z: 0 })
     expect(count).toBe(2)
     const n2 = s.nodeMap.get(2)
-    expect(Math.abs(n2.x - 0) < 1e-6).toBe(true)
-    expect(Math.abs(n2.y - 100) < 1e-6).toBe(true)
+    expect(near(n2.x, 0, 1e-6)).toBe(true)
+    expect(near(n2.y, 100, 1e-6)).toBe(true)
+    expect(near(n2.z, 0, 1e-6)).toBe(true)
   })
 
   it('X축 90°: orientation [0,0,1] → [0,-1,0]', () => {
@@ -92,5 +93,13 @@ describe('StageData.applyRotation', () => {
     // (0,0,0)~(0,100,0) → center y = 50
     expect(Math.abs(s.center.y - 50) < 1e-6).toBe(true)
     expect(Math.abs(s.center.x - 0) < 1e-6).toBe(true)
+  })
+
+  it('회전 후 healthMetrics.totals.bbox 도 갱신된다', () => {
+    const s = makeStage()
+    s.applyRotation('Z', 90, { x: 0, y: 0, z: 0 })
+    // 회전 후 x 범위는 0~0, y 범위는 0~100
+    expect(near(s.healthMetrics.totals.bbox.maxY, 100, 1e-6)).toBe(true)
+    expect(near(s.healthMetrics.totals.bbox.maxX, 0, 1e-6)).toBe(true)
   })
 })

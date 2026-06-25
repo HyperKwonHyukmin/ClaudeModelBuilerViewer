@@ -144,6 +144,10 @@ export class StageData {
       y: (this.bbox.minY + this.bbox.maxY) / 2,
       z: (this.bbox.minZ + this.bbox.maxZ) / 2,
     }
+    // healthMetrics.totals.bbox 도 좌표 스냅샷이므로 함께 갱신 (stale 방지)
+    if (this.healthMetrics?.totals?.bbox) {
+      this.healthMetrics.totals.bbox = { ...this.bbox }
+    }
     return count
   }
 
