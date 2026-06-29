@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   projectNodesXY, clampDivider, computeInitialDividers, splitRegions,
   assignNodesToRegions, fitTransform,
+  regionCenter, idealTargets, convexHullArea, scoreLayout,
 } from './hoistAutoLayout.js'
 
 const bbox = { minX: 0, maxX: 100, minY: 0, maxY: 100, minZ: 0, maxZ: 0 }
@@ -84,5 +85,49 @@ describe('fitTransform', () => {
   it('y 반전 — 모델 maxY 가 화면 위쪽(작은 sy)', () => {
     const t = fitTransform(bbox, 200, 200, 0)
     expect(t.toScreen(0, 100).sy).toBeLessThan(t.toScreen(0, 0).sy)
+  })
+})
+
+const region = { minX: 0, maxX: 100, minY: 0, maxY: 100 }
+
+describe('regionCenter', () => {
+  it('질량 없으면 기하평균', () => {
+    const c = regionCenter([{ id: 1, x: 0, y: 0 }, { id: 2, x: 100, y: 0 }, { id: 3, x: 50, y: 90 }])
+    expect(c.x).toBeCloseTo(50); expect(c.y).toBeCloseTo(30)
+  })
+  it('질량 있으면 가중평균', () => {
+    const mass = new Map([[1, 3], [2, 1]])
+    const c = regionCenter([{ id: 1, x: 0, y: 0 }, { id: 2, x: 100, y: 0 }], mass)
+    expect(c.x).toBeCloseTo(25)
+  })
+  it('빈 입력이면 null', () => { expect(regionCenter([])).toBeNull() })
+})
+
+describe('idealTargets', () => {
+  it('n=2 는 2점, 중심 대칭', () => {
+    const t = idealTargets({ x: 50, y: 50 }, 2, region)
+    expect(t).toHaveLength(2)
+    expect((t[0].x + t[1].x) / 2).toBeCloseTo(50)
+    expect((t[0].y + t[1].y) / 2).toBeCloseTo(50)
+  })
+  it('n=4 는 4점', () => { expect(idealTargets({ x: 50, y: 50 }, 4, region)).toHaveLength(4) })
+})
+
+describe('convexHullArea', () => {
+  it('2점 이하/공선이면 0', () => {
+    expect(convexHullArea([{ x: 0, y: 0 }, { x: 1, y: 1 }])).toBe(0)
+    expect(convexHullArea([{ x: 0, y: 0 }, { x: 1, y: 1 }, { x: 2, y: 2 }])).toBe(0)
+  })
+  it('정사각형 면적', () => {
+    expect(convexHullArea([{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }])).toBeCloseTo(100)
+  })
+})
+
+describe('scoreLayout', () => {
+  it('균형(중심 일치) 배치가 치우친 배치보다 높음', () => {
+    const center = { x: 50, y: 50 }
+    const balanced = [{ x: 20, y: 50 }, { x: 80, y: 50 }]
+    const skewed = [{ x: 20, y: 50 }, { x: 30, y: 50 }]
+    expect(scoreLayout(balanced, center, region)).toBeGreaterThan(scoreLayout(skewed, center, region))
   })
 })

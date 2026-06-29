@@ -99,3 +99,102 @@ export function fitTransform(bbox, width, height, pad = 24) {
     toModel: (sx, sy) => ({ x: bbox.minX + (sx - offX) / scale, y: bbox.minY + ((height - sy) - offY) / scale }),
   }
 }
+
+function clamp01(v) { return v < 0 ? 0 : v > 1 ? 1 : v }
+
+/**
+ * 구역 중심. massByNode(nodeId→t) 가 있으면 질량가중, 없으면 기하평균.
+ * @param {{id,x,y}[]} regionNodes @param {Map<number,number>} [massByNode] @returns {{x,y}|null}
+ */
+export function regionCenter(regionNodes, massByNode = null) {
+  if (!regionNodes || regionNodes.length === 0) return null
+  let tw = 0, cx = 0, cy = 0
+  for (const p of regionNodes) {
+    const w = massByNode?.get?.(p.id)
+    if (Number.isFinite(w) && w > 0) { tw += w; cx += w * p.x; cy += w * p.y }
+  }
+  if (tw > 0) return { x: cx / tw, y: cy / tw }
+  let gx = 0, gy = 0
+  for (const p of regionNodes) { gx += p.x; gy += p.y }
+  return { x: gx / regionNodes.length, y: gy / regionNodes.length }
+}
+
+/**
+ * 구역 중심 C 주위로 n개 이상 배치. 반경 = 0.4 × min(반폭,반높이).
+ * n=2: 장축 ±, n=4: 45° 오프셋 사각, 그 외 n≥3: 등각 링.
+ * @returns {{x,y}[]}
+ */
+export function idealTargets(center, n, region) {
+  const halfW = (region.maxX - region.minX) / 2
+  const halfH = (region.maxY - region.minY) / 2
+  const base = Math.min(halfW || halfH, halfH || halfW)
+  const R = (base > 0 ? base : Math.max(halfW, halfH, 1)) * 0.4
+  const cx = center.x, cy = center.y
+  if (n <= 1) return [{ x: cx, y: cy }]
+  if (n === 2) {
+    return halfW >= halfH
+      ? [{ x: cx - R, y: cy }, { x: cx + R, y: cy }]
+      : [{ x: cx, y: cy - R }, { x: cx, y: cy + R }]
+  }
+  const offset = n === 4 ? Math.PI / 4 : -Math.PI / 2
+  const pts = []
+  for (let i = 0; i < n; i++) {
+    const a = offset + (2 * Math.PI * i) / n
+    pts.push({ x: cx + R * Math.cos(a), y: cy + R * Math.sin(a) })
+  }
+  return pts
+}
+
+/** 볼록껍질 면적(mm²). 점 2개 이하/공선이면 0. (monotonic chain) */
+export function convexHullArea(points) {
+  const pts = (points ?? []).filter(Boolean)
+  if (pts.length < 3) return 0
+  const sorted = [...pts].sort((a, b) => a.x - b.x || a.y - b.y)
+  const cross = (o, a, b) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x)
+  const lower = []
+  for (const p of sorted) {
+    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) lower.pop()
+    lower.push(p)
+  }
+  const upper = []
+  for (let i = sorted.length - 1; i >= 0; i--) {
+    const p = sorted[i]
+    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) upper.pop()
+    upper.push(p)
+  }
+  const hull = lower.slice(0, -1).concat(upper.slice(0, -1))
+  if (hull.length < 3) return 0
+  let area = 0
+  for (let i = 0; i < hull.length; i++) {
+    const a = hull[i], b = hull[(i + 1) % hull.length]
+    area += a.x * b.y - b.x * a.y
+  }
+  return Math.abs(area) / 2
+}
+
+/**
+ * 권상 배치 점수(↑ = 좋음). 균형 0.6 + 분산 0.4 − 군집벌점 0.3.
+ * @param {{x,y}[]} points @param {{x,y}} center @param {{minX,maxX,minY,maxY}} region
+ */
+export function scoreLayout(points, center, region) {
+  const pts = (points ?? []).filter(Boolean)
+  if (pts.length === 0) return -Infinity
+  const D = Math.hypot(region.maxX - region.minX, region.maxY - region.minY) || 1
+  const A = ((region.maxX - region.minX) * (region.maxY - region.minY)) || (D * D)
+  let mx = 0, my = 0
+  for (const p of pts) { mx += p.x; my += p.y }
+  mx /= pts.length; my /= pts.length
+  const eb = clamp01(Math.hypot(mx - center.x, my - center.y) / D)
+  let spread
+  if (pts.length <= 2) {
+    spread = pts.length === 2 ? clamp01(Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) / D) : 0
+  } else {
+    spread = clamp01(convexHullArea(pts) / A)
+  }
+  let minPair = Infinity
+  for (let i = 0; i < pts.length; i++)
+    for (let j = i + 1; j < pts.length; j++)
+      minPair = Math.min(minPair, Math.hypot(pts[i].x - pts[j].x, pts[i].y - pts[j].y))
+  const cp = pts.length >= 2 ? clamp01(1 - minPair / (0.25 * D)) : 0
+  return 0.6 * (1 - eb) + 0.4 * spread - 0.3 * cp
+}
