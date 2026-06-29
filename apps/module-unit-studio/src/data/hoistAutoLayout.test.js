@@ -3,6 +3,7 @@ import {
   projectNodesXY, clampDivider, computeInitialDividers, splitRegions,
   assignNodesToRegions, fitTransform,
   regionCenter, idealTargets, convexHullArea, scoreLayout,
+  snapToNearestNode, suggestPointsForRegion,
 } from './hoistAutoLayout.js'
 
 const bbox = { minX: 0, maxX: 100, minY: 0, maxY: 100, minZ: 0, maxZ: 0 }
@@ -129,5 +130,66 @@ describe('scoreLayout', () => {
     const balanced = [{ x: 20, y: 50 }, { x: 80, y: 50 }]
     const skewed = [{ x: 20, y: 50 }, { x: 30, y: 50 }]
     expect(scoreLayout(balanced, center, region)).toBeGreaterThan(scoreLayout(skewed, center, region))
+  })
+})
+
+// 격자 노드 5x5 (열 우선: idx 0~4 = x=0, y=0..100 → 한 열에 몰림)
+const gridNodes = []
+{
+  let gid = 1
+  for (let gx = 0; gx <= 100; gx += 25) for (let gy = 0; gy <= 100; gy += 25) gridNodes.push({ id: gid++, x: gx, y: gy })
+}
+
+describe('snapToNearestNode', () => {
+  it('가장 가까운 노드', () => {
+    const origin = gridNodes.find(n => n.x === 0 && n.y === 0)
+    expect(snapToNearestNode({ x: 1, y: 1 }, gridNodes)).toBe(origin.id)
+  })
+  it('제외 집합 반영', () => {
+    const origin = gridNodes.find(n => n.x === 0 && n.y === 0)
+    const ex = new Set([origin.id])
+    expect(snapToNearestNode({ x: 1, y: 1 }, gridNodes, ex)).not.toBe(origin.id)
+  })
+  it('후보 없으면 null', () => { expect(snapToNearestNode({ x: 0, y: 0 }, [])).toBeNull() })
+})
+
+describe('suggestPointsForRegion', () => {
+  it('요청 n개를 서로 다른 노드로 제안', () => {
+    const c = regionCenter(gridNodes)
+    const r = suggestPointsForRegion(gridNodes, c, 4, region)
+    expect(r.nodeIds).toHaveLength(4)
+    expect(new Set(r.nodeIds).size).toBe(4)
+    expect(r.warning).toBeNull()
+  })
+  it('노드 부족이면 가능한 만큼 + 경고', () => {
+    const few = gridNodes.slice(0, 1)
+    const r = suggestPointsForRegion(few, regionCenter(few), 3, region)
+    expect(r.nodeIds).toHaveLength(1)
+    expect(r.warning).toMatch(/노드/)
+  })
+  it('빈 구역이면 빈 배열 + 경고', () => {
+    const r = suggestPointsForRegion([], { x: 50, y: 50 }, 2, region)
+    expect(r.nodeIds).toEqual([]); expect(r.warning).toMatch(/빈/)
+  })
+  it('제안 점수가 한 열에 몰린 4노드보다 좋음(균형/분산)', () => {
+    const c = regionCenter(gridNodes)
+    const r = suggestPointsForRegion(gridNodes, c, 4, region)
+    const byId = new Map(gridNodes.map(n => [n.id, n]))
+    const sSuggest = scoreLayout(r.nodeIds.map(id => byId.get(id)), c, region)
+    const sColumn = scoreLayout(gridNodes.slice(0, 4), c, region)  // 첫 4개 = 한 열
+    expect(sSuggest).toBeGreaterThan(sColumn)
+  })
+  it('결정적 — 동일 입력 동일 결과', () => {
+    const c = regionCenter(gridNodes)
+    const a = suggestPointsForRegion(gridNodes, c, 4, region).nodeIds
+    const b = suggestPointsForRegion(gridNodes, c, 4, region).nodeIds
+    expect(a).toEqual(b)
+  })
+  it('n > 기본 k(8) 이어도 중복 없이 제안', () => {
+    const c = regionCenter(gridNodes)               // gridNodes = 25개
+    const r = suggestPointsForRegion(gridNodes, c, 10, region)
+    expect(r.nodeIds).toHaveLength(10)
+    expect(new Set(r.nodeIds).size).toBe(10)        // 전부 distinct
+    expect(r.warning).toBeNull()
   })
 })

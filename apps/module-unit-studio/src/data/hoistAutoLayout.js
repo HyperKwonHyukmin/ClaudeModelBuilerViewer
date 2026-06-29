@@ -173,6 +173,68 @@ export function convexHullArea(points) {
 }
 
 /**
+ * target 에 가장 가까운 노드 id. excludeIds 제외. 후보 없으면 null.
+ * @param {{x,y}} target @param {{id,x,y}[]} candidates @param {Set<number>} [excludeIds]
+ */
+export function snapToNearestNode(target, candidates, excludeIds = null) {
+  let best = null, bestD = Infinity
+  for (const c of candidates) {
+    if (excludeIds && excludeIds.has(c.id)) continue
+    const d = (c.x - target.x) ** 2 + (c.y - target.y) ** 2
+    if (d < bestD) { bestD = d; best = c.id }
+  }
+  return best
+}
+
+// target 기준 최근접 k개 노드 id (결정적: 거리→id 정렬).
+function nearestK(target, nodes, k) {
+  return [...nodes]
+    .map(p => ({ id: p.id, d: (p.x - target.x) ** 2 + (p.y - target.y) ** 2 }))
+    .sort((a, b) => a.d - b.d || a.id - b.id)
+    .slice(0, k)
+    .map(o => o.id)
+}
+
+/**
+ * 구역 권상 최적안: 이상배치 → 노드 스냅 → 그리디 국소개선. 결정적.
+ * @param {{id,x,y}[]} regionNodes @param {{x,y}} center @param {number} n(>=2)
+ * @param {{minX,maxX,minY,maxY}} region @param {{k?:number,maxIter?:number}} [opts]
+ * @returns {{nodeIds:number[], warning:string|null}}
+ */
+export function suggestPointsForRegion(regionNodes, center, n, region, opts = {}) {
+  const k = Math.max(opts.k ?? 8, n + 1)
+  const maxIter = opts.maxIter ?? 20
+  if (!regionNodes || regionNodes.length === 0) return { nodeIds: [], warning: '빈 구역 — 노드 없음' }
+  if (regionNodes.length <= n) {
+    return { nodeIds: regionNodes.map(p => p.id), warning: regionNodes.length < n ? `노드 ${regionNodes.length}개 < 요청 ${n}개` : null }
+  }
+  const byId = new Map(regionNodes.map(p => [p.id, p]))
+  const posOf = id => byId.get(id)
+  const targets = idealTargets(center, n, region)
+  const slotCands = targets.map(t => nearestK(t, regionNodes, k))
+  const chosen = []
+  const used = new Set()
+  for (const cands of slotCands) {
+    const pick = cands.find(id => !used.has(id)) ?? cands[0]
+    chosen.push(pick); used.add(pick)
+  }
+  let curScore = scoreLayout(chosen.map(posOf), center, region)
+  for (let iter = 0; iter < maxIter; iter++) {
+    let improved = false
+    for (let s = 0; s < chosen.length; s++) {
+      for (const cand of slotCands[s]) {
+        if (cand === chosen[s] || chosen.includes(cand)) continue
+        const trial = chosen.slice(); trial[s] = cand
+        const sc = scoreLayout(trial.map(posOf), center, region)
+        if (sc > curScore + 1e-9) { chosen[s] = cand; curScore = sc; improved = true }
+      }
+    }
+    if (!improved) break
+  }
+  return { nodeIds: chosen, warning: null }
+}
+
+/**
  * 권상 배치 점수(↑ = 좋음). 균형 0.6 + 분산 0.4 − 군집벌점 0.3.
  * @param {{x,y}[]} points @param {{x,y}} center @param {{minX,maxX,minY,maxY}} region
  */
