@@ -6,6 +6,7 @@ import {
   parseIntents,
 } from '../data/EditIntent.js'
 import { buildEditedStageJson, buildEditedStageFileName } from '../data/applyEditedModel.js'
+import { rankHoistCandidates } from '../data/hoistCandidateRank.js'
 import { useStageStore } from './useStageStore.js'
 import { useStabilityStore } from './useStabilityStore.js'
 import { getHost } from '../host/host.js'
@@ -735,6 +736,89 @@ export const useEditStore = create((set, get) => ({
   },
 
   /**
+   * 권상 위치 자동 선정 (Approach B). 방식별 그룹수를 스윕하며 ModuleAnalysis.Cli --optimize 를
+   * 자세안정성 평가 절차로 호출하고, 모든 결과를 병합·랭킹해 돌려준다. 검증된 후보만 반환하며
+   * 적용(커밋)은 호출 측이 applyAutoHoistGroups(toNodeGroups(후보)) 로 수행한다.
+   *
+   * @param {{ onProgress?: (p:{done:number,total:number,groupCount:number})=>void }} [opts]
+   * @returns {Promise<{ok:boolean, candidates?:Array, hasPass?:boolean, error?:string}>}
+   */
+  autoSelectHoistPositions: async (opts = {}) => {
+    const state = get()
+    const mode = state.hoistMode
+    if (!mode) return { ok: false, error: '권상 방식(STEP 1)을 먼저 선택해 주세요.' }
+
+    const host = getHost()
+    if (typeof host.optimizeHoistPositions !== 'function') {
+      return { ok: false, error: 'WorkBench 앱이 권상 위치 최적화 채널을 지원하지 않습니다. WorkBench를 최신 버전으로 실행해 주세요.' }
+    }
+
+    const stage = currentStage()
+    if (!stage || !stage.nodeMap || stage.nodeMap.size === 0) {
+      return { ok: false, error: '모델이 로드되지 않았습니다.' }
+    }
+
+    // Stage0 파싱 보장용 시드 hoisting (특히 Crane=그룹1 고정). 옵티마이저는 시드를 무시하고 자체 후보 생성.
+    const base = getHoistExport(state)
+    if (!base) return { ok: false, error: '권상 방식을 먼저 선택해 주세요.' }
+    const seedGroups = base.groups.length > 0
+      ? base.groups
+      : [{ id: 1, nodeIds: pickSeedNodeIds(stage, 3) }]
+    if (!seedGroups[0] || seedGroups[0].nodeIds.length === 0) {
+      return { ok: false, error: '권상 시드로 쓸 유효한 노드를 찾지 못했습니다.' }
+    }
+    const hoisting = { ...base, groupCount: seedGroups.length, groups: seedGroups }
+
+    // 편집 intents 가 있으면 편집 모델 _edited.json 저장(평가 경로와 동일). 없으면 폴백(소스 JSON) 사용.
+    const intents = state.intents ?? []
+    let editedFileName = null
+    if (intents.length > 0) {
+      const editedJson = buildEditedStageJson(stage, intents)
+      editedFileName = buildEditedStageFileName(stage, formatTimestamp)
+      const er = await saveJsonArtifact(editedFileName, JSON.stringify(editedJson, null, 2))
+      if (!er.ok) return { ok: false, error: `편집 모델 저장 실패: ${er.error ?? '알 수 없는 오류'}` }
+    }
+
+    const allowedNodeIds = [...stage.nodeMap.keys()]
+    const pointsPerGroup = mode === 'goliat' ? 4 : mode === 'ceiling' ? 3 : 4
+    const groupCounts = hoistSweepGroupCounts(mode)
+    const postureFileName = buildPosturePayloadFileName(stage)  // <base>_posture.json 고정(폴백 모델 해석)
+
+    const reports = []
+    let lastError = null
+    let done = 0
+    for (const k of groupCounts) {
+      opts.onProgress?.({ done, total: groupCounts.length, groupCount: k })
+      const payload = buildPostureStabilityPayload(
+        { ...state, hoistOptimization: { desiredGroupCount: k, pointsPerGroup, allowedNodeIds } },
+        hoisting, stage, editedFileName,
+      )
+      const sr = await saveJsonArtifact(postureFileName, JSON.stringify(payload, null, 2))
+      if (!sr.ok) { lastError = sr.error ?? '입력 저장 실패'; done += 1; continue }
+
+      let posturePath = null
+      if (sr.location === 'backend' && sr.remotePath) posturePath = sr.remotePath
+      else if (sr.location === 'folder') {
+        const folderRef = useStageStore.getState().sourceFolderRef
+        if (typeof folderRef === 'string' && folderRef.length > 0) posturePath = joinPath(folderRef, postureFileName)
+      }
+      if (!posturePath) { lastError = '_posture.json 절대경로를 확인할 수 없습니다.'; done += 1; continue }
+
+      const r = await host.optimizeHoistPositions(posturePath)
+      if (r.ok && r.report) reports.push(r.report)
+      else lastError = r.error ?? '권상 위치 최적화 실패'
+      done += 1
+      opts.onProgress?.({ done, total: groupCounts.length, groupCount: k })
+    }
+
+    const candidates = rankHoistCandidates(reports)
+    if (candidates.length === 0) {
+      return { ok: false, error: lastError ?? '평가 가능한 권상 후보를 찾지 못했습니다.' }
+    }
+    return { ok: true, candidates, hasPass: candidates.some(c => c.overallStatus === 'pass') }
+  },
+
+  /**
    * 권상 위치 자동 선정 — 기존 XY 구역 제안을 seed 로 저장한 뒤
    * ModuleAnalysis.Cli --optimize 가 자세안정성 평가 절차로 고른 best 그룹을 실제 상태에 적용한다.
    *
@@ -871,6 +955,28 @@ function currentStage() {
   } catch {
     return null
   }
+}
+
+/** 권상 방식별 그룹수 스윕 목록 (큰 수부터). 슬롯 한계상 4 로 캡. */
+export function hoistSweepGroupCounts(mode) {
+  if (mode === 'ceiling') return [1]
+  const max = Math.min(getHoistMaxGroups(mode) ?? 4, 4)
+  const arr = []
+  for (let k = max; k >= 1; k--) arr.push(k)
+  return arr
+}
+
+/** Stage0 파싱용 시드 노드 — 유효 좌표를 가진 앞쪽 n 개 노드 ID. */
+function pickSeedNodeIds(stage, n) {
+  const ids = []
+  if (!stage?.nodeMap) return ids
+  for (const [id, node] of stage.nodeMap) {
+    if (node && Number.isFinite(node.x) && Number.isFinite(node.y) && Number.isFinite(node.z)) {
+      ids.push(id)
+      if (ids.length >= n) break
+    }
+  }
+  return ids
 }
 
 // dev 모드에서만 store 를 window 에 노출 — 자동화 검증/디버깅용. 프로덕션 빌드에는 포함되지 않는다.

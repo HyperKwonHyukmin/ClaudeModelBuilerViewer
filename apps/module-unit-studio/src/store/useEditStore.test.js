@@ -1035,6 +1035,96 @@ describe('useEditStore', () => {
   })
 })
 
+describe('autoSelectHoistPositions (Approach B 스윕)', () => {
+  const richStage = () => new StageData({
+    meta: { phase: 'C', stageName: 'C_Final', timestamp: '20260429_120000', unit: 'mm', schemaVersion: '1.1' },
+    nodes: Array.from({ length: 12 }, (_, i) => ({ id: i + 1, x: i * 100, y: (i % 3) * 100, z: 1000, tags: [] })),
+    elements: [], rigids: [], properties: [], materials: [], pointMasses: [],
+    connectivity: { groupCount: 1, largestGroupNodeCount: 12, isolatedNodeCount: 0,
+      groups: [{ id: 0, nodeIds: Array.from({ length: 12 }, (_, i) => i + 1), elementIds: [] }] },
+    healthMetrics: { totals: { nodeCount: 12, elementCount: 0, rigidCount: 0, pointMassCount: 0,
+      bbox: { minX: 0, maxX: 1100, minY: 0, maxY: 200, minZ: 1000, maxZ: 1000 } }, issues: {} },
+  })
+
+  const passReport = {
+    best: {
+      label: 'Hook-3g', score: 1000500, overallStatus: 'pass', groupCount: 3,
+      groups: [{ nodeIds: [1, 2, 3] }, { nodeIds: [4, 5, 6] }, { nodeIds: [7, 8, 9] }],
+      metrics: { stage6Status: 'pass', stage6MarginMm: 500, minSlingAngleDeg: 70, wireConflictCount: 0, failedStages: [] },
+    },
+    candidates: [],
+  }
+
+  const makeOptHost = (report = passReport) => ({
+    name: 'electron',
+    uploadEvaluationArtifact: vi.fn(async (name) => ({ ok: true, remotePath: `C:/srv/${name}` })),
+    optimizeHoistPositions: vi.fn(async () => ({ ok: true, report })),
+  })
+
+  beforeEach(() => {
+    useStageStore.setState({ stages: [richStage()], stageSummary: { massProperties: { totalMassTon: 5, centerOfGravityMm: { x: 500, y: 100, z: 1000 } } } })
+    useEditStore.getState().reset()
+    useStabilityStore.getState().reset()
+  })
+
+  it('방식 미선택이면 실패', async () => {
+    setHost(makeOptHost())
+    useEditStore.getState().setHoistMode(null)   // reset() 가 hydro 로 기본 설정하므로 명시적으로 해제
+    const r = await useEditStore.getState().autoSelectHoistPositions()
+    expect(r.ok).toBe(false)
+    expect(r.error).toMatch(/권상 방식/)
+  })
+
+  it('옵티마이저 채널 없으면 실패(아무것도 적용 안 함)', async () => {
+    setHost({ name: 'web', uploadEvaluationArtifact: vi.fn(async () => ({ ok: true, remotePath: 'C:/srv/x' })) })
+    useEditStore.getState().setHoistMode('hydro')
+    const r = await useEditStore.getState().autoSelectHoistPositions()
+    expect(r.ok).toBe(false)
+    expect(r.error).toMatch(/최적화 채널/)
+  })
+
+  it('hydro: 그룹수 4..1 스윕 → 4회 호출, PASS 후보 반환', async () => {
+    const host = makeOptHost()
+    setHost(host)
+    useEditStore.getState().setHoistMode('hydro')
+    const r = await useEditStore.getState().autoSelectHoistPositions()
+    expect(r.ok).toBe(true)
+    expect(host.optimizeHoistPositions).toHaveBeenCalledTimes(4)
+    expect(r.hasPass).toBe(true)
+    expect(r.candidates[0].overallStatus).toBe('pass')
+  })
+
+  it('ceiling: 그룹 1개 시드로 1회만 호출', async () => {
+    const host = makeOptHost()
+    setHost(host)
+    useEditStore.getState().setHoistMode('ceiling')
+    const r = await useEditStore.getState().autoSelectHoistPositions()
+    expect(r.ok).toBe(true)
+    expect(host.optimizeHoistPositions).toHaveBeenCalledTimes(1)
+  })
+
+  it('반환 후보를 applyAutoHoistGroups 로 커밋하면 hoistGroups 에 반영', async () => {
+    setHost(makeOptHost())
+    useEditStore.getState().setHoistMode('hydro')
+    const r = await useEditStore.getState().autoSelectHoistPositions()
+    const { toNodeGroups } = await import('../data/hoistCandidateRank.js')
+    const applied = useEditStore.getState().applyAutoHoistGroups(toNodeGroups(r.candidates[0]))
+    expect(applied.ok).toBe(true)
+    expect(useEditStore.getState().hoistGroups[1]).toEqual([1, 2, 3])
+  })
+
+  it('모든 호출 실패면 ok:false + 마지막 에러', async () => {
+    const host = { name: 'electron',
+      uploadEvaluationArtifact: vi.fn(async (name) => ({ ok: true, remotePath: `C:/srv/${name}` })),
+      optimizeHoistPositions: vi.fn(async () => ({ ok: false, error: '엔진 실패' })) }
+    setHost(host)
+    useEditStore.getState().setHoistMode('hydro')
+    const r = await useEditStore.getState().autoSelectHoistPositions()
+    expect(r.ok).toBe(false)
+    expect(r.error).toMatch(/엔진 실패/)
+  })
+})
+
 describe('buildPostureStabilityPayload — 모델 회전 시 stageSummary 무시', () => {
   it('modelRotated=true 면 stageSummary 무시하고 재계산 CoG 사용', () => {
     const stage = new StageData({
