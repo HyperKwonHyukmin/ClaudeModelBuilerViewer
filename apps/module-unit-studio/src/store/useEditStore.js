@@ -821,12 +821,22 @@ export const useEditStore = create((set, get) => ({
   },
 
   /**
-   * 구역 기반 권상 위치 선정. config(밴드축·밴드별 하위구역·포인트수·배관토글)로 XY 풋프린트를
-   * 나눠 각 구역에서 Z 우세 레벨·면적 최대로 권상점을 고른 뒤, 포인트수 변형을 스윕하며
-   * 고정 레이아웃을 host.runStabilityAnalysis 로 검증·랭킹한다. 검증된 후보만 반환(적용은 호출 측).
+   * 구역 미니맵용 입력(bbox/nodeEntries/pipeNodes/tolMm)을 반환. 모델 없으면 null.
+   * @returns {{bbox, nodeEntries:Array, pipeNodes:Set<number>, tolMm:number}|null}
+   */
+  getZonePartitionInput: () => {
+    const stage = currentStage()
+    if (!stage || !stage.nodeMap || stage.nodeMap.size === 0) return null
+    return buildHoistPartitionInput(stage, get().hoistToleranceMm)
+  },
+
+  /**
+   * 구역 기반 권상 위치 선정. config(밴드축·밴드별 하위구역·구역별 포인트수·배관토글)로 XY 풋프린트를
+   * 나눠 각 구역에서 Z 우세 레벨·면적 최대로 권상점을 고른 뒤, 고정 레이아웃을
+   * host.runStabilityAnalysis 로 1회 검증한다. 검증된 후보(1개)를 반환(적용은 호출 측).
    *
-   * @param {{bandAxis:'x'|'y', bands:number[], pointsPerGroup:number, includePipe:boolean}} config
-   * @param {{ onProgress?: (p:{done:number,total:number,pointsPerGroup:number})=>void }} [opts]
+   * @param {{bandAxis:'x'|'y', bands:number[], pointsPerZone:number[][], includePipe:boolean}} config
+   * @param {{ onProgress?: (p:{done:number,total:number})=>void }} [opts]
    * @returns {Promise<{ok:boolean, candidates?:Array, hasPass?:boolean, error?:string}>}
    */
   zoneSelectHoistPositions: async (config, opts = {}) => {
@@ -863,54 +873,45 @@ export const useEditStore = create((set, get) => ({
     const base = getHoistExport(state)
     if (!base) return { ok: false, error: '권상 방식을 먼저 선택해 주세요.' }
 
-    const heightMm = stage.bbox ? Math.max(0, stage.bbox.maxZ - stage.bbox.minZ) : 0
-    const tolMm = state.hoistToleranceMm ?? Math.max(2, heightMm * 0.004)
-    const pipeNodes = pipeNodeIds(stage.elements ?? [])
-    const nodeEntries = [...stage.nodeMap]
-    const layoutInput = { bbox: stage.bbox, nodeEntries, pipeNodes, tolMm }
+    opts.onProgress?.({ done: 0, total: 1 })
 
-    const variants = zoneVariantPointCounts(mode, config?.pointsPerGroup)
-    const postureFileName = buildPosturePayloadFileName(stage)
-
-    const reports = []
-    let lastError = null
-    let done = 0
-    for (const n of variants) {
-      opts.onProgress?.({ done, total: variants.length, pointsPerGroup: n })
-      const layout = buildZoneLayout(layoutInput, { ...config, bands }, n)
-      if (!layout.ok) { lastError = layout.reason; done += 1; opts.onProgress?.({ done, total: variants.length, pointsPerGroup: n }); continue }
-
-      const hoisting = {
-        ...base,
-        groupCount: layout.groups.length,
-        groups: layout.groups.map((ids, i) => ({ id: i + 1, nodeIds: ids })),
-      }
-      const payload = buildPostureStabilityPayload(state, hoisting, stage, editedFileName)
-      const sr = await saveJsonArtifact(postureFileName, JSON.stringify(payload, null, 2))
-      if (!sr.ok) { lastError = sr.error ?? '입력 저장 실패'; done += 1; continue }
-
-      let posturePath = null
-      if (sr.location === 'backend' && sr.remotePath) posturePath = sr.remotePath
-      else if (sr.location === 'folder') {
-        const folderRef = useStageStore.getState().sourceFolderRef
-        if (typeof folderRef === 'string' && folderRef.length > 0) posturePath = joinPath(folderRef, postureFileName)
-      }
-      if (!posturePath) { lastError = '_posture.json 절대경로를 확인할 수 없습니다.'; done += 1; continue }
-
-      const rr = await host.runStabilityAnalysis(posturePath)
-      if (rr.ok && rr.report) {
-        const cand = adaptStabilityReportToCandidate(rr.report, { groups: layout.groups, pointsPerGroup: n })
-        reports.push({ candidates: [cand] })
-      } else {
-        lastError = rr.error ?? '자세안정성 해석 실패'
-      }
-      done += 1
-      opts.onProgress?.({ done, total: variants.length, pointsPerGroup: n })
+    const input = buildHoistPartitionInput(stage, state.hoistToleranceMm)
+    const layout = buildZoneLayout(input, { ...config, bands })
+    if (!layout.ok) {
+      opts.onProgress?.({ done: 1, total: 1 })
+      return { ok: false, error: layout.reason }
     }
 
-    const candidates = rankHoistCandidates(reports)
+    const hoisting = {
+      ...base,
+      groupCount: layout.groups.length,
+      groups: layout.groups.map((ids, i) => ({ id: i + 1, nodeIds: ids })),
+    }
+    const payload = buildPostureStabilityPayload(state, hoisting, stage, editedFileName)
+    const postureFileName = buildPosturePayloadFileName(stage)
+    const sr = await saveJsonArtifact(postureFileName, JSON.stringify(payload, null, 2))
+    if (!sr.ok) { opts.onProgress?.({ done: 1, total: 1 }); return { ok: false, error: sr.error ?? '입력 저장 실패' } }
+
+    let posturePath = null
+    if (sr.location === 'backend' && sr.remotePath) posturePath = sr.remotePath
+    else if (sr.location === 'folder') {
+      const folderRef = useStageStore.getState().sourceFolderRef
+      if (typeof folderRef === 'string' && folderRef.length > 0) posturePath = joinPath(folderRef, postureFileName)
+    }
+    if (!posturePath) { opts.onProgress?.({ done: 1, total: 1 }); return { ok: false, error: '_posture.json 절대경로를 확인할 수 없습니다.' } }
+
+    const rr = await host.runStabilityAnalysis(posturePath)
+    opts.onProgress?.({ done: 1, total: 1 })
+    if (!rr.ok || !rr.report) {
+      return { ok: false, error: rr.error ?? '자세안정성 해석 실패' }
+    }
+
+    const totalPoints = layout.groups.reduce((n, g) => n + g.length, 0)
+    const label = `구역 ${layout.groups.length}그룹 · ${totalPoints}점`
+    const cand = adaptStabilityReportToCandidate(rr.report, { groups: layout.groups, label })
+    const candidates = rankHoistCandidates([{ candidates: [cand] }])
     if (candidates.length === 0) {
-      return { ok: false, error: lastError ?? '평가 가능한 권상 후보를 찾지 못했습니다.' }
+      return { ok: false, error: '평가 가능한 권상 후보를 찾지 못했습니다.' }
     }
     return { ok: true, candidates, hasPass: candidates.some(c => c.overallStatus === 'pass') }
   },
@@ -954,6 +955,26 @@ function currentStage() {
   }
 }
 
+/**
+ * 구역 미니맵·구역 기반 평가의 공통 입력(순수). nodeEntries 는 배열(재순회 가능).
+ * @param {import('../data/StageData.js').StageData} stage
+ * @param {number|null} hoistToleranceMm
+ * @returns {{bbox, nodeEntries:Array, pipeNodes:Set<number>, tolMm:number}|null}
+ */
+export function buildHoistPartitionInput(stage, hoistToleranceMm) {
+  if (!stage || !stage.nodeMap) return null
+  const heightMm = stage.bbox ? Math.max(0, stage.bbox.maxZ - stage.bbox.minZ) : 0
+  const tolMm = (Number.isFinite(hoistToleranceMm) && hoistToleranceMm > 0)
+    ? hoistToleranceMm
+    : Math.max(2, heightMm * 0.004)
+  return {
+    bbox: stage.bbox,
+    nodeEntries: [...stage.nodeMap],
+    pipeNodes: pipeNodeIds(stage.elements ?? []),
+    tolMm,
+  }
+}
+
 /** 권상 방식별 그룹수 스윕 목록 (큰 수부터). 슬롯 한계상 4 로 캡. */
 export function hoistSweepGroupCounts(mode) {
   if (mode === 'ceiling') return [1]
@@ -961,20 +982,6 @@ export function hoistSweepGroupCounts(mode) {
   const arr = []
   for (let k = max; k >= 1; k--) arr.push(k)
   return arr
-}
-
-/**
- * 구역 기반 변형 스윕용 포인트수 목록. 사용자 선호값(preferred)을 맨 앞에 두고 나머지 유효값을 잇는다.
- * ceiling 은 3·4 만(직선 2점 불가), 그 외는 2·3·4.
- * @param {string} mode
- * @param {number} preferred
- * @returns {number[]}
- */
-export function zoneVariantPointCounts(mode, preferred) {
-  const valid = mode === 'ceiling' ? [3, 4] : [2, 3, 4]
-  const p = Number(preferred)
-  if (valid.includes(p)) return [p, ...valid.filter(v => v !== p)]
-  return valid
 }
 
 /** Stage0 파싱용 시드 노드 — 유효 좌표를 가진 앞쪽 n 개 노드 ID. */

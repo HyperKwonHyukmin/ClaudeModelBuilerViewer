@@ -185,26 +185,27 @@ export function selectWidestPoints(nodes, n) {
 
 /**
  * 구역 분할 → 구역별 (배관필터 → Z우세레벨 → 면적최대 n점) → 그룹 배열.
+ * 각 구역의 포인트 수는 config.pointsPerZone[bandIndex][subIndex](없으면 3).
  * 어떤 구역이 n점 불가면 그 구역은 빠지고 남은 구역으로 빌드한다(부분 실패 허용).
  *
  * @param {{bbox, nodeEntries:Iterable<[number,{x,y,z}]>, pipeNodes:Set<number>, tolMm:number}} input
- * @param {{bandAxis:'x'|'y', bands:number[], includePipe:boolean}} config
- * @param {number} pointsPerGroup  2~4
+ * @param {{bandAxis:'x'|'y', bands:number[], includePipe:boolean, pointsPerZone?:number[][]}} config
  * @returns {{ok:true, groups:number[][]} | {ok:false, reason:string}}
  */
-export function buildZoneLayout(input, config, pointsPerGroup) {
+export function buildZoneLayout(input, config) {
   const { bbox, nodeEntries, pipeNodes, tolMm } = input
   const zones = partitionZones(bbox, config)
   const byZone = assignNodesToZones(zones, nodeEntries)
   const groups = []
   for (const z of zones) {
+    const count = zoneCountFor(config, z.bandIndex, z.subIndex, 3)
     let cand = byZone.get(z.id) ?? []
     if (!config.includePipe && pipeNodes && pipeNodes.size > 0) {
       cand = cand.filter(nd => !pipeNodes.has(nd.id))
     }
-    const level = dominantZLevel(cand, tolMm, pointsPerGroup)
+    const level = dominantZLevel(cand, tolMm, count)
     if (!level) continue
-    const ids = selectWidestPoints(level.members, pointsPerGroup)
+    const ids = selectWidestPoints(level.members, count)
     if (ids.length >= 2) groups.push(ids)
   }
   if (groups.length === 0) {

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { useEditStore, getHoistMaxGroups, getHoistDefaultWireLengthM, buildPostureStabilityPayload, zoneVariantPointCounts } from './useEditStore.js'
+import { useEditStore, getHoistMaxGroups, getHoistDefaultWireLengthM, buildPostureStabilityPayload, buildHoistPartitionInput } from './useEditStore.js'
 import { useStageStore } from './useStageStore.js'
 import { useStabilityStore } from './useStabilityStore.js'
 import { StageData } from '../data/StageData.js'
@@ -1203,17 +1203,6 @@ describe('useEditStore — 가서포트', () => {
   })
 })
 
-describe('zoneVariantPointCounts', () => {
-  it('hydro/goliat 은 [pref,...나머지] 로 2·3·4', () => {
-    expect(zoneVariantPointCounts('hydro', 3)).toEqual([3, 2, 4])
-    expect(zoneVariantPointCounts('goliat', 2)).toEqual([2, 3, 4])
-  })
-  it('ceiling 은 3·4 만', () => {
-    expect(zoneVariantPointCounts('ceiling', 4)).toEqual([4, 3])
-    expect(zoneVariantPointCounts('ceiling', 2)).toEqual([3, 4])
-  })
-})
-
 describe('zoneSelectHoistPositions', () => {
   const richStage = () => new StageData({
     meta: { phase: 'C', stageName: 'C_Final', unit: 'mm', schemaVersion: '1.1' },
@@ -1242,7 +1231,7 @@ describe('zoneSelectHoistPositions', () => {
     uploadEvaluationArtifact: vi.fn(async (name) => ({ ok: true, remotePath: `C:/srv/${name}` })),
     runStabilityAnalysis: vi.fn(async () => ({ ok: true, report })),
   })
-  const config = { bandAxis: 'x', bands: [1, 1], pointsPerGroup: 3, includePipe: true }
+  const config = { bandAxis: 'x', bands: [1, 1], pointsPerZone: [[3], [3]], includePipe: true }
 
   beforeEach(() => {
     useStageStore.setState({ stages: [richStage()], stageSummary: { massProperties: { totalMassTon: 5, centerOfGravityMm: { x: 250, y: 50, z: 1000 } } } })
@@ -1275,14 +1264,15 @@ describe('zoneSelectHoistPositions', () => {
     expect(r.error).toMatch(/그룹 수/)
   })
 
-  it('hydro: 변형 스윕 후 PASS 후보 반환, runStabilityAnalysis 다회 호출', async () => {
+  it('단일 평가로 PASS 후보 반환, runStabilityAnalysis 1회 호출', async () => {
     const host = makeHost()
     setHost(host)
     useEditStore.getState().setHoistMode('hydro')
     const r = await useEditStore.getState().zoneSelectHoistPositions(config)
     expect(r.ok).toBe(true)
     expect(r.hasPass).toBe(true)
-    expect(host.runStabilityAnalysis.mock.calls.length).toBeGreaterThanOrEqual(1)
+    expect(host.runStabilityAnalysis).toHaveBeenCalledTimes(1)
+    expect(r.candidates).toHaveLength(1)
     expect(r.candidates[0].overallStatus).toBe('pass')
   })
 
@@ -1303,5 +1293,19 @@ describe('zoneSelectHoistPositions', () => {
     const { toNodeGroups } = await import('../data/hoistCandidateRank.js')
     const applied = useEditStore.getState().applyAutoHoistGroups(toNodeGroups(r.candidates[0]))
     expect(applied.ok).toBe(true)
+  })
+
+  it('getZonePartitionInput: bbox/nodeEntries/pipeNodes/tolMm 반환', () => {
+    const inp = useEditStore.getState().getZonePartitionInput()
+    expect(inp).toBeTruthy()
+    expect(inp.bbox).toMatchObject({ minX: 0, maxX: 500 })
+    expect(Array.isArray(inp.nodeEntries)).toBe(true)
+    expect(inp.nodeEntries.length).toBe(12)
+    expect(inp.pipeNodes instanceof Set).toBe(true)
+    expect(inp.tolMm).toBeGreaterThan(0)
+  })
+
+  it('buildHoistPartitionInput: 모델 없으면 null', () => {
+    expect(buildHoistPartitionInput(null, null)).toBeNull()
   })
 })
