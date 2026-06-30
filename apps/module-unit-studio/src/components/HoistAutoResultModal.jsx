@@ -23,6 +23,8 @@ export default function HoistAutoResultModal({ onClose }) {
   const applyGroups = useEditStore(s => s.applyAutoHoistGroups)
   const maxGroups = getHoistMaxGroups(mode)
   const getPartitionInput = useEditStore(s => s.getZonePartitionInput)
+  // getZonePartitionInput 은 안정적인 Zustand 액션 참조라 이 memo 는 마운트 시 1회만 실행(스냅샷).
+  // 모달이 뷰포트를 막는 동안 모델/스테이지는 바뀌지 않으므로 1회 계산이 맞다.
   const partitionInput = useMemo(() => getPartitionInput(), [getPartitionInput])
 
   const [tab, setTab] = useState('zone')
