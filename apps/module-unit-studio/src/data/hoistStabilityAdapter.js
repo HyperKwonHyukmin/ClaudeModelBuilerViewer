@@ -19,7 +19,7 @@ function statusRank(s) { return s === 'fail' ? 2 : s === 'warn' ? 1 : 0 }
 
 /**
  * @param {object} report  runStabilityAnalysis 결과 객체
- * @param {{groups:number[][], pointsPerGroup:number, label?:string, score?:number}} ctx
+ * @param {{groups:number[][], label?:string, score?:number, pointsPerGroup?:number}} ctx
  * @returns {object}  normalizeCandidate 호환 후보
  */
 export function adaptStabilityReportToCandidate(report, ctx) {
@@ -45,7 +45,7 @@ export function adaptStabilityReportToCandidate(report, ctx) {
   }
 
   return {
-    label: ctx?.label ?? `구역 ${ctx?.groups?.length ?? 0}그룹 · ${ctx?.pointsPerGroup ?? '?'}점`,
+    label: ctx?.label ?? `구역 ${ctx?.groups?.length ?? 0}그룹 · ${ctx?.pointsPerGroup ?? (ctx?.groups?.reduce((n, g) => n + (g?.length ?? 0), 0) || '?')}점`,
     score: Number.isFinite(Number(ctx?.score)) ? Number(ctx.score) : 0,
     overallStatus: overall,
     groupCount: ctx?.groups?.length ?? 0,

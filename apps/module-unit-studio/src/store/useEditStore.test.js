@@ -1308,4 +1308,8 @@ describe('zoneSelectHoistPositions', () => {
   it('buildHoistPartitionInput: 모델 없으면 null', () => {
     expect(buildHoistPartitionInput(null, null)).toBeNull()
   })
+
+  it('buildHoistPartitionInput: 빈 nodeMap 면 null', () => {
+    expect(buildHoistPartitionInput({ nodeMap: new Map(), bbox: { minX: 0, maxX: 1, minY: 0, maxY: 1, minZ: 0, maxZ: 0 }, elements: [] }, null)).toBeNull()
+  })
 })

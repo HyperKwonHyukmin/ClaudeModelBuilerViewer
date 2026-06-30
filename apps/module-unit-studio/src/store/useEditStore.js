@@ -962,7 +962,7 @@ function currentStage() {
  * @returns {{bbox, nodeEntries:Array, pipeNodes:Set<number>, tolMm:number}|null}
  */
 export function buildHoistPartitionInput(stage, hoistToleranceMm) {
-  if (!stage || !stage.nodeMap) return null
+  if (!stage || !stage.nodeMap || stage.nodeMap.size === 0) return null
   const heightMm = stage.bbox ? Math.max(0, stage.bbox.maxZ - stage.bbox.minZ) : 0
   const tolMm = (Number.isFinite(hoistToleranceMm) && hoistToleranceMm > 0)
     ? hoistToleranceMm
