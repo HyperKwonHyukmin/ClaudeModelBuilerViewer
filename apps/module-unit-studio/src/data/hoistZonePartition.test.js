@@ -242,6 +242,7 @@ describe('buildZonePartitionView', () => {
     const entries = [[1, { x: 10, y: 10, z: 0 }], [2, { x: 20, y: 20, z: 0 }]]
     const view = buildZonePartitionView(vbbox, { bandAxis: 'y', bands: [1] }, entries, new Set([2]))
     expect(view.dots.find(d => d.pipe)).toBeTruthy()
+    expect(view.dots.find(d => !d.pipe)).toBeTruthy()
   })
   it('degenerate bbox(폭 0)도 NaN 없이 동작', () => {
     const view = buildZonePartitionView({ minX: 10, maxX: 10, minY: 0, maxY: 100 }, { bandAxis: 'y', bands: [1] }, [[1, { x: 10, y: 50, z: 0 }]], new Set())
@@ -251,6 +252,15 @@ describe('buildZonePartitionView', () => {
   it('노드 과다 시 다운샘플(maxDots 상한)', () => {
     const many = Array.from({ length: 5000 }, (_, i) => [i + 1, { x: (i % 100), y: Math.floor(i / 100), z: 0 }])
     const view = buildZonePartitionView({ minX: 0, maxX: 100, minY: 0, maxY: 50 }, { bandAxis: 'y', bands: [1] }, many, new Set(), { maxDots: 100 })
-    expect(view.dots.length).toBeLessThanOrEqual(100)
+    expect(view.dots.length).toBe(100)
+  })
+  it('degenerate bbox(높이 0)도 NaN 없이 동작', () => {
+    const view = buildZonePartitionView({ minX: 0, maxX: 100, minY: 50, maxY: 50 }, { bandAxis: 'y', bands: [1] }, [[1, { x: 50, y: 50, z: 0 }]], new Set())
+    expect(Number.isFinite(view.cells[0].y)).toBe(true)
+    expect(Number.isFinite(view.cells[0].h)).toBe(true)
+  })
+  it('극단 종횡비(1000:1)도 H ≥ 120 보장', () => {
+    const view = buildZonePartitionView({ minX: 0, maxX: 1000, minY: 0, maxY: 1 }, { bandAxis: 'y', bands: [1] }, [], new Set())
+    expect(view.viewBox.h).toBe(120)
   })
 })

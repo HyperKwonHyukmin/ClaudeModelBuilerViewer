@@ -262,7 +262,7 @@ export function zoneCountFor(config, bandIndex, subIndex, defaultPoints = 3) {
  * @param {{minX,maxX,minY,maxY}} bbox
  * @param {{bandAxis:'x'|'y', bands:number[], pointsPerZone?:number[][]}} config
  * @param {Array<[number,{x,y}]>} nodeEntries
- * @param {Set<number>} pipeNodes
+ * @param {Set<number>|null} pipeNodes
  * @param {{maxDim?:number, maxDots?:number}} [opts]
  * @returns {{viewBox:{x,y,w,h}, cells:Array, dots:Array}}
  */
