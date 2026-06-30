@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { Loader2, X, CheckCircle2, AlertTriangle, XCircle } from 'lucide-react'
-import { useEditStore } from '../store/useEditStore.js'
+import { Loader2, X, CheckCircle2, AlertTriangle, XCircle, Play } from 'lucide-react'
+import { useEditStore, getHoistMaxGroups } from '../store/useEditStore.js'
 import { toNodeGroups } from '../data/hoistCandidateRank.js'
+import HoistZoneConfig from './HoistZoneConfig.jsx'
 
 const STATUS_STYLE = {
   pass: { color: '#37E08A', bg: 'rgba(55,224,138,0.12)', border: 'rgba(55,224,138,0.5)', Icon: CheckCircle2, label: 'PASS' },
@@ -11,83 +12,121 @@ const STATUS_STYLE = {
 const styleFor = (s) => STATUS_STYLE[s] ?? STATUS_STYLE.fail
 const fmt = (v, unit = '') => (v == null ? '–' : `${Math.round(v)}${unit}`)
 
+const defaultZoneConfig = (mode) => mode === 'ceiling'
+  ? { bandAxis: 'y', bands: [1], pointsPerGroup: 3, includePipe: false }
+  : { bandAxis: 'y', bands: [1, 1], pointsPerGroup: 3, includePipe: false }
+
 export default function HoistAutoResultModal({ onClose }) {
+  const mode = useEditStore(s => s.hoistMode)
+  const zoneSelect = useEditStore(s => s.zoneSelectHoistPositions)
   const autoSelect = useEditStore(s => s.autoSelectHoistPositions)
   const applyGroups = useEditStore(s => s.applyAutoHoistGroups)
+  const maxGroups = getHoistMaxGroups(mode)
 
-  const [running, setRunning] = useState(true)
-  const [progress, setProgress] = useState({ done: 0, total: 1, groupCount: 0 })
+  const [tab, setTab] = useState('zone')
+  const [zoneConfig, setZoneConfig] = useState(() => defaultZoneConfig(mode))
+  const [running, setRunning] = useState(false)
+  const [progress, setProgress] = useState({ done: 0, total: 1 })
   const [candidates, setCandidates] = useState([])
   const [error, setError] = useState(null)
   const [selectedId, setSelectedId] = useState(null)
   const [committed, setCommitted] = useState(false)
+  const optimizerRan = useRef(false)
 
-  // 진입 시점 상태 스냅샷 — 미리보기는 실제 hoistGroups 를 변경하므로 취소 시 복원한다.
   const snapshotRef = useRef(null)
   useEffect(() => {
     const s = useEditStore.getState()
-    snapshotRef.current = {
-      hoistMode: s.hoistMode, hoistGroupCount: s.hoistGroupCount,
-      hoistGroups: s.hoistGroups, activeHoistGroupId: s.activeHoistGroupId,
-    }
+    snapshotRef.current = { hoistMode: s.hoistMode, hoistGroupCount: s.hoistGroupCount, hoistGroups: s.hoistGroups, activeHoistGroupId: s.activeHoistGroupId }
   }, [])
-
-  // 마운트 시 스윕 실행.
-  useEffect(() => {
-    let alive = true
-    ;(async () => {
-      const r = await autoSelect({ onProgress: (p) => { if (alive) setProgress(p) } })
-      if (!alive) return
-      setRunning(false)
-      if (!r.ok) { setError(r.error); return }
-      setCandidates(r.candidates)
-      const first = r.candidates[0]
-      if (first) { setSelectedId(first.id); applyGroups(toNodeGroups(first)) }  // 최고안 미리보기
-    })()
-    return () => { alive = false }
-  }, [autoSelect, applyGroups])
 
   const restore = () => { if (snapshotRef.current) useEditStore.setState(snapshotRef.current) }
   const handleCancel = () => { if (!committed) restore(); onClose() }
+
+  const ingest = (r) => {
+    setRunning(false)
+    if (!r.ok) { setError(r.error); setCandidates([]); return }
+    setError(null)
+    setCandidates(r.candidates)
+    const first = r.candidates[0]
+    if (first) { setSelectedId(first.id); applyGroups(toNodeGroups(first)) }
+    else setSelectedId(null)
+  }
+
+  const runZone = async () => {
+    setError(null); setCandidates([]); setSelectedId(null); restore()
+    setRunning(true); setProgress({ done: 0, total: 1 })
+    const r = await zoneSelect(zoneConfig, { onProgress: setProgress })
+    ingest(r)
+  }
+
+  const runOptimizer = async () => {
+    setError(null); setCandidates([]); setSelectedId(null); restore()
+    setRunning(true); setProgress({ done: 0, total: 1 })
+    const r = await autoSelect({ onProgress: (p) => setProgress({ done: p.done, total: p.total }) })
+    ingest(r)
+  }
+
+  useEffect(() => {
+    if (tab === 'optimizer' && !optimizerRan.current) { optimizerRan.current = true; runOptimizer() }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab])
+
   const handlePreview = (c) => { setSelectedId(c.id); applyGroups(toNodeGroups(c)) }
   const handleApply = () => {
     const c = candidates.find(x => x.id === selectedId)
     if (!c) return
     const r = applyGroups(toNodeGroups(c))
     if (!r?.ok) { setError(r?.error ?? '권상 위치 적용에 실패했습니다.'); return }
-    setCommitted(true)
-    onClose()
+    setCommitted(true); onClose()
   }
 
   const hasPass = candidates.some(c => c.overallStatus === 'pass')
   const selected = candidates.find(c => c.id === selectedId) ?? null
+  const groupCount = zoneConfig.bands.reduce((n, b) => n + Math.max(1, b), 0)
+  const zoneRunnable = !running && groupCount <= maxGroups
 
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 4000, background: 'rgba(4,4,16,0.78)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div style={{ width: 'min(720px, 94vw)', maxHeight: '88vh', background: '#0b0b1e', border: '1px solid #25254a', borderRadius: 12, boxShadow: '0 24px 80px rgba(0,0,0,0.6)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        {/* 헤더 */}
+      <div style={{ width: 'min(740px, 95vw)', maxHeight: '90vh', background: '#0b0b1e', border: '1px solid #25254a', borderRadius: 12, boxShadow: '0 24px 80px rgba(0,0,0,0.6)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderBottom: '1px solid #1e1e38' }}>
-          <span style={{ fontSize: 14, fontWeight: 900, color: '#90E8FF' }}>권상 위치 자동 선정 — 자세안정성 평가 결과</span>
+          <span style={{ fontSize: 14, fontWeight: 900, color: '#90E8FF' }}>권상 위치 자동 선정</span>
           <button onClick={handleCancel} aria-label="닫기" style={{ background: 'transparent', border: 'none', color: '#8aa0b8', cursor: 'pointer' }}><X size={18} /></button>
         </div>
 
+        <div style={{ display: 'flex', gap: 6, padding: '10px 16px 0' }}>
+          <Tab active={tab === 'zone'} onClick={() => setTab('zone')}>구역 기반</Tab>
+          <Tab active={tab === 'optimizer'} onClick={() => setTab('optimizer')}>옵티마이저 자동</Tab>
+        </div>
+
         <div style={{ padding: 16, overflowY: 'auto' }}>
+          {tab === 'zone' && (
+            <div style={{ marginBottom: 14 }}>
+              <HoistZoneConfig value={zoneConfig} onChange={setZoneConfig} mode={mode} maxGroups={maxGroups} />
+              <button onClick={runZone} disabled={!zoneRunnable} style={{
+                marginTop: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, width: '100%',
+                padding: '9px 10px', borderRadius: 7,
+                background: zoneRunnable ? 'linear-gradient(180deg, #1FA86A, #178A55)' : '#0a0a18',
+                border: `1px solid ${zoneRunnable ? '#2BD380' : '#2a2a4a'}`, color: zoneRunnable ? '#F0FFF4' : '#3a3a52',
+                fontSize: 12, fontWeight: 800, cursor: zoneRunnable ? 'pointer' : 'not-allowed',
+              }}>
+                {running ? <Loader2 size={14} style={{ animation: 'hoistSpin 900ms linear infinite' }} /> : <Play size={14} fill={zoneRunnable ? '#F0FFF4' : 'none'} strokeWidth={2.5} />}
+                {running ? '평가 중…' : '구역 기반 평가 실행'}
+              </button>
+            </div>
+          )}
+
           {running && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#cad8e8', fontSize: 13 }}>
               <Loader2 size={16} style={{ animation: 'hoistSpin 900ms linear infinite' }} />
-              자세안정성 평가 중… (그룹수 {progress.groupCount} · {progress.done}/{progress.total})
+              자세안정성 평가 중… ({progress.done}/{progress.total})
             </div>
           )}
-
           {!running && error && (
-            <div style={{ padding: 12, borderRadius: 8, background: 'rgba(255,102,119,0.10)', border: '1px solid rgba(255,102,119,0.5)', color: '#FF99A6', fontSize: 12.5, lineHeight: 1.5 }}>
-              {error}
-            </div>
+            <div style={{ padding: 12, borderRadius: 8, background: 'rgba(255,102,119,0.10)', border: '1px solid rgba(255,102,119,0.5)', color: '#FF99A6', fontSize: 12.5, lineHeight: 1.5 }}>{error}</div>
           )}
-
           {!running && !error && !hasPass && candidates.length > 0 && (
             <div style={{ marginBottom: 12, padding: 10, borderRadius: 8, background: 'rgba(255,196,71,0.10)', border: '1px solid rgba(255,196,71,0.5)', color: '#FFC447', fontSize: 12, lineHeight: 1.5 }}>
-              자세안정성 PASS 후보를 찾지 못했습니다. 아래는 차선 후보입니다 — 권상 방식 또는 그룹 수 조정을 권장합니다.
+              자세안정성 PASS 후보를 찾지 못했습니다. 아래는 차선 후보입니다 — {tab === 'zone' ? '분할 축·밴드·포인트 수' : '권상 방식·그룹 수'} 조정을 권장합니다.
             </div>
           )}
 
@@ -112,12 +151,22 @@ export default function HoistAutoResultModal({ onClose }) {
           })}
         </div>
 
-        {/* 푸터 */}
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '12px 16px', borderTop: '1px solid #1e1e38' }}>
           <button onClick={handleCancel} style={{ padding: '8px 14px', borderRadius: 7, background: '#101024', border: '1px solid #2a2a4a', color: '#cad8e8', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>취소</button>
           <button onClick={handleApply} disabled={!selected} style={{ padding: '8px 16px', borderRadius: 7, background: selected ? 'linear-gradient(180deg, #1FA86A, #178A55)' : '#0a0a18', border: `1px solid ${selected ? '#2BD380' : '#2a2a4a'}`, color: selected ? '#F0FFF4' : '#3a3a52', fontSize: 12, fontWeight: 800, cursor: selected ? 'pointer' : 'not-allowed' }}>이 안 적용</button>
         </div>
       </div>
     </div>
+  )
+}
+
+function Tab({ active, onClick, children }) {
+  return (
+    <button onClick={onClick} style={{
+      padding: '7px 14px', borderRadius: '7px 7px 0 0', fontSize: 12, fontWeight: 800,
+      background: active ? '#0f0f22' : 'transparent',
+      color: active ? '#90E8FF' : '#6a7a92',
+      border: `1px solid ${active ? '#25254a' : 'transparent'}`, borderBottom: 'none', cursor: 'pointer',
+    }}>{children}</button>
   )
 }
