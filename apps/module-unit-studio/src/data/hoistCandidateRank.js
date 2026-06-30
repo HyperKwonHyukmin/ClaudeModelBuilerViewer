@@ -12,13 +12,15 @@ function numOrNull(v) {
 
 /** report 의 한 평가 객체를 안전한 표준 형태로 정규화한다. */
 export function normalizeCandidate(c) {
-  const m = c?.metrics ?? {}
-  const groups = (c?.groups ?? []).map(g => ({ nodeIds: [...(g?.nodeIds ?? [])] }))
+  const m = c?.metrics ?? c?.Metrics ?? {}
+  const rawGroups = c?.groups ?? c?.Groups ?? []
+  const groups = rawGroups.map(g => ({ nodeIds: [...(g?.nodeIds ?? g?.NodeIds ?? [])] }))
+  const rawGroupCount = c?.groupCount ?? c?.GroupCount
   return {
-    label: c?.label ?? '',
-    score: numOrNull(c?.score) ?? 0,
-    overallStatus: c?.overallStatus ?? 'unknown',
-    groupCount: Number.isFinite(Number(c?.groupCount)) ? Number(c.groupCount) : groups.length,
+    label: c?.label ?? c?.Label ?? '',
+    score: numOrNull(c?.score ?? c?.Score) ?? 0,
+    overallStatus: c?.overallStatus ?? c?.OverallStatus ?? 'unknown',
+    groupCount: Number.isFinite(Number(rawGroupCount)) ? Number(rawGroupCount) : groups.length,
     groups,
     metrics: {
       stage6Status: m.stage6Status ?? null,
@@ -58,8 +60,9 @@ export function rankHoistCandidates(reports) {
   const all = []
   for (const rep of reports ?? []) {
     if (!rep) continue
-    if (rep.best) all.push(normalizeCandidate(rep.best))
-    for (const c of rep.candidates ?? []) all.push(normalizeCandidate(c))
+    const best = rep.best ?? rep.Best
+    if (best) all.push(normalizeCandidate(best))
+    for (const c of rep.candidates ?? rep.Candidates ?? []) all.push(normalizeCandidate(c))
   }
   const bySig = new Map()
   for (const c of all) {

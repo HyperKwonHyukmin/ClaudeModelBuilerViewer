@@ -53,7 +53,8 @@ export default function HoistAutoResultModal({ onClose }) {
   const handleApply = () => {
     const c = candidates.find(x => x.id === selectedId)
     if (!c) return
-    applyGroups(toNodeGroups(c))
+    const r = applyGroups(toNodeGroups(c))
+    if (!r?.ok) { setError(r?.error ?? '권상 위치 적용에 실패했습니다.'); return }
     setCommitted(true)
     onClose()
   }

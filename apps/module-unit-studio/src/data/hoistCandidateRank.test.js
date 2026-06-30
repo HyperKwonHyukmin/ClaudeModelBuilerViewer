@@ -64,4 +64,21 @@ describe('hoistCandidateRank', () => {
     expect(rankHoistCandidates([])).toEqual([])
     expect(rankHoistCandidates(null)).toEqual([])
   })
+
+  it('rankHoistCandidates: 엔진의 PascalCase 리포트도 읽는다', () => {
+    const pascalReport = {
+      Best: {
+        Label: 'Hook-3g', Score: 1000500, OverallStatus: 'pass', GroupCount: 3,
+        Groups: [{ NodeIds: [1, 2, 3] }, { NodeIds: [4, 5, 6] }, { NodeIds: [7, 8, 9] }],
+        Metrics: { stage6Status: 'pass', stage6MarginMm: 500, minSlingAngleDeg: 70, wireConflictCount: 0, failedStages: [] },
+      },
+      Candidates: [],
+    }
+    const ranked = rankHoistCandidates([pascalReport])
+    expect(ranked.length).toBe(1)
+    expect(ranked[0].overallStatus).toBe('pass')
+    expect(ranked[0].groupCount).toBe(3)
+    expect(ranked[0].metrics.stage6MarginMm).toBe(500)
+    expect(toNodeGroups(ranked[0])).toEqual([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
+  })
 })
