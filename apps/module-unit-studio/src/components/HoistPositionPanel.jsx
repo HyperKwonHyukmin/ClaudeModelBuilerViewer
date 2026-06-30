@@ -11,8 +11,7 @@ import { useStageStore } from '../store/useStageStore.js'
 import { autoHoistToleranceMm } from '../three/HoistCandidateNodes.js'
 import { COLORS } from '../utils/colors.js'
 import Tooltip from './Tooltip.jsx'
-import { useHoistLayoutStore } from '../store/useHoistLayoutStore.js'
-import HoistAutoLayoutEditor from './HoistAutoLayoutEditor.jsx'
+import HoistAutoResultModal from './HoistAutoResultModal.jsx'
 
 const HOIST_MODES = [
   { id: 'hydro',   label: 'Hydro 방식',  detail: 'Hook',    maxGroups: 4, minNodes: 2, defaultWire: 8  },
@@ -92,11 +91,9 @@ export default function HoistPositionPanel() {
   const lastStage = stages?.[stages.length - 1] ?? null
   const autoTolMm = autoHoistToleranceMm(lastStage?.bbox ? lastStage.bbox.maxZ - lastStage.bbox.minZ : 0)
 
-  // 권상 위치 자동 선정 (독립 도구) — XY 모달 store
-  const openAutoLayout = useHoistLayoutStore(s => s.openEditor)
-  const autoRegionCount = useHoistLayoutStore(s => Object.keys(s.suggestions).length)
-  const autoPointCount = useHoistLayoutStore(s => Object.values(s.suggestions).reduce((n, ids) => n + (ids?.length ?? 0), 0))
   const hasModel = (stages?.length ?? 0) > 0
+  const [autoModalOpen, setAutoModalOpen] = useState(false)
+  const canAutoSelect = hasModel && !!mode
 
   // 모든 활성 그룹이 모드별 최소~4 노드를 가지고 모드가 선택돼야 평가 실행 가능.
   const activeGroupIds = Array.from({ length: groupCount }, (_, i) => i + 1)
@@ -161,29 +158,28 @@ export default function HoistPositionPanel() {
         권상(Hoisting) 위치 설정
       </div>
 
-      {/* ── 권상 위치 자동 선정 (독립 도구) ── */}
+      {/* ── 권상 위치 자동 선정 — 자세안정성 평가 기반 ── */}
       <button
-        onClick={() => { if (hasModel) openAutoLayout() }}
-        disabled={!hasModel}
-        title={hasModel ? 'XY 구역 분할 + 권상 최적안 자동 제안' : '모델을 먼저 로드하세요'}
+        onClick={() => { if (canAutoSelect) setAutoModalOpen(true) }}
+        disabled={!canAutoSelect}
+        title={!hasModel ? '모델을 먼저 로드하세요' : !mode ? 'STEP 1 에서 권상 방식을 먼저 선택하세요' : '자세안정성 평가로 최적 권상 위치를 엄선해 제안합니다'}
         style={{
           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
           padding: '7px 10px', borderRadius: 7, width: '100%',
-          background: hasModel ? 'linear-gradient(90deg, rgba(0,209,255,0.18), rgba(181,124,255,0.18))' : '#101024',
-          color: hasModel ? '#E8FBFF' : '#4a5a72',
-          border: `1px solid ${hasModel ? '#00D1FF' : '#2a2a4a'}`,
-          cursor: hasModel ? 'pointer' : 'not-allowed', fontSize: 12, fontWeight: 800,
+          background: canAutoSelect ? 'linear-gradient(90deg, rgba(0,209,255,0.18), rgba(181,124,255,0.18))' : '#101024',
+          color: canAutoSelect ? '#E8FBFF' : '#4a5a72',
+          border: `1px solid ${canAutoSelect ? '#00D1FF' : '#2a2a4a'}`,
+          cursor: canAutoSelect ? 'pointer' : 'not-allowed', fontSize: 12, fontWeight: 800,
         }}>
         <Sparkles size={14} /> 권상 위치 자동 선정
       </button>
-      {autoRegionCount > 0 && (
+      {!mode && hasModel && (
         <div style={{ fontSize: 10.5, color: '#8aa0b8', textAlign: 'center', marginTop: -2 }}>
-          자동 선정: {autoRegionCount}구역 · 권상 포인트 {autoPointCount}개
+          STEP 1 권상 방식 선택 후 사용 가능
         </div>
       )}
 
-      {/* XY 모달 — open 상태일 때만 렌더 */}
-      <HoistAutoLayoutEditor />
+      {autoModalOpen && <HoistAutoResultModal onClose={() => setAutoModalOpen(false)} />}
 
       {/* 진행 로드맵 — 초심자가 "지금 어디까지 했고 다음에 뭘 하는지" 한눈에 보도록 */}
       <StepFlow mode={mode} groupsValid={allGroupsValid} hasResult={!!stabilityReport} />
