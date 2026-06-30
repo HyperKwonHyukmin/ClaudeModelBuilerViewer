@@ -73,3 +73,112 @@ export function assignNodesToZones(zones, nodeEntries) {
   }
   return map
 }
+
+/**
+ * Pipe 카테고리 요소의 양 끝 노드 ID 집합. includePipe=false 일 때 후보에서 제외하는 데 쓴다.
+ * (외경 임계는 선택에 사용하지 않는다 — 단순 포함/제외 토글.)
+ * @param {Array<{category,startNode,endNode}>} elements
+ * @returns {Set<number>}
+ */
+export function pipeNodeIds(elements) {
+  const s = new Set()
+  for (const e of elements ?? []) {
+    if (e?.category !== 'Pipe') continue
+    if (e.startNode != null) s.add(e.startNode)
+    if (e.endNode != null) s.add(e.endNode)
+  }
+  return s
+}
+
+/** XY 점 배열의 bbox 대각 길이(스팬). */
+function xySpan(members) {
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
+  for (const m of members) {
+    if (m.x < minX) minX = m.x; if (m.x > maxX) maxX = m.x
+    if (m.y < minY) minY = m.y; if (m.y > maxY) maxY = m.y
+  }
+  const dx = maxX - minX, dy = maxY - minY
+  return Math.sqrt(dx * dx + dy * dy)
+}
+
+/**
+ * Z 우세 레벨 선택. 노드를 Z 오름차순으로 1D 클러스터링(레벨 대표 Z=첫 멤버 ±tol)한 뒤,
+ * minCount 이상 레벨 중 멤버 최다(동률 시 XY 스팬 큰 쪽, 그래도 동률이면 Z 작은 쪽) 레벨을 돌려준다.
+ * @returns {{refZ:number, members:Array<{id,x,y,z}>} | null}
+ */
+export function dominantZLevel(nodes, tolMm, minCount) {
+  if (!nodes || nodes.length === 0) return null
+  const tol = Number.isFinite(tolMm) && tolMm > 0 ? tolMm : 0
+  const sorted = [...nodes].sort((a, b) => a.z - b.z)
+  const levels = []
+  let cur = null
+  for (const n of sorted) {
+    if (cur && Math.abs(n.z - cur.refZ) <= tol) cur.members.push(n)
+    else { cur = { refZ: n.z, members: [n] }; levels.push(cur) }
+  }
+  const eligible = levels.filter(l => l.members.length >= minCount)
+  if (eligible.length === 0) return null
+  eligible.sort((a, b) => {
+    if (b.members.length !== a.members.length) return b.members.length - a.members.length
+    const sb = xySpan(b.members), sa = xySpan(a.members)
+    if (sb !== sa) return sb - sa
+    return a.refZ - b.refZ
+  })
+  return eligible[0]
+}
+
+/** 점들을 무게중심 기준 반시계 각도로 정렬(2D 볼록 순서) → 보타이 방지. */
+function convexOrder(points) {
+  if (points.length < 3) return [...points]
+  let cx = 0, cy = 0
+  for (const p of points) { cx += p.x; cy += p.y }
+  cx /= points.length; cy /= points.length
+  return [...points].sort((a, b) => Math.atan2(a.y - cy, a.x - cx) - Math.atan2(b.y - cy, b.x - cx))
+}
+
+/** 정렬된(볼록) 점 배열의 면적(shoelace, 절댓값). */
+export function polygonArea2D(pts) {
+  const p = convexOrder(pts)
+  let a = 0
+  for (let i = 0; i < p.length; i++) {
+    const j = (i + 1) % p.length
+    a += p[i].x * p[j].y - p[j].x * p[i].y
+  }
+  return Math.abs(a) / 2
+}
+
+function dist2(a, b) { const dx = a.x - b.x, dy = a.y - b.y; return dx * dx + dy * dy }
+
+/**
+ * XY 면적이 최대가 되도록 n 점을 그리디로 고른다.
+ *  - 최원 쌍에서 시작 → 폴리곤 면적 최대화 점을 하나씩 추가.
+ *  - 최종 순서는 볼록 정렬(보타이 방지)된 노드 ID.
+ * @param {Array<{id,x,y}>} nodes
+ * @param {number} n  2~4
+ * @returns {number[]}  선택 노드 ID(볼록 순서), 길이 ≤ min(n, nodes.length)
+ */
+export function selectWidestPoints(nodes, n) {
+  const k = Math.min(n, nodes.length)
+  if (k <= 0) return []
+  if (k === 1) return [nodes[0].id]
+  if (nodes.length <= k) return convexOrder(nodes).map(p => p.id)
+  let pair = [0, 1], bestD = -1
+  for (let i = 0; i < nodes.length; i++)
+    for (let j = i + 1; j < nodes.length; j++) {
+      const d = dist2(nodes[i], nodes[j])
+      if (d > bestD) { bestD = d; pair = [i, j] }
+    }
+  const chosen = [nodes[pair[0]], nodes[pair[1]]]
+  const used = new Set(pair)
+  while (chosen.length < k) {
+    let pick = -1, pickArea = -1
+    for (let i = 0; i < nodes.length; i++) {
+      if (used.has(i)) continue
+      const area = polygonArea2D([...chosen, nodes[i]])
+      if (area > pickArea) { pickArea = area; pick = i }
+    }
+    if (pick < 0) break
+    chosen.push(nodes[pick]); used.add(pick)
+  }
+  return convexOrder(chosen).map(p => p.id)
+}

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { partitionZones, assignNodesToZones } from './hoistZonePartition.js'
+import { pipeNodeIds, dominantZLevel, polygonArea2D, selectWidestPoints } from './hoistZonePartition.js'
 
 const bbox = { minX: 0, maxX: 100, minY: 0, maxY: 100, minZ: 0, maxZ: 0 }
 
@@ -65,5 +66,64 @@ describe('assignNodesToZones', () => {
     expect(total).toBe(1)
     const assigned = [...map.values()].flat()
     expect(assigned.map(nd => nd.id)).toEqual([1])
+  })
+})
+
+describe('pipeNodeIds', () => {
+  it("category==='Pipe' 요소의 양 끝 노드만 수집, Structure 제외", () => {
+    const elements = [
+      { type: 'BEAM', category: 'Pipe', startNode: 1, endNode: 2 },
+      { type: 'BEAM', category: 'Structure', startNode: 2, endNode: 3 },
+      { type: 'BEAM', category: 'Pipe', startNode: 3, endNode: 4 },
+    ]
+    const s = pipeNodeIds(elements)
+    expect([...s].sort((a, b) => a - b)).toEqual([1, 2, 3, 4])
+  })
+  it('빈/누락 입력은 빈 Set', () => {
+    expect(pipeNodeIds([]).size).toBe(0)
+    expect(pipeNodeIds(null).size).toBe(0)
+  })
+})
+
+describe('dominantZLevel', () => {
+  const nd = (id, x, y, z) => ({ id, x, y, z })
+  it('허용오차 내 노드가 가장 많은 레벨을 고른다', () => {
+    const nodes = [
+      nd(1, 0, 0, 0), nd(2, 10, 0, 1), nd(3, 0, 10, 2),
+      nd(4, 0, 0, 100), nd(5, 10, 0, 101),
+    ]
+    const lvl = dominantZLevel(nodes, 5, 2)
+    expect(lvl.members.map(m => m.id).sort((a, b) => a - b)).toEqual([1, 2, 3])
+  })
+  it('어떤 레벨도 minCount 미만이면 null', () => {
+    const nodes = [nd(1, 0, 0, 0), nd(2, 0, 0, 100)]
+    expect(dominantZLevel(nodes, 5, 2)).toBeNull()
+  })
+  it('동률이면 XY 스팬 넓은 레벨', () => {
+    const nodes = [
+      nd(1, 0, 0, 0), nd(2, 5, 0, 0),
+      nd(3, 0, 0, 100), nd(4, 100, 100, 100),
+    ]
+    const lvl = dominantZLevel(nodes, 5, 2)
+    expect(lvl.members.map(m => m.id).sort((a, b) => a - b)).toEqual([3, 4])
+  })
+})
+
+describe('polygonArea2D / selectWidestPoints', () => {
+  const nd = (id, x, y) => ({ id, x, y, z: 0 })
+  it('polygonArea2D: 단위사각형 면적 = 1', () => {
+    expect(polygonArea2D([{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }, { x: 0, y: 1 }])).toBeCloseTo(1)
+  })
+  it('n=2: 최원 쌍', () => {
+    const ids = selectWidestPoints([nd(1, 0, 0), nd(2, 1, 0), nd(3, 100, 0)], 2)
+    expect(ids.sort((a, b) => a - b)).toEqual([1, 3])
+  })
+  it('n=3: 면적 최대 삼각형(가운데 점 제외)', () => {
+    const ids = selectWidestPoints([nd(1, 0, 0), nd(2, 50, 1), nd(3, 100, 0), nd(4, 50, 100)], 3)
+    expect(ids).toContain(1); expect(ids).toContain(3); expect(ids).toContain(4)
+    expect(ids).not.toContain(2)
+  })
+  it('후보 < n 이면 가능한 만큼만', () => {
+    expect(selectWidestPoints([nd(1, 0, 0), nd(2, 1, 1)], 4).sort((a, b) => a - b)).toEqual([1, 2])
   })
 })
