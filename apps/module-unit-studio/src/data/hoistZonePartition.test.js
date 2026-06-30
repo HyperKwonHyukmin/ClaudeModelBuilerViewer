@@ -181,6 +181,18 @@ describe('reconcilePointsPerZone', () => {
     const r = reconcilePointsPerZone([1], [[2]], [3, 4], 3)
     expect(r).toEqual([[3]])
   })
+  it('유효 범위 밖 값은 가장 가까운 유효값으로 클램프(above-range 5→4)', () => {
+    const r = reconcilePointsPerZone([1], [[5]], [2, 3, 4], 3)
+    expect(r).toEqual([[4]])
+  })
+  it('bands가 null이면 [1] 폴백', () => {
+    const r = reconcilePointsPerZone(null, null, [2, 3, 4], 3)
+    expect(r).toEqual([[3]])
+  })
+  it('validPoints가 빈 배열이면 [2,3,4] 폴백', () => {
+    const r = reconcilePointsPerZone([1], null, [], 3)
+    expect(r).toEqual([[3]])
+  })
 })
 
 describe('zoneCountFor', () => {

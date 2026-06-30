@@ -219,7 +219,7 @@ export function buildZoneLayout(input, config, pointsPerGroup) {
  * @param {number[]} bands  밴드별 하위구역 수
  * @param {number[][]|null} prev  기존 pointsPerZone
  * @param {number[]} validPoints  허용 포인트 값(예: [2,3,4] 또는 [3,4])
- * @param {number} defaultPoints  새 셀 기본값
+ * @param {number} defaultPoints  새 셀 기본값 (validPoints에 없으면 validPoints[0] 사용)
  * @returns {number[][]}
  */
 export function reconcilePointsPerZone(bands, prev, validPoints, defaultPoints) {
