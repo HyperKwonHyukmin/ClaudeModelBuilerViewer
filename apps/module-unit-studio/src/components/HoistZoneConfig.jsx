@@ -1,26 +1,46 @@
 import { Layers, Minus, Plus } from 'lucide-react'
-
-const POINT_OPTS = [2, 3, 4]
+import { buildZonePartitionView, reconcilePointsPerZone } from '../data/hoistZonePartition.js'
+import ZonePartitionMap from './ZonePartitionMap.jsx'
 
 /**
  * 구역 기반 권상 선정 설정 폼 (controlled).
- * @param {{ value:{bandAxis,bands,pointsPerGroup,includePipe}, onChange:Function, mode:string, maxGroups:number }} props
+ * @param {{ value:{bandAxis,bands,pointsPerZone,includePipe}, onChange:Function, mode:string, maxGroups:number, partitionInput:object|null }} props
  */
-export default function HoistZoneConfig({ value, onChange, mode, maxGroups }) {
+export default function HoistZoneConfig({ value, onChange, mode, maxGroups, partitionInput }) {
   const ceiling = mode === 'ceiling'
-  const validPoints = ceiling ? [3, 4] : POINT_OPTS
+  const validPoints = ceiling ? [3, 4] : [2, 3, 4]
   const bands = value.bands
   const groupCount = bands.reduce((n, b) => n + Math.max(1, b), 0)
   const over = groupCount > maxGroups
 
+  // bands 모양에 맞춰 정규화한 pointsPerZone 로 작업(누락/형상 불일치 방어)
+  const ppz = reconcilePointsPerZone(bands, value.pointsPerZone, validPoints, 3)
+
   const patch = (p) => onChange({ ...value, ...p })
+  const commitBands = (nextBands) => onChange({
+    ...value,
+    bands: nextBands,
+    pointsPerZone: reconcilePointsPerZone(nextBands, ppz, validPoints, 3),
+  })
   const setBand = (i, v) => {
     const next = [...bands]
     next[i] = Math.max(1, Math.min(maxGroups, v))
-    patch({ bands: next })
+    commitBands(next)
   }
-  const addBand = () => { if (!ceiling && bands.length < maxGroups) patch({ bands: [...bands, 1] }) }
-  const removeBand = (i) => { if (!ceiling && bands.length > 1) patch({ bands: bands.filter((_, j) => j !== i) }) }
+  const addBand = () => { if (!ceiling && bands.length < maxGroups) commitBands([...bands, 1]) }
+  const removeBand = (i) => { if (!ceiling && bands.length > 1) commitBands(bands.filter((_, j) => j !== i)) }
+  const cycleCell = (bi, si) => {
+    const cur = ppz[bi]?.[si] ?? validPoints[0]
+    const next = validPoints[(validPoints.indexOf(cur) + 1) % validPoints.length]
+    const nextPpz = ppz.map(row => [...row])
+    if (!nextPpz[bi]) nextPpz[bi] = []
+    nextPpz[bi][si] = next
+    patch({ pointsPerZone: nextPpz })
+  }
+
+  const view = partitionInput
+    ? buildZonePartitionView(partitionInput.bbox, { ...value, bands, pointsPerZone: ppz }, partitionInput.nodeEntries, partitionInput.pipeNodes)
+    : null
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: 12, background: '#0f0f22', border: '1px solid #25254a', borderRadius: 8 }}>
@@ -48,12 +68,10 @@ export default function HoistZoneConfig({ value, onChange, mode, maxGroups }) {
         </div>
       </Row>
 
-      {/* 포인트수 */}
-      <Row label="구역당 포인트">
-        {POINT_OPTS.map(p => (
-          <Seg key={p} active={value.pointsPerGroup === p} disabled={!validPoints.includes(p)} onClick={() => patch({ pointsPerGroup: p })}>{p}점</Seg>
-        ))}
-      </Row>
+      {/* 미니맵(구역 도식 + 구역별 포인트 편집) */}
+      {view
+        ? <ZonePartitionMap view={view} onCycle={cycleCell} includePipe={value.includePipe} />
+        : <div style={{ fontSize: 11, color: '#6a7a92', padding: '8px 2px' }}>모델이 로드되면 구역 도식이 표시됩니다.</div>}
 
       {/* 배관 토글 */}
       <Row label="배관 포함">
