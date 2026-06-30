@@ -9,7 +9,7 @@ export default function ZonePartitionMap({ view, onCycle, includePipe }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
       <svg
-        viewBox={`0 0 ${viewBox.w} ${viewBox.h}`}
+        viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.w} ${viewBox.h}`}
         preserveAspectRatio="xMidYMid meet"
         style={{ width: '100%', maxHeight: 240, aspectRatio: `${viewBox.w} / ${viewBox.h}`, background: '#0a0a18', borderRadius: 6, border: '1px solid #25254a' }}
       >
@@ -22,15 +22,15 @@ export default function ZonePartitionMap({ view, onCycle, includePipe }) {
             opacity={d.pipe && !includePipe ? 0.35 : 0.7}
           />
         ))}
-        {cells.map((c, i) => (
-          <g key={`c${i}`} style={{ cursor: onCycle ? 'pointer' : 'default' }} onClick={() => onCycle?.(c.bandIndex, c.subIndex)}>
+        {cells.map((c) => (
+          <g key={`c-${c.bandIndex}-${c.subIndex}`} style={{ cursor: onCycle ? 'pointer' : 'default' }} onClick={() => onCycle?.(c.bandIndex, c.subIndex)}>
             <rect
               x={c.x} y={c.y} width={c.w} height={c.h}
               fill={c.thin ? 'rgba(255,196,71,0.10)' : 'rgba(0,209,255,0.06)'}
               stroke={c.thin ? '#FFC447' : '#00D1FF'} strokeWidth={2}
             />
-            <text x={c.x + c.w / 2} y={c.y + c.h / 2 - 10} textAnchor="middle" fontSize={30} fontWeight="800" fill="#cfe6ff">{c.label}</text>
-            <text x={c.x + c.w / 2} y={c.y + c.h / 2 + 24} textAnchor="middle" fontSize={36} fontWeight="900" fill={c.thin ? '#FFC447' : '#37E08A'}>{c.points}점</text>
+            <text x={c.x + c.w / 2} y={c.y + c.h / 2 - 10} textAnchor="middle" fontSize={30} fontWeight={800} fill="#cfe6ff">{c.label}</text>
+            <text x={c.x + c.w / 2} y={c.y + c.h / 2 + 24} textAnchor="middle" fontSize={36} fontWeight={900} fill={c.thin ? '#FFC447' : '#37E08A'}>{c.points}점</text>
             <text x={c.x + c.w / 2} y={c.y + c.h / 2 + 52} textAnchor="middle" fontSize={20} fill="#6a7a92">노드 {c.nodeCount}</text>
           </g>
         ))}
