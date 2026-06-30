@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useMemo } from 'react'
 import { Loader2, X, CheckCircle2, AlertTriangle, XCircle, Play } from 'lucide-react'
 import { useEditStore, getHoistMaxGroups } from '../store/useEditStore.js'
 import { toNodeGroups } from '../data/hoistCandidateRank.js'
@@ -13,8 +13,8 @@ const styleFor = (s) => STATUS_STYLE[s] ?? STATUS_STYLE.fail
 const fmt = (v, unit = '') => (v == null ? '–' : `${Math.round(v)}${unit}`)
 
 const defaultZoneConfig = (mode) => mode === 'ceiling'
-  ? { bandAxis: 'y', bands: [1], pointsPerGroup: 3, includePipe: false }
-  : { bandAxis: 'y', bands: [1, 1], pointsPerGroup: 3, includePipe: false }
+  ? { bandAxis: 'y', bands: [1], pointsPerZone: [[3]], includePipe: false }
+  : { bandAxis: 'y', bands: [1, 1], pointsPerZone: [[3], [3]], includePipe: false }
 
 export default function HoistAutoResultModal({ onClose }) {
   const mode = useEditStore(s => s.hoistMode)
@@ -22,6 +22,8 @@ export default function HoistAutoResultModal({ onClose }) {
   const autoSelect = useEditStore(s => s.autoSelectHoistPositions)
   const applyGroups = useEditStore(s => s.applyAutoHoistGroups)
   const maxGroups = getHoistMaxGroups(mode)
+  const getPartitionInput = useEditStore(s => s.getZonePartitionInput)
+  const partitionInput = useMemo(() => getPartitionInput(), [getPartitionInput])
 
   const [tab, setTab] = useState('zone')
   const [zoneConfig, setZoneConfig] = useState(() => defaultZoneConfig(mode))
@@ -101,7 +103,7 @@ export default function HoistAutoResultModal({ onClose }) {
         <div style={{ padding: 16, overflowY: 'auto' }}>
           {tab === 'zone' && (
             <div style={{ marginBottom: 14 }}>
-              <HoistZoneConfig value={zoneConfig} onChange={setZoneConfig} mode={mode} maxGroups={maxGroups} />
+              <HoistZoneConfig value={zoneConfig} onChange={setZoneConfig} mode={mode} maxGroups={maxGroups} partitionInput={partitionInput} />
               <button onClick={runZone} disabled={!zoneRunnable} style={{
                 marginTop: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, width: '100%',
                 padding: '9px 10px', borderRadius: 7,
