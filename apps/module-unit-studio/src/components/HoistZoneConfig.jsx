@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import { Layers, Minus, Plus } from 'lucide-react'
 import { buildZonePartitionView, reconcilePointsPerZone } from '../data/hoistZonePartition.js'
 import ZonePartitionMap from './ZonePartitionMap.jsx'
@@ -33,14 +34,18 @@ export default function HoistZoneConfig({ value, onChange, mode, maxGroups, part
     const cur = ppz[bi]?.[si] ?? validPoints[0]
     const next = validPoints[(validPoints.indexOf(cur) + 1) % validPoints.length]
     const nextPpz = ppz.map(row => [...row])
-    if (!nextPpz[bi]) nextPpz[bi] = []
     nextPpz[bi][si] = next
     patch({ pointsPerZone: nextPpz })
   }
 
-  const view = partitionInput
-    ? buildZonePartitionView(partitionInput.bbox, { ...value, bands, pointsPerZone: ppz }, partitionInput.nodeEntries, partitionInput.pipeNodes)
-    : null
+  const view = useMemo(
+    () => partitionInput
+      ? buildZonePartitionView(partitionInput.bbox, { ...value, pointsPerZone: ppz }, partitionInput.nodeEntries, partitionInput.pipeNodes)
+      : null,
+    // ppz 는 매 렌더 새 배열이라 dep 식별자로 못 쓴다 → 원본 입력값들로 추적
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [partitionInput, value.bandAxis, value.bands, value.pointsPerZone, value.includePipe],
+  )
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: 12, background: '#0f0f22', border: '1px solid #25254a', borderRadius: 8 }}>
