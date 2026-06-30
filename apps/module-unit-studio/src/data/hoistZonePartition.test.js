@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { partitionZones, assignNodesToZones } from './hoistZonePartition.js'
 import { pipeNodeIds, dominantZLevel, polygonArea2D, selectWidestPoints } from './hoistZonePartition.js'
 import { buildZoneLayout } from './hoistZonePartition.js'
-import { reconcilePointsPerZone, zoneCountFor } from './hoistZonePartition.js'
+import { reconcilePointsPerZone, zoneCountFor, buildZonePartitionView } from './hoistZonePartition.js'
 
 const bbox = { minX: 0, maxX: 100, minY: 0, maxY: 100, minZ: 0, maxZ: 0 }
 
@@ -203,5 +203,54 @@ describe('zoneCountFor', () => {
   it('누락 셀은 기본값', () => {
     expect(zoneCountFor(config, 5, 5, 3)).toBe(3)
     expect(zoneCountFor({}, 0, 0, 2)).toBe(2)
+  })
+})
+
+describe('buildZonePartitionView', () => {
+  const vbbox = { minX: 0, maxX: 100, minY: 0, maxY: 50, minZ: 0, maxZ: 0 }
+  it('셀 수 = Σbands, 라벨(행)·포인트수 반영', () => {
+    const config = { bandAxis: 'y', bands: [1, 2], pointsPerZone: [[3], [2, 4]] }
+    const view = buildZonePartitionView(vbbox, config, [], new Set())
+    expect(view.cells).toHaveLength(3)
+    expect(view.cells[0].label).toBe('1행·1')
+    expect(view.cells[1].label).toBe('2행·1')
+    expect(view.cells[1].points).toBe(2)
+    expect(view.cells[2].points).toBe(4)
+  })
+  it('bandAxis=x 라벨은 열', () => {
+    const view = buildZonePartitionView(vbbox, { bandAxis: 'x', bands: [1], pointsPerZone: [[3]] }, [], new Set())
+    expect(view.cells[0].label).toBe('1열·1')
+  })
+  it('viewBox 종횡비 = bbox 종횡비(가로 2배 → 1000x500)', () => {
+    const view = buildZonePartitionView(vbbox, { bandAxis: 'y', bands: [1] }, [], new Set())
+    expect(view.viewBox.w).toBe(1000)
+    expect(view.viewBox.h).toBe(500)
+  })
+  it('Y축 뒤집기 — maxY 노드는 위(작은 svgY), minY 노드는 아래(큰 svgY)', () => {
+    const entries = [[1, { x: 0, y: 50, z: 0 }], [2, { x: 0, y: 0, z: 0 }]]
+    const view = buildZonePartitionView(vbbox, { bandAxis: 'y', bands: [1] }, entries, new Set())
+    expect(view.dots[0].y).toBeCloseTo(0)
+    expect(view.dots[1].y).toBeCloseTo(500)
+  })
+  it('thin: 노드수 < 포인트수면 true', () => {
+    const entries = [[1, { x: 10, y: 10, z: 0 }], [2, { x: 20, y: 20, z: 0 }]]
+    const view = buildZonePartitionView(vbbox, { bandAxis: 'y', bands: [1], pointsPerZone: [[4]] }, entries, new Set())
+    expect(view.cells[0].nodeCount).toBe(2)
+    expect(view.cells[0].thin).toBe(true)
+  })
+  it('배관 노드 표시(pipe 플래그)', () => {
+    const entries = [[1, { x: 10, y: 10, z: 0 }], [2, { x: 20, y: 20, z: 0 }]]
+    const view = buildZonePartitionView(vbbox, { bandAxis: 'y', bands: [1] }, entries, new Set([2]))
+    expect(view.dots.find(d => d.pipe)).toBeTruthy()
+  })
+  it('degenerate bbox(폭 0)도 NaN 없이 동작', () => {
+    const view = buildZonePartitionView({ minX: 10, maxX: 10, minY: 0, maxY: 100 }, { bandAxis: 'y', bands: [1] }, [[1, { x: 10, y: 50, z: 0 }]], new Set())
+    expect(Number.isFinite(view.cells[0].x)).toBe(true)
+    expect(Number.isFinite(view.cells[0].w)).toBe(true)
+  })
+  it('노드 과다 시 다운샘플(maxDots 상한)', () => {
+    const many = Array.from({ length: 5000 }, (_, i) => [i + 1, { x: (i % 100), y: Math.floor(i / 100), z: 0 }])
+    const view = buildZonePartitionView({ minX: 0, maxX: 100, minY: 0, maxY: 50 }, { bandAxis: 'y', bands: [1] }, many, new Set(), { maxDots: 100 })
+    expect(view.dots.length).toBeLessThanOrEqual(100)
   })
 })

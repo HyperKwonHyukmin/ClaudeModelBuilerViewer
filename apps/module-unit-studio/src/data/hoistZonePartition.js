@@ -254,3 +254,58 @@ export function zoneCountFor(config, bandIndex, subIndex, defaultPoints = 3) {
   const n = Number(v)
   return Number.isFinite(n) ? n : defaultPoints
 }
+
+/**
+ * 구역 미니맵용 SVG 뷰모델(순수). 모델 XY(mm)를 viewBox 좌표로 매핑한다.
+ * viewBox 는 bbox 종횡비를 따르고 긴 변이 maxDim(기본 1000). SVG 는 Y가 아래로 증가하므로 Y를 뒤집는다.
+ * nodeEntries 는 배열([id,{x,y,z}])이어야 한다(두 번 순회).
+ * @param {{minX,maxX,minY,maxY}} bbox
+ * @param {{bandAxis:'x'|'y', bands:number[], pointsPerZone?:number[][]}} config
+ * @param {Array<[number,{x,y}]>} nodeEntries
+ * @param {Set<number>} pipeNodes
+ * @param {{maxDim?:number, maxDots?:number}} [opts]
+ * @returns {{viewBox:{x,y,w,h}, cells:Array, dots:Array}}
+ */
+export function buildZonePartitionView(bbox, config, nodeEntries, pipeNodes, opts = {}) {
+  const maxDim = opts.maxDim ?? 1000
+  const maxDots = opts.maxDots ?? 2000
+  const b = bbox ?? { minX: 0, maxX: 1, minY: 0, maxY: 1 }
+  const spanX = (b.maxX - b.minX) || 1
+  const spanY = (b.maxY - b.minY) || 1
+  const aspect = spanX / spanY
+  let W, H
+  if (aspect >= 1) { W = maxDim; H = Math.max(120, Math.round(maxDim / aspect)) }
+  else { H = maxDim; W = Math.max(120, Math.round(maxDim * aspect)) }
+  const sx = (mx) => ((mx - b.minX) / spanX) * W
+  const sy = (my) => ((b.maxY - my) / spanY) * H
+
+  const axis = config?.bandAxis === 'x' ? 'x' : 'y'
+  const zones = partitionZones(b, config)
+  const byZone = assignNodesToZones(zones, nodeEntries)
+  const cells = zones.map(z => {
+    const x0 = sx(z.xMin), x1 = sx(z.xMax)
+    const yTop = sy(z.yMax), yBot = sy(z.yMin)
+    const points = zoneCountFor(config, z.bandIndex, z.subIndex, 3)
+    const nodeCount = (byZone.get(z.id) ?? []).length
+    const label = axis === 'y' ? `${z.bandIndex + 1}행·${z.subIndex + 1}` : `${z.bandIndex + 1}열·${z.subIndex + 1}`
+    return {
+      bandIndex: z.bandIndex, subIndex: z.subIndex,
+      x: Math.min(x0, x1), y: Math.min(yTop, yBot),
+      w: Math.abs(x1 - x0), h: Math.abs(yBot - yTop),
+      label, points, nodeCount, thin: nodeCount < points,
+    }
+  })
+
+  const entries = Array.isArray(nodeEntries) ? nodeEntries : []
+  const stride = entries.length > maxDots ? Math.ceil(entries.length / maxDots) : 1
+  const dots = []
+  let i = 0
+  for (const [id, n] of entries) {
+    const take = (i++ % stride) === 0
+    if (!take) continue
+    if (!n || !Number.isFinite(n.x) || !Number.isFinite(n.y)) continue
+    dots.push({ x: sx(n.x), y: sy(n.y), pipe: pipeNodes ? pipeNodes.has(id) : false })
+  }
+
+  return { viewBox: { x: 0, y: 0, w: W, h: H }, cells, dots }
+}
