@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { partitionZones, assignNodesToZones } from './hoistZonePartition.js'
 import { pipeNodeIds, dominantZLevel, polygonArea2D, selectWidestPoints } from './hoistZonePartition.js'
 import { buildZoneLayout } from './hoistZonePartition.js'
+import { reconcilePointsPerZone, zoneCountFor } from './hoistZonePartition.js'
 
 const bbox = { minX: 0, maxX: 100, minY: 0, maxY: 100, minZ: 0, maxZ: 0 }
 
@@ -156,5 +157,39 @@ describe('buildZoneLayout', () => {
     const r = buildZoneLayout({ bbox, nodeEntries: entries, pipeNodes: new Set(), tolMm: 1 }, { bandAxis: 'x', bands: [1, 1], includePipe: true }, 4)
     expect(r.ok).toBe(false)
     expect(r.reason).toBeTruthy()
+  })
+})
+
+describe('reconcilePointsPerZone', () => {
+  it('bands 모양과 길이가 일치한다', () => {
+    const r = reconcilePointsPerZone([1, 2], null, [2, 3, 4], 3)
+    expect(r.map(row => row.length)).toEqual([1, 2])
+  })
+  it('기존 값을 위치별로 보존한다', () => {
+    const r = reconcilePointsPerZone([1, 2], [[4], [2, 3]], [2, 3, 4], 3)
+    expect(r).toEqual([[4], [2, 3]])
+  })
+  it('새 셀은 기본값으로 채운다', () => {
+    const r = reconcilePointsPerZone([1, 2], [[4]], [2, 3, 4], 3)
+    expect(r).toEqual([[4], [3, 3]])
+  })
+  it('하위구역 축소 시 앞에서부터 자른다', () => {
+    const r = reconcilePointsPerZone([2], [[2, 3, 4]], [2, 3, 4], 3)
+    expect(r).toEqual([[2, 3]])
+  })
+  it('유효 범위 밖 값은 가장 가까운 유효값으로 클램프(ceiling 2→3)', () => {
+    const r = reconcilePointsPerZone([1], [[2]], [3, 4], 3)
+    expect(r).toEqual([[3]])
+  })
+})
+
+describe('zoneCountFor', () => {
+  const config = { pointsPerZone: [[3], [2, 4]] }
+  it('지정된 셀 값을 반환', () => {
+    expect(zoneCountFor(config, 1, 1, 3)).toBe(4)
+  })
+  it('누락 셀은 기본값', () => {
+    expect(zoneCountFor(config, 5, 5, 3)).toBe(3)
+    expect(zoneCountFor({}, 0, 0, 2)).toBe(2)
   })
 })

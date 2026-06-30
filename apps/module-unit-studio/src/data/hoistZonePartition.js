@@ -212,3 +212,45 @@ export function buildZoneLayout(input, config, pointsPerGroup) {
   }
   return { ok: true, groups }
 }
+
+/**
+ * pointsPerZone 를 bands 모양에 맞춰 재조정한다(순수).
+ * 기존 값은 위치별로 보존, 부족분은 defaultPoints, 모든 값은 validPoints 로 클램프.
+ * @param {number[]} bands  밴드별 하위구역 수
+ * @param {number[][]|null} prev  기존 pointsPerZone
+ * @param {number[]} validPoints  허용 포인트 값(예: [2,3,4] 또는 [3,4])
+ * @param {number} defaultPoints  새 셀 기본값
+ * @returns {number[][]}
+ */
+export function reconcilePointsPerZone(bands, prev, validPoints, defaultPoints) {
+  const valid = Array.isArray(validPoints) && validPoints.length > 0 ? validPoints : [2, 3, 4]
+  const def = valid.includes(defaultPoints) ? defaultPoints : valid[0]
+  const clamp = (v) => {
+    const n = Number(v)
+    if (valid.includes(n)) return n
+    if (!Number.isFinite(n)) return def
+    let best = valid[0], bestD = Infinity
+    for (const c of valid) { const d = Math.abs(c - n); if (d < bestD) { bestD = d; best = c } }
+    return best
+  }
+  const src = Array.isArray(prev) ? prev : []
+  const list = Array.isArray(bands) && bands.length > 0 ? bands : [1]
+  return list.map((b, i) => {
+    const sub = Math.max(1, Math.floor(b) || 1)
+    const prevRow = Array.isArray(src[i]) ? src[i] : []
+    const row = []
+    for (let j = 0; j < sub; j++) row.push(j < prevRow.length ? clamp(prevRow[j]) : def)
+    return row
+  })
+}
+
+/**
+ * 구역(bandIndex, subIndex)의 포인트 수. 누락 시 defaultPoints.
+ * @param {{pointsPerZone?:number[][]}} config
+ * @returns {number}
+ */
+export function zoneCountFor(config, bandIndex, subIndex, defaultPoints = 3) {
+  const v = config?.pointsPerZone?.[bandIndex]?.[subIndex]
+  const n = Number(v)
+  return Number.isFinite(n) ? n : defaultPoints
+}
