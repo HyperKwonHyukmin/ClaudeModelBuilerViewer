@@ -7,6 +7,8 @@ import {
 } from '../data/EditIntent.js'
 import { buildEditedStageJson, buildEditedStageFileName } from '../data/applyEditedModel.js'
 import { rankHoistCandidates } from '../data/hoistCandidateRank.js'
+import { pipeNodeIds, buildZoneLayout } from '../data/hoistZonePartition.js'
+import { adaptStabilityReportToCandidate } from '../data/hoistStabilityAdapter.js'
 import { useStageStore } from './useStageStore.js'
 import { useStabilityStore } from './useStabilityStore.js'
 import { getHost } from '../host/host.js'
@@ -819,6 +821,101 @@ export const useEditStore = create((set, get) => ({
   },
 
   /**
+   * 구역 기반 권상 위치 선정. config(밴드축·밴드별 하위구역·포인트수·배관토글)로 XY 풋프린트를
+   * 나눠 각 구역에서 Z 우세 레벨·면적 최대로 권상점을 고른 뒤, 포인트수 변형을 스윕하며
+   * 고정 레이아웃을 host.runStabilityAnalysis 로 검증·랭킹한다. 검증된 후보만 반환(적용은 호출 측).
+   *
+   * @param {{bandAxis:'x'|'y', bands:number[], pointsPerGroup:number, includePipe:boolean}} config
+   * @param {{ onProgress?: (p:{done:number,total:number,pointsPerGroup:number})=>void }} [opts]
+   * @returns {Promise<{ok:boolean, candidates?:Array, hasPass?:boolean, error?:string}>}
+   */
+  zoneSelectHoistPositions: async (config, opts = {}) => {
+    const state = get()
+    const mode = state.hoistMode
+    if (!mode) return { ok: false, error: '권상 방식(STEP 1)을 먼저 선택해 주세요.' }
+
+    const host = getHost()
+    if (typeof host.runStabilityAnalysis !== 'function') {
+      return { ok: false, error: 'WorkBench 앱이 자세안정성 해석 채널을 지원하지 않습니다. WorkBench를 최신 버전으로 실행해 주세요.' }
+    }
+
+    const stage = currentStage()
+    if (!stage || !stage.nodeMap || stage.nodeMap.size === 0) {
+      return { ok: false, error: '모델이 로드되지 않았습니다.' }
+    }
+
+    const bands = Array.isArray(config?.bands) && config.bands.length > 0 ? config.bands : [1]
+    const groupCount = bands.reduce((n, b) => n + Math.max(1, Math.floor(b) || 1), 0)
+    const maxGroups = getHoistMaxGroups(mode)
+    if (groupCount > maxGroups) {
+      return { ok: false, error: `현재 권상 방식의 최대 그룹 수(${maxGroups})를 초과합니다 — 구역 합계 ${groupCount}.` }
+    }
+
+    const intents = state.intents ?? []
+    let editedFileName = null
+    if (intents.length > 0) {
+      const editedJson = buildEditedStageJson(stage, intents)
+      editedFileName = buildEditedStageFileName(stage, formatTimestamp)
+      const er = await saveJsonArtifact(editedFileName, JSON.stringify(editedJson, null, 2))
+      if (!er.ok) return { ok: false, error: `편집 모델 저장 실패: ${er.error ?? '알 수 없는 오류'}` }
+    }
+
+    const base = getHoistExport(state)
+    if (!base) return { ok: false, error: '권상 방식을 먼저 선택해 주세요.' }
+
+    const heightMm = stage.bbox ? Math.max(0, stage.bbox.maxZ - stage.bbox.minZ) : 0
+    const tolMm = state.hoistToleranceMm ?? Math.max(2, heightMm * 0.004)
+    const pipeNodes = pipeNodeIds(stage.elements ?? [])
+    const nodeEntries = [...stage.nodeMap]
+    const layoutInput = { bbox: stage.bbox, nodeEntries, pipeNodes, tolMm }
+
+    const variants = zoneVariantPointCounts(mode, config?.pointsPerGroup)
+    const postureFileName = buildPosturePayloadFileName(stage)
+
+    const reports = []
+    let lastError = null
+    let done = 0
+    for (const n of variants) {
+      opts.onProgress?.({ done, total: variants.length, pointsPerGroup: n })
+      const layout = buildZoneLayout(layoutInput, { ...config, bands }, n)
+      if (!layout.ok) { lastError = layout.reason; done += 1; opts.onProgress?.({ done, total: variants.length, pointsPerGroup: n }); continue }
+
+      const hoisting = {
+        ...base,
+        groupCount: layout.groups.length,
+        groups: layout.groups.map((ids, i) => ({ id: i + 1, nodeIds: ids })),
+      }
+      const payload = buildPostureStabilityPayload(state, hoisting, stage, editedFileName)
+      const sr = await saveJsonArtifact(postureFileName, JSON.stringify(payload, null, 2))
+      if (!sr.ok) { lastError = sr.error ?? '입력 저장 실패'; done += 1; continue }
+
+      let posturePath = null
+      if (sr.location === 'backend' && sr.remotePath) posturePath = sr.remotePath
+      else if (sr.location === 'folder') {
+        const folderRef = useStageStore.getState().sourceFolderRef
+        if (typeof folderRef === 'string' && folderRef.length > 0) posturePath = joinPath(folderRef, postureFileName)
+      }
+      if (!posturePath) { lastError = '_posture.json 절대경로를 확인할 수 없습니다.'; done += 1; continue }
+
+      const rr = await host.runStabilityAnalysis(posturePath)
+      if (rr.ok && rr.report) {
+        const cand = adaptStabilityReportToCandidate(rr.report, { groups: layout.groups, pointsPerGroup: n })
+        reports.push({ candidates: [cand] })
+      } else {
+        lastError = rr.error ?? '자세안정성 해석 실패'
+      }
+      done += 1
+      opts.onProgress?.({ done, total: variants.length, pointsPerGroup: n })
+    }
+
+    const candidates = rankHoistCandidates(reports)
+    if (candidates.length === 0) {
+      return { ok: false, error: lastError ?? '평가 가능한 권상 후보를 찾지 못했습니다.' }
+    }
+    return { ok: true, candidates, hasPass: candidates.some(c => c.overallStatus === 'pass') }
+  },
+
+  /**
    * 편집(회전·유체비우기·삭제·가서포트·RBE) 반영 최종 모델을 Nastran BDF 로 저장.
    * buildEditedStageJson → host.exportUnitBdf(업로드+백엔드 convert+다운로드+Save-As).
    * host 미지원(구버전 WorkBench 앱·WebHost) 시 안내 메시지를 반환한다(크래시 없음).
@@ -864,6 +961,20 @@ export function hoistSweepGroupCounts(mode) {
   const arr = []
   for (let k = max; k >= 1; k--) arr.push(k)
   return arr
+}
+
+/**
+ * 구역 기반 변형 스윕용 포인트수 목록. 사용자 선호값(preferred)을 맨 앞에 두고 나머지 유효값을 잇는다.
+ * ceiling 은 3·4 만(직선 2점 불가), 그 외는 2·3·4.
+ * @param {string} mode
+ * @param {number} preferred
+ * @returns {number[]}
+ */
+export function zoneVariantPointCounts(mode, preferred) {
+  const valid = mode === 'ceiling' ? [3, 4] : [2, 3, 4]
+  const p = Number(preferred)
+  if (valid.includes(p)) return [p, ...valid.filter(v => v !== p)]
+  return valid
 }
 
 /** Stage0 파싱용 시드 노드 — 유효 좌표를 가진 앞쪽 n 개 노드 ID. */

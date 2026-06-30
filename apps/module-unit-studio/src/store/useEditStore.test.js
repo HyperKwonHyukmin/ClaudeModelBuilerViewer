@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { useEditStore, getHoistMaxGroups, getHoistDefaultWireLengthM, buildPostureStabilityPayload } from './useEditStore.js'
+import { useEditStore, getHoistMaxGroups, getHoistDefaultWireLengthM, buildPostureStabilityPayload, zoneVariantPointCounts } from './useEditStore.js'
 import { useStageStore } from './useStageStore.js'
 import { useStabilityStore } from './useStabilityStore.js'
 import { StageData } from '../data/StageData.js'
@@ -1200,5 +1200,108 @@ describe('useEditStore — 가서포트', () => {
     useEditStore.getState().removeSupportBeam(id)
     expect(useEditStore.getState().intents).toHaveLength(0)
     expect(useUnitStructuralStore.getState().status).toBe(null)
+  })
+})
+
+describe('zoneVariantPointCounts', () => {
+  it('hydro/goliat 은 [pref,...나머지] 로 2·3·4', () => {
+    expect(zoneVariantPointCounts('hydro', 3)).toEqual([3, 2, 4])
+    expect(zoneVariantPointCounts('goliat', 2)).toEqual([2, 3, 4])
+  })
+  it('ceiling 은 3·4 만', () => {
+    expect(zoneVariantPointCounts('ceiling', 4)).toEqual([4, 3])
+    expect(zoneVariantPointCounts('ceiling', 2)).toEqual([3, 4])
+  })
+})
+
+describe('zoneSelectHoistPositions', () => {
+  const richStage = () => new StageData({
+    meta: { phase: 'C', stageName: 'C_Final', unit: 'mm', schemaVersion: '1.1' },
+    nodes: Array.from({ length: 12 }, (_, i) => ({ id: i + 1, x: (i % 6) * 100, y: i < 6 ? 0 : 100, z: 1000, tags: [] })),
+    elements: [], rigids: [], properties: [], materials: [], pointMasses: [],
+    connectivity: { groupCount: 1, largestGroupNodeCount: 12, isolatedNodeCount: 0, groups: [{ id: 0, nodeIds: Array.from({ length: 12 }, (_, i) => i + 1), elementIds: [] }] },
+    healthMetrics: { totals: { nodeCount: 12, elementCount: 0, rigidCount: 0, pointMassCount: 0, bbox: { minX: 0, maxX: 500, minY: 0, maxY: 100, minZ: 1000, maxZ: 1000 } }, issues: {} },
+  })
+  const tallStage = () => new StageData({
+    meta: { phase: 'C', stageName: 'C', unit: 'mm', schemaVersion: '1.1' },
+    nodes: Array.from({ length: 12 }, (_, i) => ({ id: i + 1, x: (i % 6) * 100, y: i < 6 ? 0 : 100, z: i * 1000, tags: [] })),
+    elements: [], rigids: [], properties: [], materials: [], pointMasses: [],
+    connectivity: { groupCount: 1, largestGroupNodeCount: 12, isolatedNodeCount: 0, groups: [{ id: 0, nodeIds: Array.from({ length: 12 }, (_, i) => i + 1), elementIds: [] }] },
+    healthMetrics: { totals: { nodeCount: 12, elementCount: 0, rigidCount: 0, pointMassCount: 0, bbox: { minX: 0, maxX: 500, minY: 0, maxY: 100, minZ: 0, maxZ: 11000 } }, issues: {} },
+  })
+  const passReport = {
+    overall: { status: 'pass' },
+    stages: [
+      { id: 4, status: 'pass', summary: { minAngleDeg: 70 } },
+      { id: 5, status: 'pass', summary: { conflictCount: 0 } },
+      { id: 6, status: 'pass', summary: { marginMm: 200, deviationMm: 50, evaluationMode: 'Line' } },
+    ],
+  }
+  const makeHost = (report = passReport) => ({
+    name: 'electron',
+    uploadEvaluationArtifact: vi.fn(async (name) => ({ ok: true, remotePath: `C:/srv/${name}` })),
+    runStabilityAnalysis: vi.fn(async () => ({ ok: true, report })),
+  })
+  const config = { bandAxis: 'x', bands: [1, 1], pointsPerGroup: 3, includePipe: true }
+
+  beforeEach(() => {
+    useStageStore.setState({ stages: [richStage()], stageSummary: { massProperties: { totalMassTon: 5, centerOfGravityMm: { x: 250, y: 50, z: 1000 } } } })
+    useEditStore.getState().reset()
+    useStabilityStore.getState().reset()
+  })
+  afterEach(() => setHost(null))
+
+  it('방식 미선택이면 실패', async () => {
+    setHost(makeHost())
+    useEditStore.getState().setHoistMode(null)
+    const r = await useEditStore.getState().zoneSelectHoistPositions(config)
+    expect(r.ok).toBe(false)
+    expect(r.error).toMatch(/권상 방식/)
+  })
+
+  it('runStabilityAnalysis 채널 없으면 실패', async () => {
+    setHost({ name: 'web', uploadEvaluationArtifact: vi.fn(async () => ({ ok: true, remotePath: 'C:/x' })) })
+    useEditStore.getState().setHoistMode('hydro')
+    const r = await useEditStore.getState().zoneSelectHoistPositions(config)
+    expect(r.ok).toBe(false)
+    expect(r.error).toMatch(/자세안정성/)
+  })
+
+  it('groupCount(=Σbands) 가 maxGroups 초과면 실패', async () => {
+    setHost(makeHost())
+    useEditStore.getState().setHoistMode('goliat')
+    const r = await useEditStore.getState().zoneSelectHoistPositions({ ...config, bands: [2, 2] })
+    expect(r.ok).toBe(false)
+    expect(r.error).toMatch(/그룹 수/)
+  })
+
+  it('hydro: 변형 스윕 후 PASS 후보 반환, runStabilityAnalysis 다회 호출', async () => {
+    const host = makeHost()
+    setHost(host)
+    useEditStore.getState().setHoistMode('hydro')
+    const r = await useEditStore.getState().zoneSelectHoistPositions(config)
+    expect(r.ok).toBe(true)
+    expect(r.hasPass).toBe(true)
+    expect(host.runStabilityAnalysis.mock.calls.length).toBeGreaterThanOrEqual(1)
+    expect(r.candidates[0].overallStatus).toBe('pass')
+  })
+
+  it('레이아웃 빌드 전부 불가면 ok:false (host 호출 없음)', async () => {
+    useStageStore.setState({ stages: [tallStage()], stageSummary: { massProperties: { totalMassTon: 5, centerOfGravityMm: { x: 250, y: 50, z: 5000 } } } })
+    const host = makeHost()
+    setHost(host)
+    useEditStore.getState().setHoistMode('hydro')
+    const r = await useEditStore.getState().zoneSelectHoistPositions(config)
+    expect(r.ok).toBe(false)
+    expect(host.runStabilityAnalysis).not.toHaveBeenCalled()
+  })
+
+  it('반환 후보를 applyAutoHoistGroups 로 커밋', async () => {
+    setHost(makeHost())
+    useEditStore.getState().setHoistMode('hydro')
+    const r = await useEditStore.getState().zoneSelectHoistPositions(config)
+    const { toNodeGroups } = await import('../data/hoistCandidateRank.js')
+    const applied = useEditStore.getState().applyAutoHoistGroups(toNodeGroups(r.candidates[0]))
+    expect(applied.ok).toBe(true)
   })
 })
