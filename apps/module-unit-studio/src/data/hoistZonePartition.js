@@ -182,3 +182,33 @@ export function selectWidestPoints(nodes, n) {
   }
   return convexOrder(chosen).map(p => p.id)
 }
+
+/**
+ * 구역 분할 → 구역별 (배관필터 → Z우세레벨 → 면적최대 n점) → 그룹 배열.
+ * 어떤 구역이 n점 불가면 그 구역은 빠지고 남은 구역으로 빌드한다(부분 실패 허용).
+ *
+ * @param {{bbox, nodeEntries:Iterable<[number,{x,y,z}]>, pipeNodes:Set<number>, tolMm:number}} input
+ * @param {{bandAxis:'x'|'y', bands:number[], includePipe:boolean}} config
+ * @param {number} pointsPerGroup  2~4
+ * @returns {{ok:true, groups:number[][]} | {ok:false, reason:string}}
+ */
+export function buildZoneLayout(input, config, pointsPerGroup) {
+  const { bbox, nodeEntries, pipeNodes, tolMm } = input
+  const zones = partitionZones(bbox, config)
+  const byZone = assignNodesToZones(zones, nodeEntries)
+  const groups = []
+  for (const z of zones) {
+    let cand = byZone.get(z.id) ?? []
+    if (!config.includePipe && pipeNodes && pipeNodes.size > 0) {
+      cand = cand.filter(nd => !pipeNodes.has(nd.id))
+    }
+    const level = dominantZLevel(cand, tolMm, pointsPerGroup)
+    if (!level) continue
+    const ids = selectWidestPoints(level.members, pointsPerGroup)
+    if (ids.length >= 2) groups.push(ids)
+  }
+  if (groups.length === 0) {
+    return { ok: false, reason: '구역에서 동일 Z레벨 권상점을 충분히 찾지 못했습니다.' }
+  }
+  return { ok: true, groups }
+}

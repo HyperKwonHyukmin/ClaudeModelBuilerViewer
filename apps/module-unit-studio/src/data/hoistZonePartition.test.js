@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { partitionZones, assignNodesToZones } from './hoistZonePartition.js'
 import { pipeNodeIds, dominantZLevel, polygonArea2D, selectWidestPoints } from './hoistZonePartition.js'
+import { buildZoneLayout } from './hoistZonePartition.js'
 
 const bbox = { minX: 0, maxX: 100, minY: 0, maxY: 100, minZ: 0, maxZ: 0 }
 
@@ -125,5 +126,35 @@ describe('polygonArea2D / selectWidestPoints', () => {
   })
   it('후보 < n 이면 가능한 만큼만', () => {
     expect(selectWidestPoints([nd(1, 0, 0), nd(2, 1, 1)], 4).sort((a, b) => a - b)).toEqual([1, 2])
+  })
+})
+
+describe('buildZoneLayout', () => {
+  const bbox = { minX: 0, maxX: 100, minY: 0, maxY: 100, minZ: 0, maxZ: 0 }
+  const entries = [
+    [1, { x: 5, y: 5, z: 0 }], [2, { x: 5, y: 95, z: 0 }], [3, { x: 45, y: 50, z: 0 }],
+    [4, { x: 55, y: 5, z: 0 }], [5, { x: 95, y: 95, z: 0 }], [6, { x: 95, y: 5, z: 0 }],
+  ]
+
+  it('각 구역에서 n점 그룹 생성', () => {
+    const r = buildZoneLayout({ bbox, nodeEntries: entries, pipeNodes: new Set(), tolMm: 1 }, { bandAxis: 'x', bands: [1, 1], includePipe: true }, 3)
+    expect(r.ok).toBe(true)
+    expect(r.groups).toHaveLength(2)
+    expect(r.groups[0]).toHaveLength(3)
+  })
+
+  it('includePipe=false 면 배관 노드 제외 → 충분치 않으면 그 구역 빠짐', () => {
+    const r = buildZoneLayout(
+      { bbox, nodeEntries: entries, pipeNodes: new Set([4, 5, 6]), tolMm: 1 },
+      { bandAxis: 'x', bands: [1, 1], includePipe: false }, 3,
+    )
+    expect(r.ok).toBe(true)
+    expect(r.groups).toHaveLength(1)
+  })
+
+  it('모든 구역이 불가면 ok:false', () => {
+    const r = buildZoneLayout({ bbox, nodeEntries: entries, pipeNodes: new Set(), tolMm: 1 }, { bandAxis: 'x', bands: [1, 1], includePipe: true }, 4)
+    expect(r.ok).toBe(false)
+    expect(r.reason).toBeTruthy()
   })
 })
