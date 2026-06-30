@@ -73,6 +73,54 @@ describe('buildEditedStageJson', () => {
     expect(added.id).toBe(51)   // 기존 max 50 + 1
   })
 
+  it('addSupportBeam intent 가 CBEAM + PBEAML L 로 주입된다', () => {
+    const stage = new StageData(baseJson())
+    const intents = [
+      { id: 'sb1', kind: 'addSupportBeam',
+        params: { startNode: 1, endNode: 4, sectionKind: 'L', dims: [100, 100, 10, 10] },
+        validation: { status: 'ok' } },
+    ]
+    const out = buildEditedStageJson(stage, intents)
+
+    // element +1 (원본 3 → 4), property +1 (원본 2 → 3)
+    expect(out.elements).toHaveLength(4)
+    expect(out.properties).toHaveLength(3)
+
+    const beam = out.elements.find(e => e.startNode === 1 && e.endNode === 4)
+    expect(beam).toBeTruthy()
+    expect(beam.type).toBe('CBEAM')
+    expect(beam.category).toBe('Structure')
+    // 신규 element id 는 기존 element/rigid id 최대값 초과 (200, rigid 50 → 201)
+    expect(beam.id).toBeGreaterThan(200)
+    // orientation 비퇴화(길이>0)
+    const olen = Math.hypot(beam.orientation[0], beam.orientation[1], beam.orientation[2])
+    expect(olen).toBeGreaterThan(0.5)
+
+    const prop = out.properties.find(p => p.id === beam.propertyId)
+    expect(prop).toBeTruthy()
+    expect(prop.card).toBe('PBEAML')
+    expect(prop.kind).toBe('L')
+    expect(prop.dims).toEqual([100, 100, 10, 10])
+    expect(prop.materialId).toBe(1)   // 재질 폴백 = materials[0].id
+  })
+
+  it('수직(±Z) 부재의 orientation 은 [0,0,1] 과 평행하지 않다(퇴화 회피)', () => {
+    const json = baseJson()
+    json.nodes.push({ id: 7, x: 0, y: 0, z: 0, tags: [] })
+    json.nodes.push({ id: 8, x: 0, y: 0, z: 1000, tags: [] })  // 수직 부재
+    const stage = new StageData(json)
+    const intents = [
+      { id: 'sb2', kind: 'addSupportBeam',
+        params: { startNode: 7, endNode: 8, sectionKind: 'L', dims: [100, 100, 10, 10] },
+        validation: { status: 'ok' } },
+    ]
+    const out = buildEditedStageJson(stage, intents)
+    const beam = out.elements.find(e => e.startNode === 7 && e.endNode === 8)
+    // 부재축이 [0,0,1] 이므로 orientation 의 z 성분은 0 에 가깝고 수평 성분이 있어야 함
+    expect(Math.abs(beam.orientation[2])).toBeLessThan(0.5)
+    expect(Math.hypot(beam.orientation[0], beam.orientation[1])).toBeGreaterThan(0.5)
+  })
+
   it('deleteGroup intent 로 노드/요소/관련 RBE/매스 모두 정리되고 connectivity 재계산', () => {
     // 그룹 1 (nodes 5,6 + element 200) 삭제 — 작은 쪽
     const stage = new StageData(baseJson())

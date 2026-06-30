@@ -325,3 +325,50 @@ describe('rotateModel intent', () => {
     expect(summarizeIntent(d)).toBe('모델 회전 (Y축 30°)')
   })
 })
+
+// ── validateIntent: addSupportBeam ────────────────────────────
+describe('validateIntent — addSupportBeam', () => {
+  const params = (a, b) => ({ startNode: a, endNode: b, sectionKind: 'L', dims: [100, 100, 10, 10] })
+
+  it('정상 케이스(연결 안 된 두 노드) → ok', () => {
+    const stage = makeStage()
+    const intent = createIntent('addSupportBeam', params(1, 4))
+    const v = validateIntent(intent, stage, [])
+    expect(v.status).toBe('ok')
+    expect(v.errors).toEqual([])
+  })
+
+  it('두 노드가 동일 → error', () => {
+    const stage = makeStage()
+    const v = validateIntent(createIntent('addSupportBeam', params(2, 2)), stage, [])
+    expect(v.status).toBe('error')
+    expect(v.errors.some(e => e.includes('동일'))).toBe(true)
+  })
+
+  it('존재하지 않는 노드 → error', () => {
+    const stage = makeStage()
+    const v = validateIntent(createIntent('addSupportBeam', params(1, 999)), stage, [])
+    expect(v.status).toBe('error')
+  })
+
+  it('이미 직접 연결된 두 노드(1-2) → warning(추가는 허용)', () => {
+    const stage = makeStage()
+    const v = validateIntent(createIntent('addSupportBeam', params(1, 2)), stage, [])
+    expect(v.status).toBe('warning')
+  })
+
+  it('동일 쌍 중복(무순서) → error', () => {
+    const stage = makeStage()
+    const existing = [createIntent('addSupportBeam', params(1, 4))]
+    const v = validateIntent(createIntent('addSupportBeam', params(4, 1)), stage, existing)
+    expect(v.status).toBe('error')
+    expect(v.errors.some(e => e.includes('이미'))).toBe(true)
+  })
+
+  it('summarizeIntent 라벨', () => {
+    const s = summarizeIntent(createIntent('addSupportBeam', params(1, 4)))
+    expect(s).toContain('가서포트')
+    expect(s).toContain('N1')
+    expect(s).toContain('N4')
+  })
+})

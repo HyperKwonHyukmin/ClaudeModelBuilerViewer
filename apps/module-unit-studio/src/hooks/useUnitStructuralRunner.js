@@ -2,6 +2,31 @@ import { useEffect, useMemo, useState } from 'react'
 import { useStabilityStore } from '../store/useStabilityStore.js'
 import { useUnitStructuralStore } from '../store/useUnitStructuralStore.js'
 import { getHost } from '../host/host.js'
+import { useEditStore } from '../store/useEditStore.js'
+import { useStageStore } from '../store/useStageStore.js'
+import { buildEditedStageJson, buildEditedStageFileName } from '../data/applyEditedModel.js'
+
+// 구조해석 실행 직전, 현재 편집(가서포트 포함) 모델을 _edited.json 으로 백엔드에 재업로드한다.
+// 반환: null(업로드 불필요) | { ok:true } | { ok:false, error }
+async function syncEditedModel(host) {
+  const editState = useEditStore.getState()
+  const intents = editState.intents ?? []
+  // 편집이 한 번도 없었으면(원본 그대로) 업로드 생략 — 백엔드는 원본 BDF 를 쓴다.
+  if (intents.length === 0 && !editState.editedModelUploaded) return null
+  if (typeof host.uploadEvaluationArtifact !== 'function') return null
+  const stages = useStageStore.getState().stages
+  const stage = stages?.[stages.length - 1]
+  if (!stage) return null
+  try {
+    const json = JSON.stringify(buildEditedStageJson(stage, intents))
+    const name = buildEditedStageFileName(stage, () => String(Date.now()))
+    const r = await host.uploadEvaluationArtifact(name, json)
+    if (r?.ok) { editState.markEditedModelUploaded?.(); return { ok: true } }
+    return { ok: false, error: r?.error ?? '편집 모델 업로드 실패' }
+  } catch (e) {
+    return { ok: false, error: e?.message ?? String(e) }
+  }
+}
 
 /**
  * useUnitStructuralRunner — Unit 구조 해석(Wire 포함 BDF + Nastran SOL 101) 실행 로직 공유 훅.
@@ -77,6 +102,8 @@ export function useUnitStructuralRunner() {
     if (!canRun) return
     setStarted()
     try {
+      const sync = await syncEditedModel(host)
+      if (sync && !sync.ok) { setFailure({ message: `보강 모델 반영 실패: ${sync.error}` }); return }
       const r = await host.runUnitStructural({ stabilityPath, safetyFactor, allowableMpa })
       if (!r) { setFailure('응답 없음'); return }
       if (r.ok) {

@@ -3,6 +3,7 @@ import { useEditStore, getHoistMaxGroups, getHoistDefaultWireLengthM, buildPostu
 import { useStageStore } from './useStageStore.js'
 import { useStabilityStore } from './useStabilityStore.js'
 import { StageData } from '../data/StageData.js'
+import { useUnitStructuralStore } from './useUnitStructuralStore.js'
 import { setHost } from '../host/host.js'
 
 const makeStageData = () => new StageData({
@@ -78,6 +79,24 @@ describe('useEditStore', () => {
     expect(s.enabled).toBe(false)
     expect(s.intents).toEqual([])
     expect(s.selectedIntentId).toBeNull()
+  })
+
+  it('exportEditedBdf — host.exportUnitBdf 없으면 안내 반환', async () => {
+    // beforeEach 에서 setHost(null) → WebHost(exportUnitBdf 없음)
+    const r = await useEditStore.getState().exportEditedBdf()
+    expect(r.ok).toBe(false)
+    expect(r.error).toMatch(/WorkBench 앱/)
+  })
+
+  it('exportEditedBdf — host.exportUnitBdf 에 편집 반영 JSON+파일명 전달', async () => {
+    let captured = null
+    setHost({ name: 'electron', exportUnitBdf: async (a) => { captured = a; return { ok: true, savedPath: 'C:/x.bdf' } } })
+    const r = await useEditStore.getState().exportEditedBdf()
+    expect(r.ok).toBe(true)
+    expect(captured.fileName).toMatch(/\.json$/)
+    const parsed = JSON.parse(captured.content)
+    expect(Array.isArray(parsed.nodes)).toBe(true)
+    expect(Array.isArray(parsed.elements)).toBe(true)
   })
 
   it('toggleEnabled 가 ON/OFF 를 전환한다', () => {
@@ -158,6 +177,31 @@ describe('useEditStore', () => {
     addHoistNode(2)
     expect(useEditStore.getState().hoistGroups[1]).toEqual([1, 3, 4])
     expect(useEditStore.getState().hoistGroups[2]).toEqual([2])
+  })
+
+  it('applyAutoHoistGroups 는 자동 선정 결과를 실제 권상 그룹에 적용한다', () => {
+    const { setHoistMode, applyAutoHoistGroups } = useEditStore.getState()
+    setHoistMode('hydro')
+    const r = applyAutoHoistGroups([[1, 2], [3, 4]])
+    expect(r.ok).toBe(true)
+    expect(r.appliedGroupCount).toBe(2)
+    const s = useEditStore.getState()
+    expect(s.hoistGroupCount).toBe(2)
+    expect(s.activeHoistGroupId).toBe(1)
+    expect(s.hoistGroups[1]).toEqual([1, 2])
+    expect(s.hoistGroups[2]).toEqual([3, 4])
+  })
+
+  it('applyAutoHoistGroups 는 모드별 제한과 유효 노드만 반영한다', () => {
+    const { setHoistMode, applyAutoHoistGroups } = useEditStore.getState()
+    setHoistMode('ceiling')
+    const r = applyAutoHoistGroups([[1, 2], [1, 2, 3, 4, 999]])
+    expect(r.ok).toBe(true)
+    expect(r.appliedGroupCount).toBe(1)
+    expect(r.skippedGroupCount).toBe(1)
+    expect(useEditStore.getState().hoistGroupCount).toBe(1)
+    expect(useEditStore.getState().hoistGroups[1]).toEqual([1, 2, 3, 4])
+    expect(useEditStore.getState().hoistGroups[2]).toEqual([])
   })
 
   it('권상 그룹 개수를 줄이면 비활성 그룹을 비운다', () => {
@@ -1024,5 +1068,47 @@ describe('buildPostureStabilityPayload — 모델 회전 시 stageSummary 무시
     const payload = buildPostureStabilityPayload({}, hoisting, stage, null)
     expect(payload.model.centerOfGravityMm.x).toBe(9999)
     expect(payload.model.massSource).toBe('stageSummary')
+  })
+})
+
+describe('useEditStore — 가서포트', () => {
+  beforeEach(() => {
+    useStageStore.setState({ stages: [makeStageData()] })
+    useEditStore.getState().reset()
+    useUnitStructuralStore.setState({ status: null })
+  })
+
+  it('pickSupportNode 2개 → addSupportBeam intent 생성 + 선택 비움 + 구조store reset', () => {
+    const s = useEditStore.getState()
+    useUnitStructuralStore.setState({ status: 'Success' })  // 잠금 상태 가정
+    s.toggleSupportPick()
+    expect(useEditStore.getState().supportPickActive).toBe(true)
+    s.pickSupportNode(1)
+    expect(useEditStore.getState().supportPickNodes).toEqual([1])
+    s.pickSupportNode(4)
+    const st = useEditStore.getState()
+    expect(st.supportPickNodes).toEqual([])
+    expect(st.intents.filter(i => i.kind === 'addSupportBeam')).toHaveLength(1)
+    expect(useUnitStructuralStore.getState().status).toBe(null)  // reset 됨
+  })
+
+  it('같은 노드 재클릭 → 선택 해제', () => {
+    const s = useEditStore.getState()
+    s.toggleSupportPick()
+    s.pickSupportNode(1)
+    s.pickSupportNode(1)
+    expect(useEditStore.getState().supportPickNodes).toEqual([])
+    expect(useEditStore.getState().intents).toHaveLength(0)
+  })
+
+  it('removeSupportBeam → intent 제거 + 구조store reset', () => {
+    const s = useEditStore.getState()
+    s.toggleSupportPick()
+    s.pickSupportNode(1); s.pickSupportNode(4)
+    const id = useEditStore.getState().intents.find(i => i.kind === 'addSupportBeam').id
+    useUnitStructuralStore.setState({ status: 'Success' })
+    useEditStore.getState().removeSupportBeam(id)
+    expect(useEditStore.getState().intents).toHaveLength(0)
+    expect(useUnitStructuralStore.getState().status).toBe(null)
   })
 })

@@ -37,7 +37,7 @@ const MIN_DIM = 0.001  // 1 mm minimum to avoid degenerate geometry
  * @param {number[]} dims  dimensions in mm
  * @returns {THREE.BufferGeometry}
  */
-function makeSection(kind, dims) {
+export function makeSection(kind, dims) {
   switch (kind) {
     case 'Bar': {
       const w = Math.max(dims[0] ?? 10, MIN_DIM) / 1000

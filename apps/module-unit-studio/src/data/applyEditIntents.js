@@ -34,6 +34,7 @@ const EMPTY = Object.freeze({
   deletedMassIds:         new Set(),
   orphanCandidateNodeIds: new Set(),
   addedRigids:            [],   // [{ intentId, independentNode, dependentNodes, remark, cm }]
+  addedSupportBeams:      [],   // [{ intentId, startNode, endNode, dims }]
   derivedGroupCount:      0,
   derivedNodeCount:       0,
   derivedElementCount:    0,
@@ -163,6 +164,16 @@ export function computeDeleteMask(stageData, intents) {
     })
   }
 
+  // addSupportBeam intents — 미리보기/카운트용. 노드 존재 여부만 확인.
+  const addedSupportBeams = []
+  for (const intent of intents) {
+    if (intent.kind !== 'addSupportBeam') continue
+    const { startNode, endNode, dims } = intent.params ?? {}
+    if (!Number.isInteger(startNode) || !Number.isInteger(endNode)) continue
+    if (!stageData.nodeMap?.has(startNode) || !stageData.nodeMap?.has(endNode)) continue
+    addedSupportBeams.push({ intentId: intent.id, startNode, endNode, dims: dims ?? [100, 100, 10, 10] })
+  }
+
   const totalGroups = stageData.groups?.length ?? 0
   const totalNodes  = stageData.nodeMap?.size ?? 0
   const totalBeams  = (stageData.elements ?? []).filter(e => e.type === 'BEAM').length
@@ -176,9 +187,10 @@ export function computeDeleteMask(stageData, intents) {
   return {
     deletedNodeIds, deletedElementIds, brokenRbeIds, fullyRemovedRbeIds,
     deletedGroupIds, deletedMassIds, orphanCandidateNodeIds, addedRigids,
+    addedSupportBeams,
     derivedGroupCount:     Math.max(0, totalGroups - deletedGroupIds.size),
     derivedNodeCount:      Math.max(0, totalNodes  - deletedNodeIds.size),
-    derivedElementCount:   Math.max(0, totalBeams  - deletedElementIds.size),
+    derivedElementCount:   Math.max(0, totalBeams  - deletedElementIds.size) + addedSupportBeams.length,
     derivedRigidCount:     Math.max(0, totalRigids - fullyRemovedRbeIds.size) + addedRigids.length,
     derivedPointMassCount: Math.max(0, totalMasses - deletedMassIds.size),
     brokenRbeCount:        brokenRbeIds.size,

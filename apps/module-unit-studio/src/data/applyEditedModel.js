@@ -29,6 +29,9 @@ export function buildEditedStageJson(stageData, intents) {
   if (!stageData) throw new Error('stageData is required')
   const mask = computeDeleteMask(stageData, intents ?? [])
 
+  // 가서포트 주입으로 새 property 가 추가될 수 있으므로 가변 복사본으로 시작.
+  const properties = [...(stageData.properties ?? [])]
+
   // ── 노드 ──────────────────────────────────────────────────────────────
   const nodes = []
   for (const [id, n] of stageData.nodeMap) {
@@ -72,6 +75,31 @@ export function buildEditedStageJson(stageData, intents) {
     })
   }
 
+  // ── addSupportBeam 주입 (CBEAM + PBEAML L) ────────────────────────────
+  // element id 는 기존 element/rigid(최종, addRigid 포함) 와 충돌하지 않게 그 최대값+1 부터.
+  const usedEid = new Set()
+  for (const e of elements) if (e.id != null) usedEid.add(e.id)
+  for (const r of rigids)   if (r.id != null) usedEid.add(r.id)
+  let nextElementId = (usedEid.size ? Math.max(...usedEid) : 0) + 1
+  let nextPropertyId = (properties.length ? Math.max(...properties.map(p => p.id ?? 0)) : 0) + 1
+  const supportMaterialId = resolveSupportMaterialId(stageData)
+  for (const sb of mask.addedSupportBeams ?? []) {
+    const propId = nextPropertyId++
+    properties.push({
+      id: propId, card: 'PBEAML', kind: 'L',
+      dims: [...(sb.dims ?? [100, 100, 10, 10])],
+      materialId: supportMaterialId,
+    })
+    elements.push({
+      id: nextElementId++, type: 'CBEAM',
+      startNode: sb.startNode, endNode: sb.endNode,
+      propertyId: propId,
+      orientation: computeSupportOrientation(stageData, sb.startNode, sb.endNode),
+      category: 'Structure', modelPart: 'stru',
+      remark: '가서포트',
+    })
+  }
+
   // ── PointMass: 노드 삭제 시 함께 제거 ─────────────────────────────────
   const pointMasses = []
   for (const pm of stageData.pointMasses ?? []) {
@@ -95,7 +123,7 @@ export function buildEditedStageJson(stageData, intents) {
     nodes,
     elements,
     rigids,
-    properties: stageData.properties ?? [],
+    properties,
     materials:  stageData.materials  ?? [],
     pointMasses,
     // connectivity / healthMetrics 를 비워야 fallback 계산이 동작
@@ -126,7 +154,7 @@ export function buildEditedStageJson(stageData, intents) {
     nodes,
     elements,
     rigids,
-    properties: stageData.properties ?? [],
+    properties,
     materials:  stageData.materials  ?? [],
     pointMasses,
     connectivity,
@@ -172,4 +200,39 @@ export function buildEditedStageFileName(stage, formatTimestamp) {
   const phase = stage?.meta?.phase ?? 'X'
   const ts = formatTimestamp ? formatTimestamp(new Date()) : Date.now()
   return `edited_${phase}_${ts}.json`
+}
+
+/**
+ * 가서포트가 재사용할 재질 id 결정.
+ * 1) category=Structure BEAM 의 property.materialId → 2) 첫 property.materialId → 3) 첫 material id.
+ */
+function resolveSupportMaterialId(stageData) {
+  for (const e of stageData.elements ?? []) {
+    if (e.type === 'BEAM' && e.category === 'Structure') {
+      const prop = stageData.propertyMap?.get?.(e.propertyId)
+      if (prop?.materialId != null) return prop.materialId
+    }
+  }
+  for (const p of stageData.properties ?? []) {
+    if (p.materialId != null) return p.materialId
+  }
+  return stageData.materials?.[0]?.id ?? null
+}
+
+/**
+ * 부재축에 수직인 비퇴화 orientation 벡터 산출(수직 부재 G0=0 FATAL 회피).
+ * up = 부재가 거의 ±Z 면 [1,0,0], 아니면 [0,0,1]; up 의 축수직 성분을 정규화.
+ */
+function computeSupportOrientation(stageData, startNode, endNode) {
+  const a = stageData.nodeMap?.get?.(startNode)
+  const b = stageData.nodeMap?.get?.(endNode)
+  if (!a || !b) return [0, 0, 1]
+  let dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z
+  const len = Math.hypot(dx, dy, dz) || 1
+  dx /= len; dy /= len; dz /= len
+  const up = Math.abs(dz) > 0.9 ? [1, 0, 0] : [0, 0, 1]
+  const dot = up[0] * dx + up[1] * dy + up[2] * dz
+  let ox = up[0] - dot * dx, oy = up[1] - dot * dy, oz = up[2] - dot * dz
+  const olen = Math.hypot(ox, oy, oz) || 1
+  return [ox / olen, oy / olen, oz / olen]
 }

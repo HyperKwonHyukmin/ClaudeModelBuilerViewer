@@ -1,6 +1,7 @@
-import { useRef } from 'react'
-import { X, Sparkles } from 'lucide-react'
+import { useRef, useState } from 'react'
+import { CheckCircle2, X, Sparkles } from 'lucide-react'
 import { useHoistLayoutStore } from '../store/useHoistLayoutStore.js'
+import { getHoistMaxGroups, getHoistMinNodesPerGroup, useEditStore } from '../store/useEditStore.js'
 import { splitRegions, assignNodesToRegions, fitTransform, snapToNearestNode } from '../data/hoistAutoLayout.js'
 
 const SVG_W = 1040, SVG_H = 600, PAD = 40
@@ -26,9 +27,14 @@ export default function HoistAutoLayoutEditor() {
   const setRegionPointCount = useHoistLayoutStore(s => s.setRegionPointCount)
   const setRegionPoints = useHoistLayoutStore(s => s.setRegionPoints)
   const closeEditor = useHoistLayoutStore(s => s.closeEditor)
+  const hoistMode = useEditStore(s => s.hoistMode)
+  const optimizeHoistGroups = useEditStore(s => s.optimizeHoistGroups)
+  const flashHoistGuide = useEditStore(s => s.flashHoistGuide)
 
   const svgRef = useRef(null)
   const dragRef = useRef(null)  // {type:'divX'|'divY'|'marker', index?, regionId?, slot?}
+  const [applyError, setApplyError] = useState(null)
+  const [optimizing, setOptimizing] = useState(false)
 
   if (!open) return null
 
@@ -41,6 +47,14 @@ export default function HoistAutoLayoutEditor() {
     ? projectedNodes.filter((_, i) => i % Math.ceil(projectedNodes.length / NODE_CAP) === 0)
     : (projectedNodes ?? [])
   const totalPoints = Object.values(suggestions).reduce((s, ids) => s + (ids?.length ?? 0), 0)
+  const maxGroups = getHoistMaxGroups(hoistMode)
+  const minNodes = getHoistMinNodesPerGroup(hoistMode)
+  const canApply = ready && !!hoistMode && totalPoints > 0 && !optimizing
+  const groupCount = Math.max(1, divX * divY)
+  const setGroupCount = (n) => {
+    setDivX(1)
+    setDivY(Number(n))
+  }
 
   const clientToModel = (evt) => {
     const svg = svgRef.current
@@ -74,6 +88,34 @@ export default function HoistAutoLayoutEditor() {
     if (dragRef.current && svgRef.current) { try { svgRef.current.releasePointerCapture(evt.pointerId) } catch { /* noop */ } }
     dragRef.current = null
   }
+  const onApply = async () => {
+    if (!ready || optimizing) return
+    const selectedRegions = regions
+      .map(r => ({ region: r, suggested: suggestions[r.id] ?? [], assigned: assign[r.id] ?? [] }))
+      .filter(x => x.suggested.length > 0)
+    const nodeGroups = selectedRegions.map(x => x.suggested)
+    const pointsPerGroup = Math.max(...nodeGroups.map(ids => ids.length), minNodes)
+    const optimization = {
+      desiredGroupCount: selectedRegions.length,
+      pointsPerGroup,
+      allowedNodeIds: projectedNodes.map(p => p.id),
+    }
+    setOptimizing(true)
+    try {
+      const r = await optimizeHoistGroups(nodeGroups, optimization)
+      if (!r.ok) {
+        setApplyError(r.error ?? '권상 위치 최적화 결과를 적용하지 못했습니다.')
+        return
+      }
+      setApplyError(null)
+      const score = r.report?.best?.score ?? r.report?.Best?.Score
+      const scoreText = Number.isFinite(Number(score)) ? ` · score ${Number(score).toFixed(1)}` : ''
+      flashHoistGuide(`자세안정성 기반 권상 위치 적용: ${r.appliedGroupCount}그룹 · 권상 포인트 ${r.appliedNodeCount}개${scoreText}`, 'success')
+      closeEditor()
+    } finally {
+      setOptimizing(false)
+    }
+  }
 
   return (
     <div style={{
@@ -90,14 +132,9 @@ export default function HoistAutoLayoutEditor() {
           <Sparkles size={16} color="#90E8FF" />
           <span style={{ fontSize: 14, fontWeight: 900, color: '#90E8FF', letterSpacing: 0.6 }}>권상 위치 자동 선정</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 12 }}>
-            <label style={{ fontSize: 11, color: '#8aa0b8' }}>X 구역</label>
-            <input type="number" min={1} max={6} value={divX}
-              onChange={e => setDivX(Number(e.target.value))}
-              style={numInput} />
-            <span style={{ color: '#60708a' }}>×</span>
-            <label style={{ fontSize: 11, color: '#8aa0b8' }}>Y 구역</label>
-            <input type="number" min={1} max={6} value={divY}
-              onChange={e => setDivY(Number(e.target.value))}
+            <label style={{ fontSize: 11, color: '#8aa0b8' }}>권상 그룹</label>
+            <input type="number" min={1} max={6} value={groupCount}
+              onChange={e => setGroupCount(e.target.value)}
               style={numInput} />
           </div>
           <div style={{ flex: 1 }} />
@@ -198,7 +235,22 @@ export default function HoistAutoLayoutEditor() {
           <span style={{ color: '#00D1FF' }}>─ 분할선(드래그)</span>
           <span style={{ color: '#FF66AA' }}>◆ 권상 포인트(드래그=노드 재스냅)</span>
           <div style={{ flex: 1 }} />
-          <span>총 {regions.length}구역 · 권상 포인트 {totalPoints}개</span>
+          {applyError && <span style={{ color: '#FF99A6', fontWeight: 700 }}>{applyError}</span>}
+          <span>권상 그룹 {regions.length}개 · 그룹당 {Math.max(...Object.values(suggestions).map(ids => ids?.length ?? 0), minNodes)}포인트 · 적용 상한 {maxGroups}그룹/{minNodes}개 이상</span>
+          <button
+            onClick={onApply}
+            disabled={!canApply}
+            style={{
+              ...primaryBtn,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              opacity: canApply ? 1 : 0.45,
+              cursor: canApply ? 'pointer' : 'not-allowed',
+            }}>
+            <CheckCircle2 size={14} />
+            {optimizing ? '자세안정성 평가 중...' : '선정 결과 적용'}
+          </button>
           <button onClick={closeEditor} style={primaryBtn}>닫기</button>
         </div>
       </div>

@@ -4,6 +4,7 @@ import ModelCheckPanelDock from './panels/ModelCheckPanelDock.jsx'
 import EditPanelDock from './panels/EditPanelDock.jsx'
 import HoistPanelDock from './panels/HoistPanelDock.jsx'
 import AnalyzePanelDock from './panels/AnalyzePanelDock.jsx'
+import SavePanelDock from './panels/SavePanelDock.jsx'
 
 // 좌측 도크: activeMode 에 따라 좌측 패널 본문을 분기한다.
 // 참조 MooringFittingStudio 의 LeftDock(activeTab 분기) 패턴을 따르되,
@@ -15,5 +16,6 @@ export default function LeftDock() {
   if (activeMode === 'edit')    return <EditPanelDock />
   if (activeMode === 'hoist')   return <HoistPanelDock />
   if (activeMode === 'analyze') return <AnalyzePanelDock />
+  if (activeMode === 'save')    return <SavePanelDock />
   return <ModelPanel />   // 기본 model
 }

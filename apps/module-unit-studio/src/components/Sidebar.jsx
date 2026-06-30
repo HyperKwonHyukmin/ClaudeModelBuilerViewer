@@ -79,27 +79,45 @@ export default function Sidebar() {
   const pipeFluidAlreadyEmpty = isPipeFluidEmpty(lastStage)
   const isEmptied = pipeFluidEmptied || pipeFluidAlreadyEmpty
 
-  const handleEmptyPipeFluid = useCallback(() => {
+  const handleTogglePipeFluid = useCallback(() => {
     const st = useStageStore.getState()
     const cur = st.stages
     if (!cur.length) return
-    const ok = window.confirm(
-      '모든 배관(Pipe) material 의 밀도를 7.85e-9 로 바꿔 내부 유체 중량을 제거합니다.\n' +
-      '무게중심이 바뀌므로 기존 자세안정성 평가 결과는 초기화되고, 다시 평가해야 합니다.\n' +
-      '되돌리려면 모델을 다시 로드해야 합니다. 계속할까요?'
-    )
-    if (!ok) return
-    const last = cur[cur.length - 1]
-    const before = computeMassFallback(last)?.totalMassTon ?? null
-    const { materialIds, changedCount, invalidatedStability } = st.emptyPipeFluid()
-    const after = computeMassFallback(last)?.totalMassTon ?? null
-    useEditStore.getState().addIntent({
-      kind: 'emptyPipeFluid',
-      params: { materialIds, targetRho: PIPE_STEEL_RHO },
-    })
-    const delta = (before != null && after != null) ? (before - after) : null
-    setEmptyResult({ delta, count: changedCount, invalidated: invalidatedStability })
-  }, [])
+
+    if (pipeFluidEmptied) {
+      const ok = window.confirm(
+        '배관(Pipe) 내부 유체 중량을 원래대로 복원합니다.\n' +
+        '무게중심이 원래대로 복구되므로 기존 해석 결과는 초기화됩니다. 계속할까요?'
+      )
+      if (!ok) return
+      st.restorePipeFluid()
+
+      // editStore 에서 emptyPipeFluid 인텐트 제거
+      const editState = useEditStore.getState()
+      const targetIntent = editState.intents.find(i => i.kind === 'emptyPipeFluid')
+      if (targetIntent) {
+        editState.removeIntent(targetIntent.id)
+      }
+      setEmptyResult(null)
+    } else {
+      const ok = window.confirm(
+        '모든 배관(Pipe) material 의 밀도를 7.85e-9 로 바꿔 내부 유체 중량을 제거합니다.\n' +
+        '무게중심이 바뀌므로 기존 자세안정성 평가 결과는 초기화되고, 다시 평가해야 합니다.\n' +
+        '계속할까요?'
+      )
+      if (!ok) return
+      const last = cur[cur.length - 1]
+      const before = computeMassFallback(last)?.totalMassTon ?? null
+      const { materialIds, changedCount, invalidatedStability } = st.emptyPipeFluid()
+      const after = computeMassFallback(last)?.totalMassTon ?? null
+      useEditStore.getState().addIntent({
+        kind: 'emptyPipeFluid',
+        params: { materialIds, targetRho: PIPE_STEEL_RHO },
+      })
+      const delta = (before != null && after != null) ? (before - after) : null
+      setEmptyResult({ delta, count: changedCount, invalidated: invalidatedStability })
+    }
+  }, [pipeFluidEmptied])
 
   const [width, setWidth] = useState(DEFAULT_WIDTH)
   const dragRef = useRef(null)  // { startX, startWidth }
@@ -283,19 +301,30 @@ export default function Sidebar() {
 
       {/* ── 섹션: 모델 조작 ─────────────────────────── */}
       <Section label="모델 조작">
-        <Tooltip placement="right" content={<>
-          <strong style={{ color: '#7ab2d4' }}>Pipe 내부 유체 비우기</strong><br/>
-          모든 배관 material 의 밀도를 순수 강재(7.85e-9)로 되돌려 내부 물 중량을 제거합니다.
-          모델 중량·무게중심이 즉시 재계산되고, 구조해석(Nastran) BDF 에도 반영됩니다.
-          단방향이며 되돌리려면 모델을 다시 로드하세요.
-        </>}>
+        <Tooltip placement="right" content={
+          pipeFluidEmptied ? (
+            <>
+              <strong style={{ color: '#6ee7b7' }}>Pipe 내부 유체 복원</strong><br/>
+              비웠던 배관 내부 유체(물) 중량을 원래대로 복원합니다.
+              모델 중량·무게중심이 원래 값으로 재계산됩니다.
+            </>
+          ) : (
+            <>
+              <strong style={{ color: '#7ab2d4' }}>Pipe 내부 유체 비우기</strong><br/>
+              모든 배관 material 의 밀도를 순수 강재(7.85e-9)로 되돌려 내부 물 중량을 제거합니다.
+              모델 중량·무게중심이 즉시 재계산되고, 구조해석(Nastran) BDF 에도 반영됩니다.
+              비운 뒤 언제든 다시 채울 수 있습니다.
+            </>
+          )
+        }>
           <button
             type="button"
-            onClick={handleEmptyPipeFluid}
-            disabled={isEmptied || pipeMaterialCount === 0 || stages.length === 0}
+            onClick={handleTogglePipeFluid}
+            disabled={(!pipeFluidEmptied && pipeFluidAlreadyEmpty) || pipeMaterialCount === 0 || stages.length === 0}
             style={{
               display: 'flex', alignItems: 'center', gap: 6, width: '100%',
-              padding: '7px 10px', borderRadius: 7, cursor: (isEmptied || pipeMaterialCount === 0) ? 'default' : 'pointer',
+              padding: '7px 10px', borderRadius: 7,
+              cursor: ((!pipeFluidEmptied && pipeFluidAlreadyEmpty) || pipeMaterialCount === 0) ? 'default' : 'pointer',
               fontSize: 12, fontWeight: 700,
               background: isEmptied ? 'rgba(110,231,183,0.10)' : 'rgba(122,178,212,0.12)',
               color: isEmptied ? '#6ee7b7' : '#bcd6e8',
@@ -304,7 +333,7 @@ export default function Sidebar() {
             }}
           >
             <Droplet size={14} />
-            {isEmptied ? '유체 비움 완료 ✓' : 'Pipe 내부 유체 비우기'}
+            {isEmptied ? (pipeFluidEmptied ? '유체 복원 (비움 완료 ✓)' : '유체 비움 완료 ✓') : 'Pipe 내부 유체 비우기'}
           </button>
         </Tooltip>
         {pipeMaterialCount === 0 && !isEmptied && (

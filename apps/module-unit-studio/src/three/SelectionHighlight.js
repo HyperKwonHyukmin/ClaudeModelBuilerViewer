@@ -9,11 +9,12 @@ const _axisY = new THREE.Vector3(0, 1, 0)
 const _dir   = new THREE.Vector3()
 const _mat4  = new THREE.Matrix4()
 
-const _hlMat = () => new THREE.MeshBasicMaterial({
-  color: SEL_COLOR,
+const _hlMat = (opts = {}) => new THREE.MeshBasicMaterial({
+  color: opts.color ?? SEL_COLOR,
   transparent: true,
-  opacity: 0.80,
+  opacity: opts.opacity ?? 0.80,
   depthTest: false,   // render on top of everything (X-ray style)
+  depthWrite: false,
 })
 
 /**
@@ -22,17 +23,20 @@ const _hlMat = () => new THREE.MeshBasicMaterial({
  *
  * @param {number[]} elementIds
  * @param {import('../data/StageData.js').StageData} stageData
+ * @param {{ color?: number, opacity?: number, radius?: number, renderOrder?: number }} [opts]
  * @returns {THREE.Group}
  */
-export function buildElementsHighlight(elementIds, stageData) {
+export function buildElementsHighlight(elementIds, stageData, opts = {}) {
   const group = new THREE.Group()
   const idSet = new Set(elementIds)
   const elems = stageData.elements.filter(e => idSet.has(e.id))
   if (elems.length === 0) return group
 
-  const geo = new THREE.CylinderGeometry(ELEM_HL_R, ELEM_HL_R, 1, 8, 1)
-  const mesh = new THREE.InstancedMesh(geo, _hlMat(), elems.length)
+  const radius = opts.radius ?? ELEM_HL_R
+  const geo = new THREE.CylinderGeometry(radius, radius, 1, 10, 1)
+  const mesh = new THREE.InstancedMesh(geo, _hlMat(opts), elems.length)
   mesh.count = 0
+  mesh.renderOrder = opts.renderOrder ?? 90
 
   for (const e of elems) {
     const start = stageData.getNodePos(e.startNode)
@@ -139,16 +143,19 @@ export function buildMultiSelectionHighlight(nodeIds, stageData) {
  *
  * @param {number[]} nodeIds
  * @param {import('../data/StageData.js').StageData} stageData
+ * @param {{ color?: number, opacity?: number, radius?: number, renderOrder?: number }} [opts]
  * @returns {THREE.Group}
  */
-export function buildNodesHighlight(nodeIds, stageData) {
+export function buildNodesHighlight(nodeIds, stageData, opts = {}) {
   const group = new THREE.Group()
   const valid = nodeIds.filter(id => stageData.getNodePos(id))
   if (valid.length === 0) return group
 
-  const geo  = new THREE.SphereGeometry(NODE_HL_R, 12, 8)
-  const mesh = new THREE.InstancedMesh(geo, _hlMat(), valid.length)
+  const radius = opts.radius ?? NODE_HL_R
+  const geo  = new THREE.SphereGeometry(radius, 14, 9)
+  const mesh = new THREE.InstancedMesh(geo, _hlMat(opts), valid.length)
   mesh.count = 0
+  mesh.renderOrder = opts.renderOrder ?? 90
 
   for (const id of valid) {
     _mat4.setPosition(stageData.getNodePos(id))

@@ -11,8 +11,10 @@ export const useStageStore = create((set) => ({
   inputAudit: null,
   // 00_StageSummary.json 파싱 결과 — 우하단 전체 질량 표시 + 무게중심 마커가 사용.
   stageSummary: null,
-  // 배관 내부 유체 비우기 적용 여부 (단방향 false→true). 새 폴더 로드/reset 시 false.
+  // 배관 내부 유체 비우기 적용 여부 (false→true). 새 폴더 로드/reset 시 false.
   pipeFluidEmptied: false,
+  // 배관 유체 비우기 전 원본 rho 값 백업 맵
+  pipeFluidOriginalRhoMap: null,
   // 모델 회전 적용 여부 (누적). 새 폴더 로드/reset 시 false. stale stageSummary 게이트에 사용.
   modelRotated: false,
   loading: false,
@@ -27,7 +29,7 @@ export const useStageStore = create((set) => ({
 
   setSourceFolderRef: (ref) => set({ sourceFolderRef: ref ?? null }),
 
-  reset: () => set({ stages: [], inputAudit: null, stageSummary: null, loading: false, error: null, loadSummary: emptyLoadSummary(), sourceFolderRef: null, pipeFluidEmptied: false, modelRotated: false }),
+  reset: () => set({ stages: [], inputAudit: null, stageSummary: null, loading: false, error: null, loadSummary: emptyLoadSummary(), sourceFolderRef: null, pipeFluidEmptied: false, pipeFluidOriginalRhoMap: null, modelRotated: false }),
 
   loadStages: async (fileList) => {
     set({ loading: true, error: null })
@@ -37,7 +39,7 @@ export const useStageStore = create((set) => ({
         set({ loading: false, loadSummary: summary, error: 'JSON 파일을 찾을 수 없습니다. .json 파일을 선택해 주세요.' })
         return
       }
-      set({ stages, inputAudit, stageSummary, loading: false, loadSummary: summary, pipeFluidEmptied: false, modelRotated: false })
+      set({ stages, inputAudit, stageSummary, loading: false, loadSummary: summary, pipeFluidEmptied: false, pipeFluidOriginalRhoMap: null, modelRotated: false })
       // 모든 viewport를 마지막 단계(보통 Validation)로 시작 — 최종 모델을 먼저 보여준다
       useViewerStore.getState().resetViewportStages(stages.length - 1)
       // 새 폴더로 노드 ID 체계가 바뀔 수 있으므로 권상 그룹 노드 선택을 모두 초기화한다
@@ -51,7 +53,7 @@ export const useStageStore = create((set) => ({
   },
 
   /**
-   * 모든 Pipe 요소가 참조하는 material 의 rho 를 7.85e-9 로 비운다 (단방향).
+   * 모든 Pipe 요소가 참조하는 material 의 rho 를 7.85e-9 로 비운다.
    * - in-memory stage 를 mutate 하고 stages 를 새 참조로 교체해 질량/무게중심 재계산을 유발.
    * - 호출자(Sidebar)가 반환된 materialIds 로 emptyPipeFluid edit intent 를 추가한다.
    * @returns {{ materialIds: number[], changedCount: number }}
@@ -63,8 +65,18 @@ export const useStageStore = create((set) => ({
     }
     const last = stages[stages.length - 1]
     const ids = collectPipeMaterialIds(last)
+
+    // 원본 rho 값 백업
+    const originalRhoMap = {}
+    for (const mid of ids) {
+      const mat = last.materialMap?.get?.(mid)
+      if (mat) {
+        originalRhoMap[mid] = mat.rho
+      }
+    }
+
     const changedCount = applyPipeFluidEmpty(stages, ids, PIPE_STEEL_RHO)
-    set({ stages: [...stages], pipeFluidEmptied: true })
+    set({ stages: [...stages], pipeFluidEmptied: true, pipeFluidOriginalRhoMap: originalRhoMap })
 
     // 유체를 비우면 무게중심이 바뀌므로 기존 자세안정성/구조해석 결과는 stale → 무효화한다.
     // 자세안정성 평가를 다시 실행해야(구조해석 가드가 stabilityPath 부재로 자동 차단) 새 CoG 가
@@ -80,6 +92,44 @@ export const useStageStore = create((set) => ({
       if (us.status || us.result) us.reset()
     }
     return { materialIds: [...ids], changedCount, invalidatedStability }
+  },
+
+  /**
+   * 백업된 원본 rho 값을 이용하여 배관 내부 유체 중량을 원래대로 복원한다.
+   * @returns {{ changedCount: number, invalidatedStability: boolean }}
+   */
+  restorePipeFluid: () => {
+    const { stages, pipeFluidOriginalRhoMap } = useStageStore.getState()
+    if (!Array.isArray(stages) || stages.length === 0 || !pipeFluidOriginalRhoMap) {
+      return { changedCount: 0, invalidatedStability: false }
+    }
+
+    let changedCount = 0
+    for (const stage of stages) {
+      for (const [midStr, originalRho] of Object.entries(pipeFluidOriginalRhoMap)) {
+        const mid = Number(midStr)
+        const mat = stage?.materialMap?.get?.(mid)
+        if (mat && mat.rho !== originalRho) {
+          mat.rho = originalRho
+          changedCount++
+        }
+      }
+    }
+
+    set({ stages: [...stages], pipeFluidEmptied: false, pipeFluidOriginalRhoMap: null })
+
+    let invalidatedStability = false
+    if (changedCount > 0) {
+      const stab = useStabilityStore.getState()
+      if (stab.report || stab.stabilityPath || stab.overallStatus) {
+        stab.reset()
+        invalidatedStability = true
+      }
+      const us = useUnitStructuralStore.getState()
+      if (us.status || us.result) us.reset()
+    }
+
+    return { changedCount, invalidatedStability }
   },
 
   /**

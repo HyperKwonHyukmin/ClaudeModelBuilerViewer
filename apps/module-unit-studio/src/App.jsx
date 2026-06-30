@@ -39,10 +39,6 @@ export default function App() {
       const t = e.target
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
       useViewerStore.getState().clearPickedEntity()
-      if (useViewerStore.getState().activeMode === 'hoist') {
-        const editState = useEditStore.getState()
-        for (const id of [1, 2, 3, 4]) editState.clearHoistGroup(id)
-      }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)

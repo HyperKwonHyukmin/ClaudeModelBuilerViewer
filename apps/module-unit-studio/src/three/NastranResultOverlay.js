@@ -28,7 +28,8 @@ const COLOR_WIRE_COMPRESSION  = 0xFFC447  // 노랑 (압축, 슬랙 가능)
 const COLOR_WIRE_NO_RESULT    = 0x90A4B0  // 회색 (F06 결과 누락)
 
 // 반경 — base element/beam 보다 살짝 두껍게 해서 색이 잘 보이게.
-const MEMBER_R = 0.046
+// 부재 응력 색상 overlay 는 선택 highlight 와 겹치므로 기존 대비 20% 얇게 유지한다.
+const MEMBER_R = 0.0368
 const WIRE_R   = 0.062
 
 const _dummy = new THREE.Object3D()

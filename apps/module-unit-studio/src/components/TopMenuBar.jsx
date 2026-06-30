@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Box, Pencil, Cable, Activity, CheckCircle2 } from 'lucide-react'
+import { Box, Pencil, Cable, Activity, CheckCircle2, Save } from 'lucide-react'
 import { useViewerStore } from '../store/useViewerStore.js'
 
 // 화면 최상단 가로 바 — 좌측 브랜드 + 4개 모드 탭(Model | Edit | Hoist | Analyze).
@@ -13,7 +13,8 @@ const TABS = [
   { key: 'modelCheck', label: 'Model Check', Icon: CheckCircle2 },
   { key: 'edit',       label: 'Edit',        Icon: Pencil },
   { key: 'hoist',      label: 'Hoist',       Icon: Cable },
-  { key: 'analyze',    label: 'Analyze',     Icon: Activity },
+  { key: 'analyze',    label: 'Analysis',    Icon: Activity },
+  { key: 'save',       label: 'Save',        Icon: Save },
 ]
 
 export default function TopMenuBar() {

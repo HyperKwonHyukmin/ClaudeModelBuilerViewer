@@ -23,6 +23,9 @@
  *     ElectronHost(Workbench) 에서만 활성화 — preload 가 noop 으로 노출하지 않으면 정의되지 않는다.
  *     호출 측은 typeof host.runStabilityAnalysis === 'function' 으로 가용성을 확인.
  *
+ *   optimizeHoistPositions(posturePath) : Promise<{ ok, report?, error?, optimizationPath? }>
+ *     ModuleAnalysis.Cli --optimize 로 자세안정성 기반 권상 위치 후보를 평가하고 best 그룹을 돌려준다.
+ *
  * folderRef 는 host 별 불투명 객체. 호출자는 보존만 하고 다시 host 에 넘긴다.
  */
 
@@ -137,6 +140,29 @@ class ElectronHost {
       }
     }
 
+    if (typeof api?.optimizeHoistPositions === 'function') {
+      this.optimizeHoistPositions = async (posturePath) => {
+        try {
+          const r = await api.optimizeHoistPositions(posturePath)
+          if (!r) return { ok: false, error: '응답이 없습니다 (preload 미응답).' }
+          if (r.ok) {
+            return {
+              ok: true,
+              report: r.report ?? null,
+              optimizationPath: r.optimizationPath ?? null,
+            }
+          }
+          return {
+            ok: false,
+            error: r.error ?? '권상 위치 최적화 실패',
+            stderr: r.stderr ?? null,
+          }
+        } catch (e) {
+          return { ok: false, error: e?.message ?? String(e) }
+        }
+      }
+    }
+
     // Unit 구조 해석 (Wire 포함 BDF + Nastran SOL 101 + F06 매핑) — preload 노출 시.
     // 입력: { stabilityPath, safetyFactor, allowableMpa }
     // 결과: { ok, analysisId?, summary?, warnings?, resultPath?, result?, job? } 또는 { ok:false, error, ... }
@@ -154,6 +180,19 @@ class ElectronHost {
     if (typeof api?.onUnitStructuralProgress === 'function') {
       // 콜백 등록 → unsubscribe 함수 반환
       this.onUnitStructuralProgress = (callback) => api.onUnitStructuralProgress(callback)
+    }
+
+    // ModuleUnitStudio "Save" → 편집 반영 최종 BDF 출력. preload 노출 시에만 활성.
+    // payload = { fileName, content }, 반환 = { ok, savedPath?, stats?, canceled?, error? }
+    if (typeof api?.exportUnitBdf === 'function') {
+      this.exportUnitBdf = async ({ fileName, content } = {}) => {
+        try {
+          const r = await api.exportUnitBdf({ fileName, content })
+          return r ?? { ok: false, error: '응답이 없습니다 (preload 미응답).' }
+        } catch (e) {
+          return { ok: false, error: e?.message ?? String(e) }
+        }
+      }
     }
   }
 

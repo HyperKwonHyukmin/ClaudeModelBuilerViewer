@@ -20,7 +20,7 @@
 
 export const EDIT_INTENT_SCHEMA_VERSION = '1.0'
 
-const VALID_KINDS = new Set(['addRigid', 'deleteGroup', 'deleteElement', 'deleteCategory', 'deleteOrphanNodes', 'emptyPipeFluid', 'rotateModel'])
+const VALID_KINDS = new Set(['addRigid', 'deleteGroup', 'deleteElement', 'deleteCategory', 'deleteOrphanNodes', 'emptyPipeFluid', 'rotateModel', 'addSupportBeam'])
 
 /**
  * 새 EditIntent 1건을 만든다 (검증은 별도, validateIntent 호출 후 합치기).
@@ -70,6 +70,8 @@ export function validateIntent(intent, stageData, existingIntents = []) {
     validateEmptyPipeFluid(intent.params, stageData, existingIntents, errors, warnings)
   } else if (intent.kind === 'rotateModel') {
     validateRotateModel(intent.params, stageData, existingIntents, errors, warnings)
+  } else if (intent.kind === 'addSupportBeam') {
+    validateAddSupportBeam(intent.params, stageData, existingIntents, errors, warnings)
   } else {
     errors.push(`알 수 없는 intent kind: ${intent.kind}`)
   }
@@ -279,6 +281,10 @@ export function summarizeIntent(intent) {
     const { axis, angleDeg } = intent.params ?? {}
     return `모델 회전 (${axis}축 ${angleDeg}°)`
   }
+  if (intent.kind === 'addSupportBeam') {
+    const { startNode, endNode } = intent.params ?? {}
+    return `가서포트 L100×100×10t (N${startNode}↔N${endNode})`
+  }
   return `알 수 없는 intent: ${intent.kind}`
 }
 
@@ -418,6 +424,43 @@ function validateRotateModel(params, stageData, existingIntents, errors, warning
     errors.push('회전 각도(angleDeg) 가 유한한 숫자가 아닙니다.')
   }
   // 누적 회전 허용 — 같은 kind 중복은 막지 않는다.
+}
+
+// 가서포트(보강) L beam — 두 노드를 잇는 신규 CBEAM. 동일 쌍(무순서) 중복 차단,
+// 이미 직접 BEAM 으로 연결된 노드쌍이면 redundant warning(추가는 허용).
+function validateAddSupportBeam(params, stageData, existingIntents, errors, warnings) {
+  const a = params?.startNode
+  const b = params?.endNode
+  if (a == null || !Number.isInteger(a) || b == null || !Number.isInteger(b)) {
+    errors.push('가서포트 노드(startNode/endNode)가 정수가 아닙니다.')
+    return
+  }
+  if (a === b) {
+    errors.push('가서포트 두 노드가 동일합니다.')
+    return
+  }
+  if (stageData?.nodeMap) {
+    if (!stageData.nodeMap.has(a)) errors.push(`가서포트 노드 #${a} 가 StageData 에 존재하지 않습니다.`)
+    if (!stageData.nodeMap.has(b)) errors.push(`가서포트 노드 #${b} 가 StageData 에 존재하지 않습니다.`)
+    if (errors.length > 0) return
+  }
+  const key = [a, b].sort((x, y) => x - y).join('-')
+  for (const ex of existingIntents) {
+    if (ex.kind !== 'addSupportBeam') continue
+    const exKey = [ex.params?.startNode, ex.params?.endNode].sort((x, y) => x - y).join('-')
+    if (exKey === key) {
+      errors.push(`동일한 가서포트(N${a}↔N${b})가 이미 추가되어 있습니다.`)
+      return
+    }
+  }
+  // 이미 BEAM 으로 직접 연결돼 있으면 보강 의미가 약함 — 경고만.
+  if (stageData?.elements) {
+    const connected = stageData.elements.some(e =>
+      e.type === 'BEAM' &&
+      ((e.startNode === a && e.endNode === b) || (e.startNode === b && e.endNode === a))
+    )
+    if (connected) warnings.push(`두 노드(N${a}, N${b})는 이미 직접 연결되어 있습니다.`)
+  }
 }
 
 // ── 내부 유틸 ────────────────────────────────────────────────────────────

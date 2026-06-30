@@ -27,6 +27,8 @@ export default function ViewportContainer() {
   // 권상 픽킹(Shift+Node)·권상 오버레이는 상단 Hoist 탭에서만 활성화한다.
   // (hoistMode 가 설정된 채 다른 탭에서 Shift+클릭하면 권상 픽킹이 Edit 의 다중선택을 가로채는 것을 방지)
   const hoistActive = activeMode === 'hoist'
+  const analyzeActive = activeMode === 'analyze'
+  const supportPickActive = useEditStore(s => s.supportPickActive)
   const { stages } = useStageStore()
   const stabilityReport = useStabilityStore(s => s.report)
   const editEnabled = useEditStore(s => s.enabled)
@@ -182,6 +184,7 @@ export default function ViewportContainer() {
                   pickFilters={pickFilters}
                   isEditTargetStage={isEditTargetStage}
                   hoistPickEnabled={hoistActive}
+                  supportPickEnabled={analyzeActive && supportPickActive}
                 />
               </div>
 

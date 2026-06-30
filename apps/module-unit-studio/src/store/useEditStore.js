@@ -9,6 +9,7 @@ import { buildEditedStageJson, buildEditedStageFileName } from '../data/applyEdi
 import { useStageStore } from './useStageStore.js'
 import { useStabilityStore } from './useStabilityStore.js'
 import { getHost } from '../host/host.js'
+import { useUnitStructuralStore } from './useUnitStructuralStore.js'
 
 // 권상 그룹 절대 상한 (Hydro = 4, Goliat = 3, Ceiling = 1). mode 미지정 시 Hydro 상한을 따른다.
 export const HOIST_MAX_GROUPS_ABS = 4
@@ -55,6 +56,12 @@ export const useEditStore = create((set, get) => ({
 
   // Rigid 연결을 위해 선택된 노드들 (편집 모드에서 Shift+Click 으로 토글)
   pendingNodeSelection: [],
+
+  // 가서포트(보강) 픽 모드 — Analysis 탭 전용. Shift+Node 2개 선택 시 addSupportBeam intent 생성.
+  supportPickActive: false,
+  supportPickNodes: [],
+  // 이번 세션에 편집 모델(_edited.json)을 백엔드에 업로드한 적이 있는지 — 재해석 동기화 게이트.
+  editedModelUploaded: false,
 
   // 편집 모드에서 Ctrl+Click 으로 누적된 다중 선택 element 목록 (일괄 삭제용)
   multiSelElements: [],
@@ -241,6 +248,69 @@ export const useEditStore = create((set, get) => ({
   },
 
   /**
+   * 권상 위치 자동 선정 모달의 제안 결과를 실제 Hoist 그룹 상태로 적용한다.
+   * - 현재 권상 방식의 최대 그룹 수(Hydro 4/Goliat 3/Ceiling 1)를 넘는 제안은 버린다.
+   * - 그룹당 노드는 최대 4개, 노드는 전체 그룹 중 한 곳에만 남긴다.
+   * - 모드별 최소 노드 수를 만족하지 못하는 그룹은 평가 불가하므로 적용하지 않는다.
+   *
+   * @param {Array<Array<number>>} nodeGroups
+   * @returns {{ok:boolean, appliedGroupCount?:number, appliedNodeCount?:number, skippedGroupCount?:number, truncatedGroupCount?:number, error?:string}}
+   */
+  applyAutoHoistGroups: (nodeGroups) => {
+    const s = get()
+    if (!s.hoistMode) return { ok: false, error: '권상 방식을 먼저 선택해 주세요.' }
+    if (!Array.isArray(nodeGroups) || nodeGroups.length === 0) {
+      return { ok: false, error: '적용할 자동 선정 결과가 없습니다.' }
+    }
+
+    const stage = currentStage()
+    const maxGroups = getHoistMaxGroups(s.hoistMode)
+    const minNodes = getHoistMinNodesPerGroup(s.hoistMode)
+    const nextGroups = { 1: [], 2: [], 3: [], 4: [] }
+    const used = new Set()
+    let targetGroupId = 1
+    let skippedGroupCount = 0
+    let truncatedGroupCount = 0
+
+    for (const rawGroup of nodeGroups) {
+      if (targetGroupId > maxGroups) {
+        skippedGroupCount += 1
+        continue
+      }
+      const rawIds = Array.isArray(rawGroup) ? rawGroup : []
+      const ids = []
+      for (const nodeId of rawIds) {
+        if (nodeId == null || used.has(nodeId)) continue
+        if (stage?.nodeMap && !stage.nodeMap.has(nodeId)) continue
+        ids.push(nodeId)
+        used.add(nodeId)
+        if (ids.length === 4) break
+      }
+      if (rawIds.length > ids.length && ids.length === 4) truncatedGroupCount += 1
+      if (ids.length < minNodes) {
+        skippedGroupCount += 1
+        for (const nodeId of ids) used.delete(nodeId)
+        continue
+      }
+      nextGroups[targetGroupId] = ids
+      targetGroupId += 1
+    }
+
+    const appliedGroupCount = targetGroupId - 1
+    if (appliedGroupCount === 0) {
+      return { ok: false, error: `현재 권상 방식은 그룹당 최소 ${minNodes}개 노드가 필요합니다.` }
+    }
+
+    const appliedNodeCount = Object.values(nextGroups).reduce((n, ids) => n + ids.length, 0)
+    set({
+      hoistGroupCount: appliedGroupCount,
+      activeHoistGroupId: 1,
+      hoistGroups: nextGroups,
+    })
+    return { ok: true, appliedGroupCount, appliedNodeCount, skippedGroupCount, truncatedGroupCount }
+  },
+
+  /**
    * 권상 그룹을 통째로 삭제한다 (단순 비우기가 아니라 카운트도 감소). 삭제된 그룹보다
    * 큰 ID 의 그룹은 한 칸씩 당겨와 ID 가 재정렬된다 (예: 2 삭제 → 기존 3 이 2 가 됨).
    * 최소 1 그룹은 유지하므로 hoistGroupCount === 1 이면 no-op.
@@ -296,6 +366,53 @@ export const useEditStore = create((set, get) => ({
     set(s => ({ hoistGuide: { id: (s.hoistGuide?.id ?? 0) + 1, message, kind } }))
   },
   dismissHoistGuide: () => set({ hoistGuide: null }),
+
+  toggleSupportPick: () => set(s => ({
+    supportPickActive: !s.supportPickActive,
+    supportPickNodes: [],
+  })),
+
+  pickSupportNode: (nodeId) => {
+    if (nodeId == null) return
+    const stage = currentStage()
+    if (stage?.nodeMap && !stage.nodeMap.has(nodeId)) return
+    const cur = get().supportPickNodes
+    if (cur.includes(nodeId)) {
+      set({ supportPickNodes: cur.filter(n => n !== nodeId) })
+      return
+    }
+    const next = [...cur, nodeId]
+    if (next.length < 2) { set({ supportPickNodes: next }); return }
+    const [a, b] = next
+    const res = get().addIntent({
+      kind: 'addSupportBeam',
+      params: { startNode: a, endNode: b, sectionKind: 'L', dims: [100, 100, 10, 10] },
+    })
+    set({ supportPickNodes: [] })
+    if (res.ok) {
+      get().flashHoistGuide(`가서포트 설치됨 (N${a}↔N${b})`, 'success')
+      useUnitStructuralStore.getState().reset()
+    } else {
+      get().flashHoistGuide(res.validation?.errors?.[0] ?? '가서포트 추가 실패', 'error')
+    }
+  },
+
+  // 프로그램적 추가(테스트/대체 진입점) — 검증 통과 시 구조 결과 reset.
+  addSupportBeam: (a, b) => {
+    const res = get().addIntent({
+      kind: 'addSupportBeam',
+      params: { startNode: a, endNode: b, sectionKind: 'L', dims: [100, 100, 10, 10] },
+    })
+    if (res.ok) useUnitStructuralStore.getState().reset()
+    return res
+  },
+
+  removeSupportBeam: (intentId) => {
+    get().removeIntent(intentId)
+    useUnitStructuralStore.getState().reset()
+  },
+
+  markEditedModelUploaded: () => set({ editedModelUploaded: true }),
 
   /**
    * 새 intent 를 추가한다.
@@ -519,6 +636,9 @@ export const useEditStore = create((set, get) => ({
     pipeDiameterThreshold: null,
     hoistToleranceMm: null,
     hoistGuide: null,
+    supportPickActive: false,
+    supportPickNodes: [],
+    editedModelUploaded: false,
   }),
 
   /**
@@ -612,6 +732,126 @@ export const useEditStore = create((set, get) => ({
     }
 
     return { ok: true, results, stability }
+  },
+
+  /**
+   * 권상 위치 자동 선정 — 기존 XY 구역 제안을 seed 로 저장한 뒤
+   * ModuleAnalysis.Cli --optimize 가 자세안정성 평가 절차로 고른 best 그룹을 실제 상태에 적용한다.
+   *
+   * @param {Array<Array<number>>} seedNodeGroups
+   * @param {{lockGroupCount?:boolean, regions?:Array<{id:string, groupId:number, requestedPointCount:number, nodeIds:number[]}>}} [optimization]
+   * @returns {Promise<{ok:boolean, appliedGroupCount?:number, appliedNodeCount?:number, report?:object, error?:string}>}
+   */
+  optimizeHoistGroups: async (seedNodeGroups, optimization = null) => {
+    const seed = get().applyAutoHoistGroups(seedNodeGroups)
+    if (!seed.ok) return seed
+
+    const host = getHost()
+    if (typeof host.optimizeHoistPositions !== 'function') {
+      return { ok: false, error: 'WorkBench 앱이 권상 위치 최적화 채널을 지원하지 않습니다. WorkBench를 최신 버전으로 실행해 주세요.' }
+    }
+
+    const state = get()
+    const hoisting = getHoistExport(state)
+    const hoistError = validateHoistExport(hoisting)
+    if (!hoisting || hoistError) {
+      return { ok: false, error: hoistError ?? '권상 설정이 없습니다.' }
+    }
+
+    const stage = currentStage()
+    const intents = state.intents ?? []
+    const results = []
+
+    let editedFileName = null
+    if (intents.length > 0 && stage) {
+      const editedJson = buildEditedStageJson(stage, intents)
+      const editedJsonStr = JSON.stringify(editedJson, null, 2)
+      editedFileName = buildEditedStageFileName(stage, formatTimestamp)
+      const editedResult = await saveJsonArtifact(editedFileName, editedJsonStr)
+      results.push({ kind: 'edited', ...editedResult })
+      if (!editedResult.ok) {
+        return { ok: false, error: `편집 모델 저장 실패: ${editedResult.error ?? '알 수 없는 오류'}`, results }
+      }
+    }
+
+    const payload = buildPostureStabilityPayload({ ...get(), hoistOptimization: optimization }, hoisting, stage, editedFileName)
+    const postureFileName = buildPosturePayloadFileName(stage)
+    const postureResult = await saveJsonArtifact(postureFileName, JSON.stringify(payload, null, 2))
+    results.push({ kind: 'posture', ...postureResult })
+    if (!postureResult.ok) {
+      return { ok: false, error: `최적화 입력 저장 실패: ${postureResult.error ?? '알 수 없는 오류'}`, results }
+    }
+
+    let posturePath = null
+    if (postureResult.location === 'backend' && postureResult.remotePath) {
+      posturePath = postureResult.remotePath
+    } else if (postureResult.location === 'folder') {
+      const folderRef = useStageStore.getState().sourceFolderRef
+      if (typeof folderRef === 'string' && folderRef.length > 0) {
+        posturePath = joinPath(folderRef, postureFileName)
+      }
+    }
+    if (!posturePath) {
+      return { ok: false, error: '최적화 실행에 필요한 _posture.json 절대경로를 확인할 수 없습니다.', results }
+    }
+
+    useStabilityStore.getState().setRunning(true)
+    try {
+      const optimized = await host.optimizeHoistPositions(posturePath)
+      if (!optimized.ok || !optimized.report) {
+        return { ok: false, error: optimized.error ?? '권상 위치 최적화 실패', results }
+      }
+
+      const best = optimized.report.best ?? optimized.report.Best
+      const bestOverall = best?.overallStatus ?? best?.OverallStatus
+      const stage6Status = best?.metrics?.stage6Status ?? best?.Metrics?.stage6Status
+      if (bestOverall !== 'pass' && stage6Status !== 'pass') {
+        return { ok: false, error: '자세안정성 PASS 후보를 찾지 못했습니다. 권상 그룹 수 또는 권상 방식을 조정해 주세요.', report: optimized.report, results }
+      }
+      const rawGroups = best?.groups ?? best?.Groups
+      if (!Array.isArray(rawGroups) || rawGroups.length === 0) {
+        return { ok: false, error: '최적화 결과에 적용 가능한 best 그룹이 없습니다.', report: optimized.report, results }
+      }
+
+      const nodeGroups = rawGroups
+        .map(g => g.nodeIds ?? g.NodeIds ?? [])
+        .filter(ids => Array.isArray(ids) && ids.length > 0)
+      const applied = get().applyAutoHoistGroups(nodeGroups)
+      if (!applied.ok) {
+        return { ok: false, error: applied.error ?? '최적화 결과 적용 실패', report: optimized.report, results }
+      }
+
+      useStabilityStore.getState().setError(null)
+      return {
+        ok: true,
+        ...applied,
+        report: optimized.report,
+        optimizationPath: optimized.optimizationPath ?? null,
+        results,
+      }
+    } finally {
+      useStabilityStore.getState().setRunning(false)
+    }
+  },
+
+  /**
+   * 편집(회전·유체비우기·삭제·가서포트·RBE) 반영 최종 모델을 Nastran BDF 로 저장.
+   * buildEditedStageJson → host.exportUnitBdf(업로드+백엔드 convert+다운로드+Save-As).
+   * host 미지원(구버전 WorkBench 앱·WebHost) 시 안내 메시지를 반환한다(크래시 없음).
+   * @returns {Promise<{ ok:boolean, savedPath?:string, stats?:object, canceled?:boolean, error?:string }>}
+   */
+  exportEditedBdf: async () => {
+    const stage = currentStage()
+    if (!stage) return { ok: false, error: '모델이 로드되지 않았습니다.' }
+    const host = getHost()
+    if (typeof host.exportUnitBdf !== 'function') {
+      return { ok: false, error: 'BDF 출력은 WorkBench 앱에서 지원됩니다. WorkBench 앱을 최신 버전으로 업데이트하세요.' }
+    }
+    const intents = get().intents ?? []
+    const editedJson = buildEditedStageJson(stage, intents)
+    const content = JSON.stringify(editedJson, null, 2)
+    const fileName = buildEditedStageFileName(stage, formatTimestamp)
+    return host.exportUnitBdf({ fileName, content })
   },
 }))
 
@@ -835,7 +1075,7 @@ export function buildPostureStabilityPayload(state, hoisting, stage, editedFileN
     }
   }
 
-  return {
+  const payload = {
     schema: 'posture-stability/1.0',
     timestamp: formatTimestamp(new Date()),
     sourceFile: stage?.sourceFileName ?? null,
@@ -864,6 +1104,28 @@ export function buildPostureStabilityPayload(state, hoisting, stage, editedFileN
       massSource,
     },
   }
+  if (state.hoistOptimization) {
+    const opt = state.hoistOptimization
+    payload.hoistOptimization = {
+      desiredGroupCount: Number.isInteger(opt.desiredGroupCount) ? opt.desiredGroupCount : null,
+      pointsPerGroup: Number.isInteger(opt.pointsPerGroup) ? opt.pointsPerGroup : null,
+      allowedNodeIds: Array.isArray(opt.allowedNodeIds)
+        ? opt.allowedNodeIds.map(Number).filter(Number.isFinite)
+        : [],
+      lockGroupCount: !!opt.lockGroupCount,
+      regions: Array.isArray(opt.regions) ? opt.regions
+        .filter(r => Array.isArray(r.nodeIds) && r.nodeIds.length > 0)
+        .map(r => ({
+          id: String(r.id ?? ''),
+          groupId: Number(r.groupId),
+          requestedPointCount: Number(r.requestedPointCount),
+          nodeIds: r.nodeIds.map(Number).filter(Number.isFinite),
+        }))
+        .filter(r => Number.isInteger(r.groupId) && r.groupId > 0 && r.nodeIds.length > 0)
+        : [],
+    }
+  }
+  return payload
 }
 
 /**

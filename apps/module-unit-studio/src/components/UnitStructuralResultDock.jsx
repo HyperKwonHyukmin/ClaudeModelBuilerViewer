@@ -13,9 +13,10 @@ const MIN_HEIGHT = 120
  * UnitStructuralResultDock — Unit 구조 해석 결과(F06 파싱 + 매핑)를 화면 하단에
  * 테이블 형태로 보여주는 dock.
  *
- * 두 탭:
+ * 결과 탭:
  *   1. 부재 응력 — members[] 의 elementId / type / maxStressMPa / utilization / exceedsLimit
- *   2. Wire 장력 — wires[] 의 wireElementId / groupId / lugNodeId / axialForceN / 상태
+ *   2. 변위 — displacements[] 의 nodeId / magnitude / T1 / T2 / T3
+ *   3. Wire 장력 — wires[] 의 wireElementId / groupId / lugNodeId / axialForceN / 상태
  *
  * 동작:
  *   - 컬럼 헤더 클릭 → 정렬 (asc/desc 토글)
@@ -35,7 +36,7 @@ export default function UnitStructuralResultDock() {
   const inspectorWidth = useViewerStore(s => s.layoutBounds.inspectorWidth)
 
   const [collapsed, setCollapsed] = useState(false)
-  const [tab, setTab] = useState('members')   // 'members' | 'wires'
+  const [tab, setTab] = useState('members')   // 'members' | 'wires' | 'displacements'
 
   // 사용자가 드래그로 조절한 dock 높이(px). localStorage 에 영구화.
   const [height, setHeight] = useState(() => {
@@ -108,6 +109,8 @@ export default function UnitStructuralResultDock() {
         <div style={{ flex: 1, overflow: 'auto', padding: '6px 10px 10px' }}>
           {tab === 'members' ? (
             <MembersTable members={result.members ?? []} allowable={allowable} />
+          ) : tab === 'displacements' ? (
+            <DisplacementsTable displacements={result.displacements ?? []} />
           ) : (
             <WiresTable wires={result.wires ?? []} />
           )}
@@ -157,6 +160,7 @@ function Header({ summary, allowable, tab, setTab, collapsed, onToggleCollapse }
   const wireCount = summary?.wireCount ?? 0
   const wireComp = summary?.wireCompressionCount ?? 0
   const wireMissing = summary?.wireMissingResultCount ?? 0
+  const dispCount = summary?.nodeDisplacementCount ?? 0
   return (
     <div style={{
       display: 'flex', alignItems: 'center', gap: 10,
@@ -174,6 +178,9 @@ function Header({ summary, allowable, tab, setTab, collapsed, onToggleCollapse }
 
       <TabBtn active={tab === 'members'} onClick={() => setTab('members')}>
         부재 응력 ({memberCount.toLocaleString()}, 초과 {memberExceed})
+      </TabBtn>
+      <TabBtn active={tab === 'displacements'} onClick={() => setTab('displacements')}>
+        변위 ({dispCount.toLocaleString()})
       </TabBtn>
       <TabBtn active={tab === 'wires'} onClick={() => setTab('wires')}>
         Wire 장력 ({wireCount}{wireComp > 0 ? `, 압축 ${wireComp}` : ''}{wireMissing > 0 ? `, 누락 ${wireMissing}` : ''})
@@ -409,6 +416,118 @@ function WiresTable({ wires }) {
   )
 }
 
+// ── Displacements table ──────────────────────────────────────────
+// 노드 변위 결과. 양식은 ModelBuilderStudio 의 변위 테이블을 따른다:
+//   #(순번) / Node ID / |변위|(magnitude, heat bar) / T1 / T2 / T3
+//   기본 정렬 = magnitude 내림차순(최대 변위 노드가 항상 맨 위).
+//   magnitude·성분은 지수표기(변위는 1e-2~1e-5 mm 스케일).
+//   행 클릭 → 해당 노드를 뷰어에서 picked entity(type:'node')로 설정 + focus(확대/하이라이트).
+
+function DisplacementsTable({ displacements }) {
+  const [sortKey, setSortKey] = useState('magnitude')
+  const [sortDir, setSortDir] = useState('desc')
+  const [search, setSearch] = useState('')
+  const setPickedEntity = useViewerStore(s => s.setPickedEntity)
+  const focusPickedEntity = useViewerStore(s => s.focusPickedEntity)
+
+  // heat bar 정규화 기준 — 검색/정렬과 무관하게 전체 최대 |변위| 로 고정해 색 강도 일관성 유지.
+  const maxMag = useMemo(() => {
+    let m = 0
+    for (const d of displacements) {
+      const v = Math.abs(Number(d.magnitude) || 0)
+      if (v > m) m = v
+    }
+    return m
+  }, [displacements])
+
+  const filtered = useMemo(() => {
+    let rows = displacements
+    const q = search.trim()
+    if (q) rows = rows.filter(d => String(d.nodeId).includes(q))
+    rows = [...rows].sort((a, b) => {
+      const va = a[sortKey], vb = b[sortKey]
+      const sign = sortDir === 'asc' ? 1 : -1
+      if (typeof va === 'number' && typeof vb === 'number') return (va - vb) * sign
+      return String(va ?? '').localeCompare(String(vb ?? '')) * sign
+    })
+    return rows
+  }, [displacements, search, sortKey, sortDir])
+
+  const handleSort = (k) => {
+    if (sortKey === k) setSortDir(d => (d === 'asc' ? 'desc' : 'asc'))
+    else { setSortKey(k); setSortDir('desc') }
+  }
+
+  const handleRowClick = (d) => {
+    if (!Number.isInteger(d.nodeId)) return
+    setPickedEntity({
+      type: 'node',
+      nodeId: d.nodeId,
+      source: 'unitStructuralResult',
+    })
+    focusPickedEntity()
+  }
+
+  const fmtExp = (v, digits) => (Number.isFinite(Number(v)) ? Number(v).toExponential(digits) : '-')
+
+  return (
+    <div>
+      <Toolbar>
+        <input
+          type="text"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Node ID 검색"
+          style={inputStyle}
+        />
+        <span style={{ fontSize: 11, color: '#7aa6c8', marginLeft: 'auto' }}>
+          표시 {filtered.length.toLocaleString()} / 총 {displacements.length.toLocaleString()}
+        </span>
+      </Toolbar>
+
+      <table style={tableStyle}>
+        <thead>
+          <tr style={trHeadStyle}>
+            <ThStatic width={44} align="right">#</ThStatic>
+            <Th onClick={() => handleSort('nodeId')} active={sortKey === 'nodeId'} dir={sortDir} width={100}>Node ID</Th>
+            <Th onClick={() => handleSort('magnitude')} active={sortKey === 'magnitude'} dir={sortDir} width={150} align="right">|변위|</Th>
+            <Th onClick={() => handleSort('t1')} active={sortKey === 't1'} dir={sortDir} width={110} align="right">T1</Th>
+            <Th onClick={() => handleSort('t2')} active={sortKey === 't2'} dir={sortDir} width={110} align="right">T2</Th>
+            <Th onClick={() => handleSort('t3')} active={sortKey === 't3'} dir={sortDir} width={110} align="right">T3</Th>
+          </tr>
+        </thead>
+        <tbody>
+          {filtered.slice(0, 1000).map((d, i) => (
+            <tr
+              key={d.nodeId}
+              onClick={() => handleRowClick(d)}
+              style={trBodyStyle(false)}
+              title="클릭 → 뷰어에서 노드 선택"
+            >
+              <td style={{ ...tdStyle, textAlign: 'right', color: '#5a6a86', fontVariantNumeric: 'tabular-nums' }}>{i + 1}</td>
+              <td style={{ ...tdStyle, fontVariantNumeric: 'tabular-nums' }}>{d.nodeId}</td>
+              <HeatCell value={Number(d.magnitude)} max={maxMag} color="#90E8FF" text={fmtExp(d.magnitude, 3)} />
+              <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'monospace' }}>{fmtExp(d.t1, 2)}</td>
+              <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'monospace' }}>{fmtExp(d.t2, 2)}</td>
+              <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'monospace' }}>{fmtExp(d.t3, 2)}</td>
+            </tr>
+          ))}
+          {filtered.length > 1000 && (
+            <tr><td colSpan={6} style={{ ...tdStyle, textAlign: 'center', color: '#7aa6c8' }}>
+              ... {(filtered.length - 1000).toLocaleString()}개 더 있음 (Node ID 검색으로 좁혀주세요)
+            </td></tr>
+          )}
+          {displacements.length === 0 && (
+            <tr><td colSpan={6} style={{ ...tdStyle, textAlign: 'center', color: '#7aa6c8' }}>
+              변위 결과가 없습니다.
+            </td></tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 // ── 공용 스타일/컴포넌트 ─────────────────────────────────────────
 
 function Toolbar({ children }) {
@@ -437,6 +556,33 @@ function Th({ children, onClick, active, dir, width, align }) {
       {children}
       {active && <span style={{ marginLeft: 4 }}>{dir === 'asc' ? '▲' : '▼'}</span>}
     </th>
+  )
+}
+
+// 정렬 불가 헤더 (예: 순번 #). Th 와 동일 스타일이되 클릭/정렬 어포던스 없음.
+function ThStatic({ children, width, align }) {
+  return (
+    <th style={{ ...thStyle, textAlign: align ?? 'left', width, minWidth: width, color: '#7a8aaa' }}>
+      {children}
+    </th>
+  )
+}
+
+// |변위| 셀 — 우측에서 자라는 heat bar(전체 최댓값 기준 정규화)로 최대 변위 노드를 시각적으로 부각.
+function HeatCell({ value, max, color, text }) {
+  const ratio = max > 0 && Number.isFinite(value)
+    ? Math.max(0, Math.min(1, Math.abs(value) / max))
+    : 0
+  return (
+    <td style={{ ...tdStyle, position: 'relative', textAlign: 'right', fontFamily: 'monospace', fontWeight: 700 }}>
+      <div style={{
+        position: 'absolute', right: 0, top: 3, bottom: 3,
+        width: `${ratio * 100}%`, minWidth: ratio > 0 ? 2 : 0,
+        background: `${color}26`, borderRight: `2px solid ${color}`,
+        borderRadius: '2px 0 0 2px', pointerEvents: 'none',
+      }} />
+      <span style={{ position: 'relative', color, fontVariantNumeric: 'tabular-nums' }}>{text}</span>
+    </td>
   )
 }
 

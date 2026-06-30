@@ -7,6 +7,7 @@ import { applyGroupVisibility } from '../three/GroupVisibility.js'
 import { applyDeleteMask } from '../three/applyDeleteMask.js'
 import { buildBrokenRbeHighlight } from '../three/BrokenRbeHighlight.js'
 import { buildAddRigidPreview } from '../three/AddRigidPreview.js'
+import { buildSupportBeamPreview, buildSupportBeam3D } from '../three/SupportBeamPreview.js'
 import { buildElementsHighlight, buildNodesHighlight, buildMultiSelectionHighlight, buildMultiSelElementHighlight } from '../three/SelectionHighlight.js'
 import { buildCenterOfGravityMarker } from '../three/CenterOfGravityMarker.js'
 import { buildHoistGroupHighlight } from '../three/HoistGroupHighlight.js'
@@ -19,6 +20,7 @@ import { buildStabilityWireOverlay } from '../three/StabilityWireOverlay.js'
 import { buildStabilityIssueOverlay } from '../three/StabilityIssueOverlay.js'
 import { buildSlingAngleOverlay, hasSlingAngleIssues } from '../three/SlingAngleOverlay.js'
 import { buildNastranResultOverlay } from '../three/NastranResultOverlay.js'
+import { computeOrthoPanSpeed } from '../three/orthoPan.js'
 import { useUnitStructuralStore } from '../store/useUnitStructuralStore.js'
 import { useEditStore, computeMassFallback } from '../store/useEditStore.js'
 import { useStageStore } from '../store/useStageStore.js'
@@ -30,6 +32,18 @@ const DRAG_THRESHOLD = 3  // px — moves less than this are treated as a click
 const AXES_PX      = 108  // corner indicator size (CSS px)
 const AXES_MARGIN  = 10   // margin from corner
 const DAMPING_TAIL = 800  // ms to keep rendering after drag ends (for inertia)
+const RESULT_SELECTION_HIGHLIGHT = {
+  color: 0xFFE600,
+  opacity: 0.96,
+  radius: 0.039,
+  renderOrder: 120,
+}
+const RESULT_SELECTION_NODE_HIGHLIGHT = {
+  color: 0xFFE600,
+  opacity: 0.92,
+  radius: 0.0425,
+  renderOrder: 121,
+}
 
 /**
  * Single Three.js viewport.
@@ -45,7 +59,7 @@ const DAMPING_TAIL = 800  // ms to keep rendering after drag ends (for inertia)
  *
  * Bottom-left corner: live XYZ axes indicator.
  */
-export default function ThreeViewport({ stageData, layers, onReady, onPick, onHover, colorMode = 'category', freeNodeFilters, groupFilters, selectedEntity, isolateSelection = false, renderMode = 'cylinder', displayStyle = 'shaded', pickFilters, isEditTargetStage = true, hoistPickEnabled = false }) {
+export default function ThreeViewport({ stageData, layers, onReady, onPick, onHover, colorMode = 'category', freeNodeFilters, groupFilters, selectedEntity, isolateSelection = false, renderMode = 'cylinder', displayStyle = 'shaded', pickFilters, isEditTargetStage = true, hoistPickEnabled = false, supportPickEnabled = false }) {
   const [sceneError, setSceneError] = useState(null)
   const containerRef = useRef(null)
   const rendererRef  = useRef(null)
@@ -67,7 +81,8 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
     return r
   })())
   const pointerDownRef = useRef(null)   // { x, y } at pointerdown
-  const fitStateRef    = useRef(null)   // { position, target, up } saved by fitCamera
+  const fitStateRef    = useRef(null)   // { position, target, up, zoom } saved by fitCamera
+  const sceneRadiusRef = useRef(20)     // model scale in scene metres, used for adaptive clip planes
   const highlightRef   = useRef(null)   // current selection highlight Group
   const brokenRbeRef   = useRef(null)   // broken RBE 노란 overlay (편집 모드)
   const selectedElementIdsRef = useRef(new Set())
@@ -98,6 +113,9 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
   const flashHoistGuide        = useEditStore(s => s.flashHoistGuide)
   const pipeDiameterThreshold  = useEditStore(s => s.pipeDiameterThreshold)
   const hoistToleranceMm       = useEditStore(s => s.hoistToleranceMm)
+  const supportPickActive      = useEditStore(s => s.supportPickActive)
+  const supportPickNodes       = useEditStore(s => s.supportPickNodes)
+  const pickSupportNode        = useEditStore(s => s.pickSupportNode)
   // 편집 대상 단계(마지막 단계)가 아닌 viewport 에서는 미리보기를 적용하지 않는다.
   // 그 단계의 group/node ID 가 마지막 단계와 다를 수 있어 의도와 무관한 노드가 hide 될 위험.
   const deleteMask = useMemo(
@@ -122,12 +140,17 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
       // 권상 픽킹은 상단 Hoist 탭에서만 — hoistMode 가 남아있어도 다른 탭에선 Shift+클릭이
       // 권상 노드 추가로 새지 않도록 게이트. (Edit 의 rigid/다중선택 Shift 흐름과 충돌 방지)
       hoistPickEnabled,
+      supportPickEnabled,
+      supportPickActive,
+      pickSupportNode,
     }
-  }, [editEnabled, isEditTargetStage, toggleNodeSelection, toggleMultiSelElement, clearMultiSelElements, addHoistNode, flashHoistGuide, deleteMask, pendingNodeSelection.length, hoistMode, hoistPickEnabled])
+  }, [editEnabled, isEditTargetStage, toggleNodeSelection, toggleMultiSelElement, clearMultiSelElements, addHoistNode, flashHoistGuide, deleteMask, pendingNodeSelection.length, hoistMode, hoistPickEnabled, supportPickEnabled, supportPickActive, pickSupportNode])
 
   const multiSelRef     = useRef(null)   // 다중 선택 노드 overlay (노란 sphere)
   const multiSelElemRef = useRef(null)   // Ctrl+Click 다중 선택 element overlay (주황 cylinder)
   const addRigidRef = useRef(null)   // addRigid intent 미리보기 overlay (노란 점선)
+  const supportBeamRef = useRef(null)   // 가서포트 미리보기 overlay (청록 실선)
+  const supportPickRef = useRef(null)   // 가서포트 픽 진행 중 선택 노드 하이라이트 (노란 sphere)
   const hoistRef    = useRef(null)   // 권상 그룹 노드 overlay
   const cogRef      = useRef(null)   // 무게중심 마커 (sphere + cross + 라벨)
   const polygonRef  = useRef(null)   // 권상 그룹별 도형(line/triangle/quad) overlay — hoistGroups 직접 파생
@@ -243,8 +266,9 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
     container.appendChild(renderer.domElement)
     rendererRef.current = renderer
 
-    // Camera
-    const camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.01, 10000)
+    // Camera — orthographic only. ModuleUnitStudio no longer exposes perspective projection.
+    const aspect0 = container.clientWidth / container.clientHeight
+    const camera = new THREE.OrthographicCamera(-aspect0, aspect0, 1, -1, 0.01, 20000)
     camera.position.set(20, 15, 30)
     cameraRef.current = camera
 
@@ -286,8 +310,8 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
     // ── TrackballControls — unlimited 3D rotation ─────────────────────
     const controls = new TrackballControls(camera, renderer.domElement)
     controls.rotateSpeed = 1.5             // was 4.0 — finer control
-    controls.zoomSpeed   = 0.7             // was 1.2
-    controls.panSpeed    = 0.25            // was 0.5
+    controls.zoomSpeed   = 1.2             // middle-button drag / pinch zoom; wheel is handled below
+    controls.panSpeed    = 0.72
     controls.staticMoving   = false        // keep inertia
     controls.dynamicDampingFactor = 0.2   // slightly more damping for crispness
     controls.mouseButtons = {
@@ -303,6 +327,7 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
 
     const animate = () => {
       controls.update()   // applies inertia; fires 'change' for camera sync
+      updateClipPlanes(camera, controls, sceneRadiusRef.current)
       doRender()
       if (active || Date.now() - endTime < DAMPING_TAIL) {
         animRafRef.current = requestAnimationFrame(animate)
@@ -313,6 +338,8 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
 
     const onStart = () => {
       active = true
+      const dist = camera.position.distanceTo(controls.target)
+      controls.panSpeed = computeOrthoPanSpeed(dist, renderer.domElement.clientWidth, 0.72)
       if (!animRafRef.current) animRafRef.current = requestAnimationFrame(animate)
     }
     const onEnd = () => {
@@ -323,6 +350,58 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
     controls.addEventListener('start', onStart)
     controls.addEventListener('end',   onEnd)
 
+    // ── Wheel: orthographic zoom-to-cursor ───────────────────────────
+    // TrackballControls' default wheel zoom is centered on controls.target. In
+    // orthographic mode, intercept the wheel and keep the cursor's target plane
+    // point fixed on screen while changing camera.zoom.
+    const onWheelZoom = (e) => {
+      if (e.target !== renderer.domElement) return
+      e.preventDefault()
+      e.stopPropagation()
+
+      const rect = renderer.domElement.getBoundingClientRect()
+      if (!rect.width || !rect.height) return
+
+      const unit = e.deltaMode === 1 ? 0.04 : e.deltaMode === 2 ? 0.4 : 0.0016
+      const factor = Math.exp(-e.deltaY * unit)
+      const oldZoom = camera.zoom
+      const newZoom = THREE.MathUtils.clamp(oldZoom * factor, controls.minZoom || 0.02, controls.maxZoom || 1000)
+      if (Math.abs(newZoom - oldZoom) < 1e-9) return
+
+      const ndc = new THREE.Vector2(
+        ((e.clientX - rect.left) / rect.width) * 2 - 1,
+        -((e.clientY - rect.top) / rect.height) * 2 + 1,
+      )
+      const raycaster = raycasterRef.current
+      raycaster.setFromCamera(ndc, camera)
+
+      const target = controls.target
+      const viewNormal = new THREE.Vector3().subVectors(camera.position, target).normalize()
+      const denom = raycaster.ray.direction.dot(viewNormal)
+      const cursorPlanePoint = new THREE.Vector3()
+      if (Math.abs(denom) > 1e-6) {
+        const t = new THREE.Vector3().subVectors(target, raycaster.ray.origin).dot(viewNormal) / denom
+        cursorPlanePoint.copy(raycaster.ray.origin).addScaledVector(raycaster.ray.direction, t)
+      } else {
+        cursorPlanePoint.copy(target)
+      }
+
+      camera.zoom = newZoom
+      camera.updateProjectionMatrix()
+
+      const k = 1 - oldZoom / newZoom
+      const offset = new THREE.Vector3().subVectors(cursorPlanePoint, target)
+      offset.addScaledVector(viewNormal, -offset.dot(viewNormal))
+      offset.multiplyScalar(k)
+      camera.position.add(offset)
+      target.add(offset)
+
+      updateClipPlanes(camera, controls, sceneRadiusRef.current)
+      controls.update()
+      requestRender()
+    }
+    container.addEventListener('wheel', onWheelZoom, { capture: true, passive: false })
+
     // ── F key: restore to last fitCamera view ────────────────────────
     const restoreFitView = () => {
       const s = fitStateRef.current
@@ -330,6 +409,9 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
         camera.position.copy(s.position)
         camera.up.copy(s.up)
         controls.target.copy(s.target)
+        camera.zoom = s.zoom ?? camera.zoom
+        updateClipPlanes(camera, controls, sceneRadiusRef.current)
+        camera.updateProjectionMatrix()
         controls.update()
       }
       requestRender()
@@ -368,6 +450,7 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
         camera.up.copy(up)
         controls.target.set(0, 0, 0)
         camera.lookAt(controls.target)
+        updateClipPlanes(camera, controls, sceneRadiusRef.current)
         controls.update()
         requestRender()
       }
@@ -379,7 +462,10 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
       const w = container.clientWidth
       const h = container.clientHeight
       renderer.setSize(w, h)
-      camera.aspect = w / h
+      const halfH = (camera.top - camera.bottom) / 2
+      const halfW = halfH * (w / h)
+      camera.left = -halfW
+      camera.right = halfW
       camera.updateProjectionMatrix()
       controls.handleResize()   // TrackballControls needs explicit resize notification
       // LineMaterial(Line2/LineSegments2) 들은 픽셀 단위 굵기 환산을 위해 resolution 을 직접 갱신해야 한다.
@@ -422,8 +508,9 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
       const pickables = sceneDataRef.current.pickables
       const editState = editStateRef.current
       const hoistPickMode = editState.isTarget && editState.hoistPickEnabled && editState.hoistMode && e.shiftKey
-      const rigidPickMode = !hoistPickMode && editState.enabled && editState.isTarget && (e.shiftKey || editState.hasPendingNodes)
-      const nodeOnlyPickMode = hoistPickMode || rigidPickMode
+      const supportPickMode = !hoistPickMode && editState.isTarget && editState.supportPickEnabled && editState.supportPickActive && e.shiftKey
+      const rigidPickMode = !hoistPickMode && !supportPickMode && editState.enabled && editState.isTarget && (e.shiftKey || editState.hasPendingNodes)
+      const nodeOnlyPickMode = hoistPickMode || supportPickMode || rigidPickMode
       const targets = getPickTargets(pickables, pickFiltersRef.current, nodeOnlyPickMode)
       // 레이어가 꺼진 객체는 picking 대상에서도 제외 — 화면에 안 보이는 객체를 잘못 집지 않도록.
       // RBE LineSegments 는 'rigids' 그룹 자식이라 그룹의 visible 을 거슬러 올라가 확인.
@@ -464,6 +551,11 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
           // Wire 는 일반 CROD 요소이므로 RBE2 independent/dependent 노드에 연결해도
           // MPC dependent 중복이 발생하지 않는다. RBE 연결 여부와 무관하게 권상점 선택을 허용한다.
           editState.addHoistNode(nodeId)
+          return
+        }
+        // 가서포트(보강) 픽 — Analysis 탭에서 Shift+Node 2개 선택 시 L beam 설치.
+        if (supportPickMode && nodeId != null) {
+          editState.pickSupportNode(nodeId)
           return
         }
         // 권상 모드 미선택 상태에서 Shift+클릭 — 가이드 토스트로 안내.
@@ -618,6 +710,7 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
       controls.removeEventListener('end',   onEnd)
       controls.dispose()
 
+      container.removeEventListener('wheel', onWheelZoom, { capture: true })
       renderer.domElement.removeEventListener('pointerdown', onPointerDown)
       renderer.domElement.removeEventListener('pointerup',   onPointerUp)
       renderer.domElement.removeEventListener('pointermove', onPointerMove)
@@ -649,6 +742,11 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
       disposeScene(multiSelRef.current)
       multiSelRef.current = null
     }
+    if (supportPickRef.current) {
+      scene.remove(supportPickRef.current)
+      disposeScene(supportPickRef.current)
+      supportPickRef.current = null
+    }
     if (multiSelElemRef.current) {
       scene.remove(multiSelElemRef.current)
       disposeScene(multiSelElemRef.current)
@@ -658,6 +756,11 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
       scene.remove(addRigidRef.current)
       disposeScene(addRigidRef.current)
       addRigidRef.current = null
+    }
+    if (supportBeamRef.current) {
+      scene.remove(supportBeamRef.current)
+      disposeScene(supportBeamRef.current)
+      supportBeamRef.current = null
     }
     if (hoistRef.current) {
       scene.remove(hoistRef.current)
@@ -733,12 +836,13 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
 
       applyFullVisibility(sceneData, layers, groupFilters, stageData, isolateSelection, selectedElementIdsRef.current, freeNodeFilters, deleteMask, hideNodeIds, displayStyle)
 
-      fitCamera(stageData, cameraRef.current, controlsRef.current)
+      sceneRadiusRef.current = fitCamera(stageData, cameraRef.current, controlsRef.current)
       // Save state so double-click can restore this exact view
       fitStateRef.current = {
         position: cameraRef.current.position.clone(),
         target:   controlsRef.current.target.clone(),
         up:       cameraRef.current.up.clone(),
+        zoom:     cameraRef.current.zoom,
       }
       setTimeout(() => setSceneError(null), 0)
       requestRender()
@@ -799,6 +903,29 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
     }
     requestRender()
   }, [pendingNodeSelection, editEnabled, isEditTargetStage, stageData, requestRender])
+
+  // ── 가서포트 픽 진행 중 선택 노드 하이라이트 (Analysis 탭) ──────────────
+  // Shift+Node 1개 선택 시 노란 sphere 로 강조. 2개째 선택되면 가서포트가 생성되고
+  // supportPickNodes 가 비워져 하이라이트가 사라지며 청록 실선(설치 결과)으로 인계된다.
+  useEffect(() => {
+    const scene = sceneRef.current
+    if (!scene) return
+    if (supportPickRef.current) {
+      scene.remove(supportPickRef.current)
+      disposeScene(supportPickRef.current)
+      supportPickRef.current = null
+    }
+    if (!stageData || !supportPickActive || !isEditTargetStage || !supportPickNodes?.length) {
+      requestRender()
+      return
+    }
+    const group = buildMultiSelectionHighlight(supportPickNodes, stageData)
+    if (group.children.length > 0) {
+      scene.add(group)
+      supportPickRef.current = group
+    }
+    requestRender()
+  }, [supportPickNodes, supportPickActive, isEditTargetStage, stageData, requestRender])
 
   // ── Ctrl+Click 다중 선택 element overlay (주황 cylinder) ───────────────
   useEffect(() => {
@@ -887,6 +1014,28 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
     if (line) {
       scene.add(line)
       addRigidRef.current = line
+    }
+    requestRender()
+  }, [deleteMask, stageData, renderMode, colorMode, requestRender])
+
+  // ── 가서포트 미리보기 overlay (청록 실선) ──────────────────────────────
+  useEffect(() => {
+    const scene = sceneRef.current
+    if (!scene) return
+    if (supportBeamRef.current) {
+      scene.remove(supportBeamRef.current)
+      disposeScene(supportBeamRef.current)
+      supportBeamRef.current = null
+    }
+    const supports = deleteMask?.addedSupportBeams ?? []
+    if (!stageData || supports.length === 0) { requestRender(); return }
+    // 3D 단면 토글(renderMode='section3d') ON → 실제 L 단면 3D 메시, 아니면 청록 실선.
+    const obj = renderMode === 'section3d'
+      ? buildSupportBeam3D(stageData, supports)
+      : buildSupportBeamPreview(stageData, supports)
+    if (obj) {
+      scene.add(obj)
+      supportBeamRef.current = obj
     }
     requestRender()
   }, [deleteMask, stageData, renderMode, colorMode, requestRender])
@@ -1227,17 +1376,28 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
 
     let group = null
     if (selectedEntity.type === 'node') {
-      // Node selected → highlight all connected elements
+      // Node selected (결과 테이블 변위 행 클릭 등) → 노드 자체를 구체로 강조 +
+      // 연결된 모든 element 도 함께 강조 (변위는 노드량이라 그 노드 위치가 명확히 보여야 함).
       const connected = stageData.elements.filter(
         e => e.startNode === selectedEntity.nodeId || e.endNode === selectedEntity.nodeId
       )
       selectedElementIdsRef.current = new Set(connected.map(e => e.id))
-      group = buildElementsHighlight(connected.map(e => e.id), stageData)
+      const composite = new THREE.Group()
+      if (connected.length > 0) composite.add(buildElementsHighlight(connected.map(e => e.id), stageData))
+      composite.add(buildNodesHighlight([selectedEntity.nodeId], stageData))
+      if (composite.children.length > 0) group = composite
     } else if (selectedEntity.type === 'element') {
-      // Element selected → highlight its two endpoint nodes
+      // Element selected (결과 테이블 응력 행 클릭 등) → 부재 자체를 두꺼운 실린더로 강조 +
+      // 위치 식별을 돕도록 양 끝 노드 구체도 함께 표시 (부재만 칠하면 가는 빔이 잘 안 보임).
       const nodeIds = [selectedEntity.startNode, selectedEntity.endNode].filter(Boolean)
       selectedElementIdsRef.current = new Set([selectedEntity.id])
-      group = buildNodesHighlight(nodeIds, stageData)
+      const isResultSelection = selectedEntity.source === 'unitStructuralResult'
+      const elemHighlightStyle = isResultSelection ? RESULT_SELECTION_HIGHLIGHT : undefined
+      const nodeHighlightStyle = isResultSelection ? RESULT_SELECTION_NODE_HIGHLIGHT : undefined
+      const composite = new THREE.Group()
+      composite.add(buildElementsHighlight([selectedEntity.id], stageData, elemHighlightStyle))
+      if (nodeIds.length > 0) composite.add(buildNodesHighlight(nodeIds, stageData, nodeHighlightStyle))
+      if (composite.children.length > 0) group = composite
     } else if (selectedEntity.type === 'rigid') {
       // RBE 선택 → 독립노드 + 모든 종속노드를 함께 강조 (RBE 자체는 line 이라 그대로 두고 노드만 표시)
       const nodeIds = [selectedEntity.independentNode, ...(selectedEntity.dependentNodes ?? [])]
@@ -1432,6 +1592,18 @@ function applyElementIsolation(object, isolateSelection, selectedElementIds) {
   object.visible = hasSelected
 }
 
+function updateClipPlanes(camera, controls, sceneRadius) {
+  const camDist = camera.position.distanceTo(controls.target)
+  const r = sceneRadius > 0 ? sceneRadius : 20
+  const near = 0.01
+  const far = Math.max(camDist + r * 20, r * 40, 100)
+  if (camera.near !== near || camera.far !== far) {
+    camera.near = near
+    camera.far = far
+    camera.updateProjectionMatrix()
+  }
+}
+
 function fitCamera(stageData, camera, controls) {
   const bbox = stageData.bbox
   const dx = (bbox.maxX - bbox.minX) / 1000
@@ -1442,25 +1614,30 @@ function fitCamera(stageData, camera, controls) {
   // Target is always the model centre in scene space (0,0,0 after centring)
   controls.target.set(0, 0, 0)
 
-  const fov  = camera.fov * (Math.PI / 180)
-  const dist = (size / 2) / Math.tan(fov / 2) * 1.5
-
   // Z-up 좌표계: X 종방향, Y 횡방향, Z 수직
   // 카메라를 X+ / Y- / Z+ 방향에서 바라봄 (정면 우측 상단 시점)
   camera.up.set(0, 0, 1)
+  const dist = size * 3
   camera.position.set(dist * 0.9, -dist * 0.7, dist * 0.6)
 
   // Explicitly orient the camera towards the rotation centre so TrackballControls
   // initialises its internal _eye vector correctly.
   camera.lookAt(controls.target)
 
-  camera.near = dist * 0.001
-  camera.far  = dist * 100
+  const aspect = ((camera.right - camera.left) / (camera.top - camera.bottom)) || 1
+  const halfH = (size / 2) * 1.2
+  camera.top = halfH
+  camera.bottom = -halfH
+  camera.left = -halfH * aspect
+  camera.right = halfH * aspect
+  camera.zoom = 1
   camera.updateProjectionMatrix()
 
-  controls.minDistance = dist * 0.01
-  controls.maxDistance = dist * 50
+  controls.minZoom = 0.02
+  controls.maxZoom = 1000
+  updateClipPlanes(camera, controls, size)
   controls.update()
+  return size
 }
 
 function focusEntity(entity, stageData, camera, controls, requestRender) {
@@ -1516,9 +1693,14 @@ function focusEntity(entity, stageData, camera, controls, requestRender) {
   dir.normalize()
 
   controls.target.copy(center)
-  camera.position.copy(center).addScaledVector(dir, radius * 5)
-  camera.near = Math.max(0.001, radius * 0.01)
-  camera.far = Math.max(camera.far, radius * 200)
+
+  // Orthographic focus keeps the current view direction and changes framing
+  // through zoom. Distance only needs to be sufficient for clipping.
+  camera.position.copy(center).addScaledVector(dir, Math.max(radius * 8, 1))
+  const halfH = (camera.top - camera.bottom) / 2
+  const desired = Math.max(radius * 1.4, 1e-4)
+  camera.zoom = THREE.MathUtils.clamp(halfH / desired, controls.minZoom || 0.02, controls.maxZoom || 1000)
+  updateClipPlanes(camera, controls, Math.max(radius, 1))
   camera.updateProjectionMatrix()
   controls.update()
   requestRender()
@@ -1591,4 +1773,47 @@ function _makeLabel(text, color, x, y, z) {
   sprite.scale.set(0.28, 0.28, 0.28)
   sprite.position.set(x, y, z)
   return sprite
+}
+
+// 향후 노드 색상 증분 업데이트 재도입 시 사용할 보조 함수.
+// eslint-disable-next-line no-unused-vars
+function updateNodeColors(mesh, stageData, colorMode) {
+  const ud = mesh?.userData
+  if (!ud || !mesh.count) return
+  const ids = ud.nodeIds
+  const baseColors = ud.nodeBaseColors
+
+  let usageMap = null
+  if (colorMode === 'freeNode') {
+    usageMap = new Map()
+    for (const id of ids) usageMap.set(id, 0)
+    for (const e of stageData.elements) {
+      if (e.startNode != null) usageMap.set(e.startNode, (usageMap.get(e.startNode) ?? 0) + 1)
+      if (e.endNode   != null) usageMap.set(e.endNode,   (usageMap.get(e.endNode)   ?? 0) + 1)
+    }
+  }
+
+  const rbeNodeSet = ud.rbeNodeSet ?? new Set()
+
+  const COLOR_NORMAL   = new THREE.Color(0xff4444)
+  const COLOR_FREE_END = new THREE.Color(0xF2C94C)
+  const COLOR_ORPHAN   = new THREE.Color(0xB46DFF)
+
+  for (let i = 0; i < mesh.count; i++) {
+    const id = ids[i]
+    let cat = 'normal'
+    if (usageMap) {
+      if (rbeNodeSet.has(id)) {
+        cat = 'normal'
+      } else {
+        const cnt = usageMap.get(id) ?? 0
+        cat = cnt === 0 ? 'orphan' : cnt === 1 ? 'free' : 'normal'
+      }
+    }
+    const col = cat === 'orphan' ? COLOR_ORPHAN : cat === 'free' ? COLOR_FREE_END : COLOR_NORMAL
+    mesh.setColorAt(i, col)
+    if (baseColors && baseColors[i]) baseColors[i].copy(col)
+  }
+
+  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
 }

@@ -7,10 +7,13 @@ import {
   Loader2,
   ChevronRight,
   Play,
+  Wrench,
+  Trash2,
 } from 'lucide-react'
 import { useStabilityStore } from '../store/useStabilityStore.js'
 import { useUnitStructuralStore } from '../store/useUnitStructuralStore.js'
 import { useUnitStructuralRunner } from '../hooks/useUnitStructuralRunner.js'
+import { useEditStore } from '../store/useEditStore.js'
 
 /**
  * AnalyzePanel — 상단 메뉴바 'Analyze' 모드의 좌측 도크 본문.
@@ -50,6 +53,15 @@ export default function AnalyzePanel() {
   const us = useUnitStructuralRunner()
   const openStructuralPanel = useUnitStructuralStore(s => s.openPanel)
 
+  // ── 가서포트(보강) ────────────────────────────────────────────
+  const supportPickActive = useEditStore(s => s.supportPickActive)
+  const toggleSupportPick = useEditStore(s => s.toggleSupportPick)
+  const removeSupportBeam = useEditStore(s => s.removeSupportBeam)
+  // ⚠️ 셀렉터에서 .filter() 로 새 배열을 반환하면 Zustand v5 가 매 렌더마다 다른 참조로 보고
+  // 무한 렌더 루프에 빠진다(패널 크래시 → 빈 화면). 안정적인 intents 참조만 구독하고 본문에서 필터링.
+  const intents = useEditStore(s => s.intents)
+  const supportBeams = intents.filter(i => i.kind === 'addSupportBeam')
+
   const hasStabilityResult = !!stabilityReport || !!stabilityError
   const inputsDisabled = us.isRunning || us.isFinished
 
@@ -74,7 +86,7 @@ export default function AnalyzePanel() {
       }}>
         <Activity size={15} color="#6ee7b7" />
         <span style={{ fontSize: 12, fontWeight: 900, color: '#e6f1ff', letterSpacing: 0.5 }}>
-          해석 (Analyze)
+          해석 (Analysis)
         </span>
       </div>
 
@@ -100,6 +112,60 @@ export default function AnalyzePanel() {
           <Hint>
             Hoist 탭에서 평가를 먼저 실행하면 여기서 결과를 다시 열 수 있습니다.
           </Hint>
+        )}
+      </Section>
+
+      {/* ── 섹션: 가서포트(보강) 추가 ─────────────────── */}
+      <Section label="가서포트(보강)">
+        <button
+          type="button"
+          onClick={toggleSupportPick}
+          title="버튼을 켠 뒤 3D 뷰에서 Shift + Node 2개를 클릭하면 L100×100×10t 보강재가 설치됩니다."
+          style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+            width: '100%', padding: '8px 10px', borderRadius: 6,
+            fontSize: 11.5, fontWeight: 800, letterSpacing: 0.3, cursor: 'pointer',
+            background: supportPickActive ? 'rgba(45,212,191,0.18)' : '#0f0f1e',
+            color: supportPickActive ? '#5eead4' : '#ccd8e8',
+            border: `1px solid ${supportPickActive ? '#2DD4BF' : '#2a2a40'}`,
+            transition: 'all 0.15s ease',
+          }}
+        >
+          <Wrench size={14} />
+          {supportPickActive ? '가서포트 설치 모드 — Shift+Node 2개' : '가서포트 추가'}
+        </button>
+        {supportPickActive && (
+          <Hint>Shift + Node 2개를 선택하면 두 노드를 잇는 L100×100×10t 보강재가 설치됩니다.</Hint>
+        )}
+        {supportBeams.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {supportBeams.map((sb) => (
+              <div key={sb.id} style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6,
+                padding: '5px 8px', background: 'rgba(45,212,191,0.08)',
+                border: '1px solid rgba(45,212,191,0.35)', borderRadius: 6,
+              }}>
+                <span style={{ fontSize: 10.5, color: '#bfe9d8', fontWeight: 700 }}>
+                  L100×100×10t · N{sb.params?.startNode}↔N{sb.params?.endNode}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => removeSupportBeam(sb.id)}
+                  title="이 가서포트 제거"
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    width: 22, height: 22, borderRadius: 5, cursor: 'pointer',
+                    background: 'transparent', border: '1px solid #2a2a4a', color: '#FF8090',
+                  }}
+                >
+                  <Trash2 size={12} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        {supportBeams.length > 0 && (
+          <Hint>보강 후 아래 "구조 해석 실행"을 누르면 가서포트가 반영되어 재해석됩니다.</Hint>
         )}
       </Section>
 
