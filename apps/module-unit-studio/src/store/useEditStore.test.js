@@ -1211,25 +1211,26 @@ describe('zoneSelectHoistPositions', () => {
     connectivity: { groupCount: 1, largestGroupNodeCount: 12, isolatedNodeCount: 0, groups: [{ id: 0, nodeIds: Array.from({ length: 12 }, (_, i) => i + 1), elementIds: [] }] },
     healthMetrics: { totals: { nodeCount: 12, elementCount: 0, rigidCount: 0, pointMassCount: 0, bbox: { minX: 0, maxX: 500, minY: 0, maxY: 100, minZ: 1000, maxZ: 1000 } }, issues: {} },
   })
-  const tallStage = () => new StageData({
+  const sparseStage = () => new StageData({
     meta: { phase: 'C', stageName: 'C', unit: 'mm', schemaVersion: '1.1' },
-    nodes: Array.from({ length: 12 }, (_, i) => ({ id: i + 1, x: (i % 6) * 100, y: i < 6 ? 0 : 100, z: i * 1000, tags: [] })),
+    nodes: [{ id: 1, x: 0, y: 0, z: 1000, tags: [] }],
     elements: [], rigids: [], properties: [], materials: [], pointMasses: [],
-    connectivity: { groupCount: 1, largestGroupNodeCount: 12, isolatedNodeCount: 0, groups: [{ id: 0, nodeIds: Array.from({ length: 12 }, (_, i) => i + 1), elementIds: [] }] },
-    healthMetrics: { totals: { nodeCount: 12, elementCount: 0, rigidCount: 0, pointMassCount: 0, bbox: { minX: 0, maxX: 500, minY: 0, maxY: 100, minZ: 0, maxZ: 11000 } }, issues: {} },
+    connectivity: { groupCount: 1, largestGroupNodeCount: 1, isolatedNodeCount: 0, groups: [{ id: 0, nodeIds: [1], elementIds: [] }] },
+    healthMetrics: { totals: { nodeCount: 1, elementCount: 0, rigidCount: 0, pointMassCount: 0, bbox: { minX: 0, maxX: 0, minY: 0, maxY: 0, minZ: 1000, maxZ: 1000 } }, issues: {} },
   })
+  // 옵티마이저(--optimize) 형태의 리포트: report.best 에 집계 후보.
   const passReport = {
-    overall: { status: 'pass' },
-    stages: [
-      { id: 4, status: 'pass', summary: { minAngleDeg: 70 } },
-      { id: 5, status: 'pass', summary: { conflictCount: 0 } },
-      { id: 6, status: 'pass', summary: { marginMm: 200, deviationMm: 50, evaluationMode: 'Line' } },
-    ],
+    best: {
+      label: 'Hook-3g', score: 1000500, overallStatus: 'pass', groupCount: 3,
+      groups: [{ nodeIds: [1, 2, 3] }, { nodeIds: [4, 5, 6] }, { nodeIds: [7, 8, 9] }],
+      metrics: { stage6Status: 'pass', stage6MarginMm: 500, minSlingAngleDeg: 70, wireConflictCount: 0, failedStages: [] },
+    },
+    candidates: [],
   }
   const makeHost = (report = passReport) => ({
     name: 'electron',
     uploadEvaluationArtifact: vi.fn(async (name) => ({ ok: true, remotePath: `C:/srv/${name}` })),
-    runStabilityAnalysis: vi.fn(async () => ({ ok: true, report })),
+    optimizeHoistPositions: vi.fn(async () => ({ ok: true, report })),
   })
   const config = { bandAxis: 'x', bands: [1, 1], pointsPerZone: [[3], [3]], includePipe: true }
 
@@ -1248,12 +1249,12 @@ describe('zoneSelectHoistPositions', () => {
     expect(r.error).toMatch(/권상 방식/)
   })
 
-  it('runStabilityAnalysis 채널 없으면 실패', async () => {
+  it('옵티마이저 채널 없으면 실패', async () => {
     setHost({ name: 'web', uploadEvaluationArtifact: vi.fn(async () => ({ ok: true, remotePath: 'C:/x' })) })
     useEditStore.getState().setHoistMode('hydro')
     const r = await useEditStore.getState().zoneSelectHoistPositions(config)
     expect(r.ok).toBe(false)
-    expect(r.error).toMatch(/자세안정성/)
+    expect(r.error).toMatch(/최적화/)
   })
 
   it('groupCount(=Σbands) 가 maxGroups 초과면 실패', async () => {
@@ -1264,26 +1265,26 @@ describe('zoneSelectHoistPositions', () => {
     expect(r.error).toMatch(/그룹 수/)
   })
 
-  it('단일 평가로 PASS 후보 반환, runStabilityAnalysis 1회 호출', async () => {
+  it('구역을 region 으로 옵티마이저 1회 호출, PASS 후보 반환', async () => {
     const host = makeHost()
     setHost(host)
     useEditStore.getState().setHoistMode('hydro')
     const r = await useEditStore.getState().zoneSelectHoistPositions(config)
     expect(r.ok).toBe(true)
     expect(r.hasPass).toBe(true)
-    expect(host.runStabilityAnalysis).toHaveBeenCalledTimes(1)
-    expect(r.candidates).toHaveLength(1)
+    expect(host.optimizeHoistPositions).toHaveBeenCalledTimes(1)
+    expect(r.candidates.length).toBeGreaterThanOrEqual(1)
     expect(r.candidates[0].overallStatus).toBe('pass')
   })
 
-  it('레이아웃 빌드 전부 불가면 ok:false (host 호출 없음)', async () => {
-    useStageStore.setState({ stages: [tallStage()], stageSummary: { massProperties: { totalMassTon: 5, centerOfGravityMm: { x: 250, y: 50, z: 5000 } } } })
+  it('구역에 노드가 부족하면 ok:false (옵티마이저 호출 없음)', async () => {
+    useStageStore.setState({ stages: [sparseStage()], stageSummary: { massProperties: { totalMassTon: 5, centerOfGravityMm: { x: 0, y: 0, z: 1000 } } } })
     const host = makeHost()
     setHost(host)
     useEditStore.getState().setHoistMode('hydro')
     const r = await useEditStore.getState().zoneSelectHoistPositions(config)
     expect(r.ok).toBe(false)
-    expect(host.runStabilityAnalysis).not.toHaveBeenCalled()
+    expect(host.optimizeHoistPositions).not.toHaveBeenCalled()
   })
 
   it('반환 후보를 applyAutoHoistGroups 로 커밋', async () => {

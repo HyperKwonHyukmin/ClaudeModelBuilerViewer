@@ -7,8 +7,7 @@ import {
 } from '../data/EditIntent.js'
 import { buildEditedStageJson, buildEditedStageFileName } from '../data/applyEditedModel.js'
 import { rankHoistCandidates } from '../data/hoistCandidateRank.js'
-import { pipeNodeIds, buildZoneLayout } from '../data/hoistZonePartition.js'
-import { adaptStabilityReportToCandidate } from '../data/hoistStabilityAdapter.js'
+import { pipeNodeIds, partitionZones, assignNodesToZones, zoneCountFor } from '../data/hoistZonePartition.js'
 import { useStageStore } from './useStageStore.js'
 import { useStabilityStore } from './useStabilityStore.js'
 import { getHost } from '../host/host.js'
@@ -831,9 +830,10 @@ export const useEditStore = create((set, get) => ({
   },
 
   /**
-   * 구역 기반 권상 위치 선정. config(밴드축·밴드별 하위구역·구역별 포인트수·배관토글)로 XY 풋프린트를
-   * 나눠 각 구역에서 Z 우세 레벨·면적 최대로 권상점을 고른 뒤, 고정 레이아웃을
-   * host.runStabilityAnalysis 로 1회 검증한다. 검증된 후보(1개)를 반환(적용은 호출 측).
+   * 구역 기반 권상 위치 선정. 사용자가 정의한 각 구역(밴드축·밴드별 하위구역)을 옵티마이저
+   * "region"(그 구역 노드 + 구역별 요청 포인트수)으로 만들어 host.optimizeHoistPositions 로 1회
+   * 호출한다. 손휴리스틱(최대 spread/최다 Z) 대신 검증된 C# 옵티마이저가 각 구역 안에서 통과 점을
+   * 직접 고른다. 검증된 후보를 반환(적용은 호출 측).
    *
    * @param {{bandAxis:'x'|'y', bands:number[], pointsPerZone:number[][], includePipe:boolean}} config
    * @param {{ onProgress?: (p:{done:number,total:number})=>void }} [opts]
@@ -845,8 +845,8 @@ export const useEditStore = create((set, get) => ({
     if (!mode) return { ok: false, error: '권상 방식(STEP 1)을 먼저 선택해 주세요.' }
 
     const host = getHost()
-    if (typeof host.runStabilityAnalysis !== 'function') {
-      return { ok: false, error: 'WorkBench 앱이 자세안정성 해석 채널을 지원하지 않습니다. WorkBench를 최신 버전으로 실행해 주세요.' }
+    if (typeof host.optimizeHoistPositions !== 'function') {
+      return { ok: false, error: 'WorkBench 앱이 권상 위치 최적화 채널을 지원하지 않습니다. WorkBench를 최신 버전으로 실행해 주세요.' }
     }
 
     const stage = currentStage()
@@ -873,21 +873,43 @@ export const useEditStore = create((set, get) => ({
     const base = getHoistExport(state)
     if (!base) return { ok: false, error: '권상 방식을 먼저 선택해 주세요.' }
 
+    // 구역 분할 → 각 구역을 옵티마이저 region 으로. region.nodeIds = 그 구역에 속한 노드(배관 제외 옵션 반영),
+    // requestedPointCount = 구역별 포인트 수. 옵티마이저가 region 안에서 통과 점을 직접 고른다.
+    const input = buildHoistPartitionInput(stage, state.hoistToleranceMm)
+    const zones = partitionZones(input.bbox, { ...config, bands })
+    const byZone = assignNodesToZones(zones, input.nodeEntries)
+    const includePipe = !!config?.includePipe
+    const regions = []
+    zones.forEach((z, i) => {
+      let nodeIds = (byZone.get(z.id) ?? []).map(nd => nd.id)
+      if (!includePipe && input.pipeNodes && input.pipeNodes.size > 0) {
+        nodeIds = nodeIds.filter(id => !input.pipeNodes.has(id))
+      }
+      const requestedPointCount = zoneCountFor(config, z.bandIndex, z.subIndex, 3)
+      if (nodeIds.length >= 2) {
+        regions.push({ id: `zone-${z.bandIndex}-${z.subIndex}`, groupId: i + 1, requestedPointCount, nodeIds })
+      }
+    })
+    if (regions.length === 0) {
+      return { ok: false, error: '구역에서 권상 후보로 쓸 노드를 충분히 찾지 못했습니다. 분할을 줄이거나 배관 포함을 켜 보세요.' }
+    }
+
+    // Stage0 파싱 보장용 시드(옵티마이저는 시드를 무시하고 region 안에서 자체 선택).
+    const seedGroups = base.groups.length > 0 ? base.groups : [{ id: 1, nodeIds: pickSeedNodeIds(stage, 3) }]
+    if (!seedGroups[0] || seedGroups[0].nodeIds.length === 0) {
+      return { ok: false, error: '권상 시드로 쓸 유효한 노드를 찾지 못했습니다.' }
+    }
+    const hoisting = { ...base, groupCount: seedGroups.length, groups: seedGroups }
+
+    const allowedNodeIds = regions.flatMap(r => r.nodeIds)
+    const pointsPerGroup = regions.reduce((m, r) => Math.max(m, r.requestedPointCount), 0) || (mode === 'ceiling' ? 3 : 4)
+
     opts.onProgress?.({ done: 0, total: 1 })
 
-    const input = buildHoistPartitionInput(stage, state.hoistToleranceMm)
-    const layout = buildZoneLayout(input, { ...config, bands })
-    if (!layout.ok) {
-      opts.onProgress?.({ done: 1, total: 1 })
-      return { ok: false, error: layout.reason }
-    }
-
-    const hoisting = {
-      ...base,
-      groupCount: layout.groups.length,
-      groups: layout.groups.map((ids, i) => ({ id: i + 1, nodeIds: ids })),
-    }
-    const payload = buildPostureStabilityPayload(state, hoisting, stage, editedFileName)
+    const payload = buildPostureStabilityPayload(
+      { ...state, hoistOptimization: { desiredGroupCount: regions.length, pointsPerGroup, allowedNodeIds, lockGroupCount: true, regions } },
+      hoisting, stage, editedFileName,
+    )
     const postureFileName = buildPosturePayloadFileName(stage)
     const sr = await saveJsonArtifact(postureFileName, JSON.stringify(payload, null, 2))
     if (!sr.ok) { opts.onProgress?.({ done: 1, total: 1 }); return { ok: false, error: sr.error ?? '입력 저장 실패' } }
@@ -900,16 +922,13 @@ export const useEditStore = create((set, get) => ({
     }
     if (!posturePath) { opts.onProgress?.({ done: 1, total: 1 }); return { ok: false, error: '_posture.json 절대경로를 확인할 수 없습니다.' } }
 
-    const rr = await host.runStabilityAnalysis(posturePath)
+    const rr = await host.optimizeHoistPositions(posturePath)
     opts.onProgress?.({ done: 1, total: 1 })
     if (!rr.ok || !rr.report) {
-      return { ok: false, error: rr.error ?? '자세안정성 해석 실패' }
+      return { ok: false, error: rr.error ?? '권상 위치 최적화 실패' }
     }
 
-    const totalPoints = layout.groups.reduce((n, g) => n + g.length, 0)
-    const label = `구역 ${layout.groups.length}그룹 · ${totalPoints}점`
-    const cand = adaptStabilityReportToCandidate(rr.report, { groups: layout.groups, label })
-    const candidates = rankHoistCandidates([{ candidates: [cand] }])
+    const candidates = rankHoistCandidates([rr.report])
     if (candidates.length === 0) {
       return { ok: false, error: '평가 가능한 권상 후보를 찾지 못했습니다.' }
     }
