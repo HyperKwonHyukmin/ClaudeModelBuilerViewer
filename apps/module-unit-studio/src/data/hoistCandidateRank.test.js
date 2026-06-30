@@ -70,7 +70,7 @@ describe('hoistCandidateRank', () => {
       Best: {
         Label: 'Hook-3g', Score: 1000500, OverallStatus: 'pass', GroupCount: 3,
         Groups: [{ NodeIds: [1, 2, 3] }, { NodeIds: [4, 5, 6] }, { NodeIds: [7, 8, 9] }],
-        Metrics: { stage6Status: 'pass', stage6MarginMm: 500, minSlingAngleDeg: 70, wireConflictCount: 0, failedStages: [] },
+        Metrics: { Stage6Status: 'pass', Stage6MarginMm: 500, MinSlingAngleDeg: 70, WireConflictCount: 0, FailedStages: [] },
       },
       Candidates: [],
     }

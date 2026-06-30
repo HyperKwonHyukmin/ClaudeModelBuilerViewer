@@ -45,6 +45,17 @@ export default function HoistAutoResultModal({ onClose }) {
 
   const restore = () => { if (snapshotRef.current) useEditStore.setState(snapshotRef.current) }
   const handleCancel = () => { if (!committed) restore(); onClose() }
+  const previewCandidate = (c) => {
+    if (!c) return false
+    const r = applyGroups(toNodeGroups(c))
+    if (!r?.ok) {
+      setSelectedId(null)
+      setError(r?.error ?? '후보 미리보기에 실패했습니다.')
+      return false
+    }
+    setSelectedId(c.id)
+    return true
+  }
 
   const ingest = (r) => {
     setRunning(false)
@@ -52,7 +63,7 @@ export default function HoistAutoResultModal({ onClose }) {
     setError(null)
     setCandidates(r.candidates)
     const first = r.candidates[0]
-    if (first) { setSelectedId(first.id); applyGroups(toNodeGroups(first)) }
+    if (first) previewCandidate(first)
     else setSelectedId(null)
   }
 
@@ -66,7 +77,7 @@ export default function HoistAutoResultModal({ onClose }) {
   const runOptimizer = async () => {
     setError(null); setCandidates([]); setSelectedId(null); restore()
     setRunning(true); setProgress({ done: 0, total: 1 })
-    const r = await autoSelect({ onProgress: (p) => setProgress({ done: p.done, total: p.total }) })
+    const r = await autoSelect({ onProgress: setProgress })
     ingest(r)
   }
 
@@ -75,7 +86,7 @@ export default function HoistAutoResultModal({ onClose }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab])
 
-  const handlePreview = (c) => { setSelectedId(c.id); applyGroups(toNodeGroups(c)) }
+  const handlePreview = (c) => { previewCandidate(c) }
   const handleApply = () => {
     const c = candidates.find(x => x.id === selectedId)
     if (!c) return
@@ -98,11 +109,16 @@ export default function HoistAutoResultModal({ onClose }) {
         </div>
 
         <div style={{ display: 'flex', gap: 6, padding: '10px 16px 0' }}>
-          <Tab active={tab === 'zone'} onClick={() => setTab('zone')}>구역 기반</Tab>
-          <Tab active={tab === 'optimizer'} onClick={() => setTab('optimizer')}>옵티마이저 자동</Tab>
+          <Tab active={tab === 'zone'} onClick={() => setTab('zone')}>구역 지정</Tab>
+          <Tab active={tab === 'optimizer'} onClick={() => setTab('optimizer')}>자동 최적화</Tab>
         </div>
 
         <div style={{ padding: 16, overflowY: 'auto' }}>
+          <div style={{ marginBottom: 12, fontSize: 11.5, lineHeight: 1.45, color: '#8aa0b8' }}>
+            {tab === 'optimizer'
+              ? '엔진이 그룹 수를 순차 평가해 PASS 후보를 자동 랭킹합니다. 후보는 미리보기만 적용되며, 선택안 적용 전에는 확정되지 않습니다.'
+              : '먼저 모델 평면을 구역으로 나눈 뒤 그 설계를 1회 검증합니다. 자동 최적화는 구역 지정 결과가 맞지 않을 때 별도로 실행하세요.'}
+          </div>
           {tab === 'zone' && (
             <div style={{ marginBottom: 14 }}>
               <HoistZoneConfig value={zoneConfig} onChange={setZoneConfig} mode={mode} maxGroups={maxGroups} partitionInput={partitionInput} />
@@ -114,7 +130,7 @@ export default function HoistAutoResultModal({ onClose }) {
                 fontSize: 12, fontWeight: 800, cursor: zoneRunnable ? 'pointer' : 'not-allowed',
               }}>
                 {running ? <Loader2 size={14} style={{ animation: 'hoistSpin 900ms linear infinite' }} /> : <Play size={14} fill={zoneRunnable ? '#F0FFF4' : 'none'} strokeWidth={2.5} />}
-                {running ? '평가 중…' : '구역 기반 평가 실행'}
+                {running ? '평가 중…' : '구역 지정안 평가'}
               </button>
             </div>
           )}
@@ -122,7 +138,7 @@ export default function HoistAutoResultModal({ onClose }) {
           {running && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#cad8e8', fontSize: 13 }}>
               <Loader2 size={16} style={{ animation: 'hoistSpin 900ms linear infinite' }} />
-              자세안정성 평가 중… ({progress.done}/{progress.total})
+              자세안정성 평가 중… {tab === 'optimizer' && progress.groupCount ? `(그룹수 ${progress.groupCount} · ${progress.done}/${progress.total})` : `(${progress.done}/${progress.total})`}
             </div>
           )}
           {!running && error && (
@@ -157,7 +173,7 @@ export default function HoistAutoResultModal({ onClose }) {
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '12px 16px', borderTop: '1px solid #1e1e38' }}>
           <button onClick={handleCancel} style={{ padding: '8px 14px', borderRadius: 7, background: '#101024', border: '1px solid #2a2a4a', color: '#cad8e8', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>취소</button>
-          <button onClick={handleApply} disabled={!selected} style={{ padding: '8px 16px', borderRadius: 7, background: selected ? 'linear-gradient(180deg, #1FA86A, #178A55)' : '#0a0a18', border: `1px solid ${selected ? '#2BD380' : '#2a2a4a'}`, color: selected ? '#F0FFF4' : '#3a3a52', fontSize: 12, fontWeight: 800, cursor: selected ? 'pointer' : 'not-allowed' }}>이 안 적용</button>
+          <button onClick={handleApply} disabled={!selected} style={{ padding: '8px 16px', borderRadius: 7, background: selected ? 'linear-gradient(180deg, #1FA86A, #178A55)' : '#0a0a18', border: `1px solid ${selected ? '#2BD380' : '#2a2a4a'}`, color: selected ? '#F0FFF4' : '#3a3a52', fontSize: 12, fontWeight: 800, cursor: selected ? 'pointer' : 'not-allowed' }}>선택안 적용</button>
         </div>
       </div>
     </div>

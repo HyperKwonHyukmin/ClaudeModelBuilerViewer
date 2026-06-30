@@ -10,26 +10,36 @@ function numOrNull(v) {
   return Number.isFinite(n) ? n : null
 }
 
+function pick(obj, ...keys) {
+  if (!obj) return undefined
+  for (const key of keys) {
+    if (obj[key] !== undefined) return obj[key]
+    const cap = key.charAt(0).toUpperCase() + key.slice(1)
+    if (obj[cap] !== undefined) return obj[cap]
+  }
+  return undefined
+}
+
 /** report 의 한 평가 객체를 안전한 표준 형태로 정규화한다. */
 export function normalizeCandidate(c) {
-  const m = c?.metrics ?? c?.Metrics ?? {}
-  const rawGroups = c?.groups ?? c?.Groups ?? []
-  const groups = rawGroups.map(g => ({ nodeIds: [...(g?.nodeIds ?? g?.NodeIds ?? [])] }))
-  const rawGroupCount = c?.groupCount ?? c?.GroupCount
+  const m = pick(c, 'metrics') ?? {}
+  const rawGroups = pick(c, 'groups') ?? []
+  const groups = rawGroups.map(g => ({ nodeIds: [...(pick(g, 'nodeIds') ?? [])] }))
+  const rawGroupCount = pick(c, 'groupCount')
   return {
-    label: c?.label ?? c?.Label ?? '',
-    score: numOrNull(c?.score ?? c?.Score) ?? 0,
-    overallStatus: c?.overallStatus ?? c?.OverallStatus ?? 'unknown',
+    label: pick(c, 'label') ?? '',
+    score: numOrNull(pick(c, 'score')) ?? 0,
+    overallStatus: pick(c, 'overallStatus') ?? 'unknown',
     groupCount: Number.isFinite(Number(rawGroupCount)) ? Number(rawGroupCount) : groups.length,
     groups,
     metrics: {
-      stage6Status: m.stage6Status ?? null,
-      evaluationMode: m.evaluationMode ?? null,
-      stage6MarginMm: numOrNull(m.stage6MarginMm),
-      stage6DeviationMm: numOrNull(m.stage6DeviationMm),
-      minSlingAngleDeg: numOrNull(m.minSlingAngleDeg),
-      wireConflictCount: Number.isFinite(Number(m.wireConflictCount)) ? Number(m.wireConflictCount) : 0,
-      failedStages: Array.isArray(m.failedStages) ? m.failedStages : [],
+      stage6Status: pick(m, 'stage6Status') ?? null,
+      evaluationMode: pick(m, 'evaluationMode') ?? null,
+      stage6MarginMm: numOrNull(pick(m, 'stage6MarginMm')),
+      stage6DeviationMm: numOrNull(pick(m, 'stage6DeviationMm')),
+      minSlingAngleDeg: numOrNull(pick(m, 'minSlingAngleDeg')),
+      wireConflictCount: Number.isFinite(Number(pick(m, 'wireConflictCount'))) ? Number(pick(m, 'wireConflictCount')) : 0,
+      failedStages: Array.isArray(pick(m, 'failedStages')) ? pick(m, 'failedStages') : [],
     },
   }
 }
@@ -60,9 +70,9 @@ export function rankHoistCandidates(reports) {
   const all = []
   for (const rep of reports ?? []) {
     if (!rep) continue
-    const best = rep.best ?? rep.Best
+    const best = pick(rep, 'best')
     if (best) all.push(normalizeCandidate(best))
-    for (const c of rep.candidates ?? rep.Candidates ?? []) all.push(normalizeCandidate(c))
+    for (const c of pick(rep, 'candidates') ?? []) all.push(normalizeCandidate(c))
   }
   const bySig = new Map()
   for (const c of all) {
