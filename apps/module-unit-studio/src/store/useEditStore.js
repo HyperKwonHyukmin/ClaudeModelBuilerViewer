@@ -924,6 +924,21 @@ export const useEditStore = create((set, get) => ({
 
     const rr = await host.optimizeHoistPositions(posturePath)
     opts.onProgress?.({ done: 1, total: 1 })
+    // [TEMP DIAG] 구역 기반 진단 — 문제 해결 후 제거 예정. 실행 빌드/입력/옵티마이저 응답 확인용.
+    try {
+      const best = rr?.report?.best ?? rr?.report?.Best ?? null
+      console.info('[zoneSelect DIAG v0.0.82]', {
+        regions: regions.length,
+        requestedCounts: regions.map(r => r.requestedPointCount),
+        allowedNodes: allowedNodeIds.length,
+        rrOk: rr?.ok,
+        rrError: rr?.error ?? null,
+        bestScore: best?.score ?? best?.Score ?? null,
+        bestStatus: best?.overallStatus ?? best?.OverallStatus ?? null,
+        bestGroupCount: (best?.groups ?? best?.Groups ?? []).length,
+        reportKeys: rr?.report ? Object.keys(rr.report) : null,
+      })
+    } catch { /* 진단 전용 */ }
     if (!rr.ok || !rr.report) {
       return { ok: false, error: rr.error ?? '권상 위치 최적화 실패' }
     }
