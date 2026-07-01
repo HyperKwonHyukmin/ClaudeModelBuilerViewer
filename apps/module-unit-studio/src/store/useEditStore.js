@@ -901,13 +901,10 @@ export const useEditStore = create((set, get) => ({
     }
     const hoisting = { ...base, groupCount: seedGroups.length, groups: seedGroups }
 
-    const allowedNodeIds = regions.flatMap(r => r.nodeIds)
-    const pointsPerGroup = regions.reduce((m, r) => Math.max(m, r.requestedPointCount), 0) || (mode === 'ceiling' ? 3 : 4)
-
     opts.onProgress?.({ done: 0, total: 1 })
 
     const payload = buildPostureStabilityPayload(
-      { ...state, hoistOptimization: { desiredGroupCount: regions.length, pointsPerGroup, allowedNodeIds, lockGroupCount: true, regions } },
+      { ...state, hoistOptimization: { regions, tolMm: input.tolMm } },
       hoisting, stage, editedFileName,
     )
     const postureFileName = buildPosturePayloadFileName(stage)
@@ -924,21 +921,6 @@ export const useEditStore = create((set, get) => ({
 
     const rr = await host.optimizeHoistPositions(posturePath)
     opts.onProgress?.({ done: 1, total: 1 })
-    // [TEMP DIAG] 구역 기반 진단 — 문제 해결 후 제거 예정. 실행 빌드/입력/옵티마이저 응답 확인용.
-    try {
-      const best = rr?.report?.best ?? rr?.report?.Best ?? null
-      console.info('[zoneSelect DIAG v0.0.82]', {
-        regions: regions.length,
-        requestedCounts: regions.map(r => r.requestedPointCount),
-        allowedNodes: allowedNodeIds.length,
-        rrOk: rr?.ok,
-        rrError: rr?.error ?? null,
-        bestScore: best?.score ?? best?.Score ?? null,
-        bestStatus: best?.overallStatus ?? best?.OverallStatus ?? null,
-        bestGroupCount: (best?.groups ?? best?.Groups ?? []).length,
-        reportKeys: rr?.report ? Object.keys(rr.report) : null,
-      })
-    } catch { /* 진단 전용 */ }
     if (!rr.ok || !rr.report) {
       return { ok: false, error: rr.error ?? '권상 위치 최적화 실패' }
     }
@@ -1271,6 +1253,7 @@ export function buildPostureStabilityPayload(state, hoisting, stage, editedFileN
         ? opt.allowedNodeIds.map(Number).filter(Number.isFinite)
         : [],
       lockGroupCount: !!opt.lockGroupCount,
+      tolMm: Number.isFinite(Number(opt.tolMm)) ? Number(opt.tolMm) : null,
       regions: Array.isArray(opt.regions) ? opt.regions
         .filter(r => Array.isArray(r.nodeIds) && r.nodeIds.length > 0)
         .map(r => ({

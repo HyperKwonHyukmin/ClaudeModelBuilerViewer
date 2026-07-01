@@ -1277,6 +1277,38 @@ describe('zoneSelectHoistPositions', () => {
     expect(r.candidates[0].overallStatus).toBe('pass')
   })
 
+  it('엔진으로 저장되는 payload 는 regions 만 담고 desiredGroupCount 는 보내지 않는다 (엔진이 desiredGroupCount 를 regions 보다 우선 체크하므로)', async () => {
+    const host = makeHost()
+    setHost(host)
+    useEditStore.getState().setHoistMode('hydro')
+    const r = await useEditStore.getState().zoneSelectHoistPositions(config)
+    expect(r.ok).toBe(true)
+    expect(host.uploadEvaluationArtifact).toHaveBeenCalled()
+    // posture JSON 이 업로드된 호출을 찾아 실제로 엔진에 저장된 payload 를 검사한다.
+    const postureCall = host.uploadEvaluationArtifact.mock.calls.find(([name]) => /posture/i.test(name))
+    expect(postureCall).toBeTruthy()
+    const savedPayload = JSON.parse(postureCall[1])
+    expect(Array.isArray(savedPayload.hoistOptimization.regions)).toBe(true)
+    expect(savedPayload.hoistOptimization.regions.length).toBeGreaterThanOrEqual(1)
+    expect(savedPayload.hoistOptimization.desiredGroupCount == null || savedPayload.hoistOptimization.desiredGroupCount <= 0).toBe(true)
+    expect(typeof savedPayload.hoistOptimization.tolMm).toBe('number')
+  })
+
+  it('buildPostureStabilityPayload: regions+tolMm 만 넘기면 desiredGroupCount 는 null, regions/tolMm 은 그대로 직렬화', () => {
+    const stage = makeStageData()
+    const hoisting = { mode: { id: 'hydro', label: 'Hydro 방식', equipment: 'Hook' }, groupCount: 1, wireLengthM: 8, groups: [{ id: 1, nodeIds: [1, 2, 3] }] }
+    const state = {
+      hoistOptimization: {
+        regions: [{ groupId: 1, requestedPointCount: 3, nodeIds: [1, 2, 3] }],
+        tolMm: 5,
+      },
+    }
+    const payload = buildPostureStabilityPayload(state, hoisting, stage, null)
+    expect(payload.hoistOptimization.regions.length).toBe(1)
+    expect(payload.hoistOptimization.tolMm).toBe(5)
+    expect(payload.hoistOptimization.desiredGroupCount).toBeNull()
+  })
+
   it('구역에 노드가 부족하면 ok:false (옵티마이저 호출 없음)', async () => {
     useStageStore.setState({ stages: [sparseStage()], stageSummary: { massProperties: { totalMassTon: 5, centerOfGravityMm: { x: 0, y: 0, z: 1000 } } } })
     const host = makeHost()
