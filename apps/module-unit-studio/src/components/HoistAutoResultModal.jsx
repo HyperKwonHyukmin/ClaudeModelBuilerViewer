@@ -33,6 +33,7 @@ export default function HoistAutoResultModal({ onClose }) {
   const [progress, setProgress] = useState({ done: 0, total: 1 })
   const [candidates, setCandidates] = useState([])
   const [error, setError] = useState(null)
+  const [diagnosis, setDiagnosis] = useState(null)
   const [selectedId, setSelectedId] = useState(null)
   const [committed, setCommitted] = useState(false)
   const optimizerRan = useRef(false)
@@ -59,23 +60,24 @@ export default function HoistAutoResultModal({ onClose }) {
 
   const ingest = (r) => {
     setRunning(false)
-    if (!r.ok) { setError(r.error); setCandidates([]); return }
+    if (!r.ok) { setError(r.error); setCandidates([]); setDiagnosis(null); return }
     setError(null)
     setCandidates(r.candidates)
+    setDiagnosis(r.diagnosis ?? null)
     const first = r.candidates[0]
     if (first) previewCandidate(first)
     else setSelectedId(null)
   }
 
   const runZone = async () => {
-    setError(null); setCandidates([]); setSelectedId(null); restore()
+    setError(null); setCandidates([]); setSelectedId(null); setDiagnosis(null); restore()
     setRunning(true); setProgress({ done: 0, total: 1 })
     const r = await zoneSelect(zoneConfig, { onProgress: setProgress })
     ingest(r)
   }
 
   const runOptimizer = async () => {
-    setError(null); setCandidates([]); setSelectedId(null); restore()
+    setError(null); setCandidates([]); setSelectedId(null); setDiagnosis(null); restore()
     setRunning(true); setProgress({ done: 0, total: 1 })
     const r = await autoSelect({ onProgress: setProgress })
     ingest(r)
@@ -146,7 +148,15 @@ export default function HoistAutoResultModal({ onClose }) {
           )}
           {!running && !error && !hasPass && candidates.length > 0 && (
             <div style={{ marginBottom: 12, padding: 10, borderRadius: 8, background: 'rgba(255,196,71,0.10)', border: '1px solid rgba(255,196,71,0.5)', color: '#FFC447', fontSize: 12, lineHeight: 1.5 }}>
-              자세안정성 PASS 후보를 찾지 못했습니다. 아래는 차선 후보입니다 — {tab === 'zone' ? '분할 축·밴드·포인트 수' : '권상 방식·그룹 수'} 조정을 권장합니다.
+              {(() => {
+                const reason = diagnosis?.reason ?? diagnosis?.Reason
+                const suggestion = diagnosis?.suggestion ?? diagnosis?.Suggestion
+                return diagnosis && (reason || suggestion) ? (
+                  <>자세안정성 PASS 후보를 찾지 못했습니다. <b>{reason}</b>{suggestion ? <><br />권장: {suggestion}</> : null}</>
+                ) : (
+                  <>자세안정성 PASS 후보를 찾지 못했습니다. 아래는 차선 후보입니다 — {tab === 'zone' ? '분할 축·밴드·포인트 수' : '권상 방식·그룹 수'} 조정을 권장합니다.</>
+                )
+              })()}
             </div>
           )}
 

@@ -929,7 +929,10 @@ export const useEditStore = create((set, get) => ({
     if (candidates.length === 0) {
       return { ok: false, error: '평가 가능한 권상 후보를 찾지 못했습니다.' }
     }
-    return { ok: true, candidates, hasPass: candidates.some(c => c.overallStatus === 'pass') }
+    // C# 옵티마이저 리포트는 PascalCase(Diagnosis)로 직렬화되므로 camelCase 도 방어적으로 함께 확인한다.
+    // PASS 후보를 찾았으면 엔진이 Diagnosis 를 채우지 않으므로(absent/null) 보통 null 이다.
+    const diagnosis = rr.report?.diagnosis ?? rr.report?.Diagnosis ?? null
+    return { ok: true, candidates, hasPass: candidates.some(c => c.overallStatus === 'pass'), diagnosis }
   },
 
   /**
