@@ -45,4 +45,24 @@ describe('adaptStabilityReportToCandidate', () => {
     expect(c.metrics.wireConflictCount).toBe(0)
     expect(c.metrics.failedStages).toContain(6)
   })
+
+  it('id 없는 stage 2개가 NaN 키로 서로 덮어쓰지 않고, 유효 id 조회는 정상 동작', () => {
+    // id 누락 stage 2개 + 유효 id=6. 가드 없으면 두 id-less 가 같은 NaN 키로 충돌하며
+    // byId.get(6) 이 오염될 수 있다. 가드 후엔 id-less 는 무시되고 s6 조회는 정상.
+    const r = {
+      stages: [
+        { status: 'warn', summary: { minAngleDeg: 10 } },            // id 없음
+        { status: 'pass', summary: { conflictCount: 7 } },           // id 없음
+        { id: 6, status: 'pass', summary: { marginMm: 55, deviationMm: 20, evaluationMode: 'ConvexPolygon' } },
+      ],
+    }
+    const c = adaptStabilityReportToCandidate(r, { groups: [[1, 2, 3]], pointsPerGroup: 3 })
+    // s6(유효 id) 값이 id-less stage 에 의해 오염되지 않음
+    expect(c.metrics.stage6MarginMm).toBe(55)
+    expect(c.metrics.stage6DeviationMm).toBe(20)
+    expect(c.metrics.evaluationMode).toBe('ConvexPolygon')
+    // s4/s5(id 4·5)는 존재하지 않으므로 안전 기본값 (id-less 가 s4/s5 로 잘못 매핑되지 않음)
+    expect(c.metrics.minSlingAngleDeg).toBeNull()
+    expect(c.metrics.wireConflictCount).toBe(0)
+  })
 })

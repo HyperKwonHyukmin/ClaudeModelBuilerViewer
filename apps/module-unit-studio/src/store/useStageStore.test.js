@@ -67,6 +67,24 @@ describe('useStageStore.emptyPipeFluid', () => {
     expect(useUnitStructuralStore.getState().result).toBe(null)
   })
 
+  it('배관 없는 stage 에서 emptyPipeFluid → changedCount=0 이면 pipeFluidEmptied 그대로 false', () => {
+    // Pipe 요소가 없으면 collectPipeMaterialIds=∅ → changedCount=0.
+    // 이 경우 pipeFluidEmptied 를 true 로 올리면 payload 가 근사 fallback 으로 강등되므로 false 유지.
+    const materials = [{ id: 1, name: 'Steel', rho: 7.85e-9 }]
+    const properties = [{ id: 10, materialId: 1 }]
+    const stage = {
+      elements: [{ id: 1, type: 'BEAM', category: 'Structure', propertyId: 10 }],
+      propertyMap: new Map(properties.map(p => [p.id, p])),
+      materialMap: new Map(materials.map(m => [m.id, m])),
+      materials,
+    }
+    useStageStore.setState({ stages: [stage], pipeFluidEmptied: false })
+    const { materialIds, changedCount } = useStageStore.getState().emptyPipeFluid()
+    expect(materialIds).toEqual([])
+    expect(changedCount).toBe(0)
+    expect(useStageStore.getState().pipeFluidEmptied).toBe(false)
+  })
+
   it('바뀐 게 없으면(이미 비워짐) 무효화하지 않는다', () => {
     const stage = makeStage()
     stage.materialMap.get(2).rho = PIPE_STEEL_RHO // 이미 강재

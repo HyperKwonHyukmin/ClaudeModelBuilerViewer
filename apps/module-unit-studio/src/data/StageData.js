@@ -315,8 +315,11 @@ export class StageData {
       if (!a || !b) continue
       const len = Math.sqrt((b.x - a.x) ** 2 + (b.y - a.y) ** 2 + (b.z - a.z) ** 2)
       totalLengthMm += len
+      // 개수 집계(structCount/pipeCount)가 category==='Structure'/'Pipe' 명시 필터라
+      // undefined 요소를 양쪽 다 제외하므로, 길이 집계도 동일하게 맞춘다.
+      // (예전엔 else 로 undefined 를 Pipe 로 오분류 → 개수/길이 분류가 비대칭이었다.)
       if (e.category === 'Structure') structLenMm += len
-      else pipeLenMm += len
+      else if (e.category === 'Pipe') pipeLenMm += len
     }
 
     // Short elements (< 1mm)

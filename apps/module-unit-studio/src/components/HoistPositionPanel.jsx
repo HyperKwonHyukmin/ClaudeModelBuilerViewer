@@ -1,5 +1,5 @@
 import { Fragment, useState } from 'react'
-import { ClipboardList, Loader2, Play, Plus, Sparkles, Trash2, X } from 'lucide-react'
+import { ClipboardList, Eye, EyeOff, Loader2, Play, Plus, RotateCcw, Sparkles, Trash2, X } from 'lucide-react'
 import {
   useEditStore,
   getHoistMaxGroups,
@@ -8,7 +8,7 @@ import {
 } from '../store/useEditStore.js'
 import { useStabilityStore } from '../store/useStabilityStore.js'
 import { useStageStore } from '../store/useStageStore.js'
-import { autoHoistToleranceMm } from '../three/HoistCandidateNodes.js'
+import { autoHoistCircleTolMm } from '../three/HoistCircleCandidateNodes.js'
 import { COLORS } from '../utils/colors.js'
 import Tooltip from './Tooltip.jsx'
 import HoistAutoResultModal from './HoistAutoResultModal.jsx'
@@ -69,10 +69,15 @@ export default function HoistPositionPanel() {
   const removeNode = useEditStore(s => s.removeHoistNode)
   const clearGroup = useEditStore(s => s.clearHoistGroup)
   const removeGroup = useEditStore(s => s.removeHoistGroup)
+  const resetHoistPoints = useEditStore(s => s.resetHoistPoints)
   const pipeDiameter = useEditStore(s => s.pipeDiameterThreshold)
   const setPipeDiameter = useEditStore(s => s.setPipeDiameterThreshold)
-  const hoistToleranceMm = useEditStore(s => s.hoistToleranceMm)
-  const setHoistTolerance = useEditStore(s => s.setHoistTolerance)
+  const circleGuideEnabled = useEditStore(s => s.circleGuideEnabled)
+  const toggleCircleGuide = useEditStore(s => s.toggleCircleGuide)
+  const hoistCircleTolMm = useEditStore(s => s.hoistCircleTolMm)
+  const setHoistCircleTol = useEditStore(s => s.setHoistCircleTol)
+  const showHoistPlate = useEditStore(s => s.showHoistPlate)
+  const toggleHoistPlate = useEditStore(s => s.toggleHoistPlate)
   const wireLengthM = useEditStore(s => s.wireLengthM)
   const setWireLength = useEditStore(s => s.setWireLength)
   const exportPosture = useEditStore(s => s.exportPostureStabilityToFile)
@@ -82,18 +87,26 @@ export default function HoistPositionPanel() {
   const stabilityError   = useStabilityStore(s => s.error)
   const stabilityOverall = useStabilityStore(s => s.overallStatus)
   const openStabilityPanel = useStabilityStore(s => s.openPanel)
+  const resetStability = useStabilityStore(s => s.reset)
+  const dropGroupWires = useStabilityStore(s => s.dropGroupWires)
 
   const maxGroupsForMode = getHoistMaxGroups(mode)
   const minNodesForMode  = getHoistMinNodesPerGroup(mode)   // ceiling=3, 그 외=2
 
-  // 후보 강조 Tolerance 자동값(placeholder/안내용) — 마지막 stage bbox Z 높이 기반.
+  // Circle Guide Tolerance 자동값(placeholder/안내용) — 마지막 stage bbox 수평(XY) 대각 기반.
   const stages = useStageStore(s => s.stages)
   const lastStage = stages?.[stages.length - 1] ?? null
-  const autoTolMm = autoHoistToleranceMm(lastStage?.bbox ? lastStage.bbox.maxZ - lastStage.bbox.minZ : 0)
+  const autoCircleTolMm = autoHoistCircleTolMm(
+    lastStage?.bbox ? Math.hypot(lastStage.bbox.maxX - lastStage.bbox.minX, lastStage.bbox.maxY - lastStage.bbox.minY) : 0
+  )
 
   const hasModel = (stages?.length ?? 0) > 0
   const [autoModalOpen, setAutoModalOpen] = useState(false)
   const canAutoSelect = hasModel && !!mode
+
+  // STEP 3 옵션을 사용자가 건드렸는지(강조 Tolerance/배관 외경 지정) — 미니 스테퍼 표시용.
+  // 옵션은 선택 사항이므로 '완료'가 아니라 '입력됨' 신호로만 쓴다.
+  const optionsTouched = pipeDiameter != null
 
   // 모든 활성 그룹이 모드별 최소~4 노드를 가지고 모드가 선택돼야 평가 실행 가능.
   const activeGroupIds = Array.from({ length: groupCount }, (_, i) => i + 1)
@@ -110,7 +123,7 @@ export default function HoistPositionPanel() {
     try {
       const r = await exportPosture()
       if (!r.ok) {
-        flashGuide(`저장 실패: ${r.error ?? '알 수 없는 오류'}`, 'noMode')
+        flashGuide(`저장 실패: ${r.error ?? '알 수 없는 오류'}`, 'error')
         return
       }
       // CLI 자동 실행이 시도된 경우는 결과/에러를 토스트로 함께 안내.
@@ -118,15 +131,21 @@ export default function HoistPositionPanel() {
       if (r.stability) {
         if (r.stability.ok) {
           flashGuide(`${saveMsg} · 자세안정성 해석 완료 — 결과 패널이 열렸습니다.`, 'success')
+        } else if (r.stability.notRun) {
+          // 저장은 됐으나 경로 미확인으로 자동 해석을 건너뜀 — '저장 완료'로 오인하지 않게 경고로 안내.
+          flashGuide(`${saveMsg} · ⚠ 자동 해석 미실행: ${r.stability.error}`, 'noMode')
         } else {
           flashGuide(
             `${saveMsg} · 해석 실패: ${r.stability.error ?? '알 수 없는 오류'}${r.stability.exitCode != null ? ` (exit ${r.stability.exitCode})` : ''}`,
-            'noMode',
+            'error',
           )
         }
       } else {
         flashGuide(saveMsg, 'success')
       }
+    } catch (e) {
+      // exportPosture 가 throw 하면 무음 실패가 되지 않도록 사용자에게 안내.
+      flashGuide(`저장 실패: ${e?.message ?? String(e)}`, 'error')
     } finally {
       setRunning(false)
     }
@@ -134,13 +153,23 @@ export default function HoistPositionPanel() {
 
   const hasReportOrError = !!stabilityReport || !!stabilityError
 
+  // 초기화 — 지정된 권상점 또는 실행 결과(wire)가 있을 때만 활성.
+  const anyHoistNodes = Object.values(groups).some(a => (a?.length ?? 0) > 0)
+  const canReset = anyHoistNodes || hasReportOrError
+  const onResetHoist = () => {
+    if (!canReset) return
+    resetHoistPoints()   // 모든 그룹 노드 비우기 + 그룹 수/활성 그룹 → 1 (권상 방식은 유지)
+    resetStability()     // 생성된 wire(및 자세안정성 결과) 시각화 제거
+    flashGuide('권상점과 생성된 wire를 모두 초기화했습니다.', 'success')
+  }
+
   return (
-    // 상단 Hoist 탭의 좌측 도크(274px). 이전엔 3D 뷰포트 위 position:absolute floating 이었으나
-    // 메뉴바 도입으로 도크로 이주했다. 폭은 Edit/Analyze 도크(274)와 동일하게 고정해야
+    // 상단 Hoist 탭의 좌측 도크(301px). 이전엔 3D 뷰포트 위 position:absolute floating 이었으나
+    // 메뉴바 도입으로 도크로 이주했다. 폭은 Edit/Analyze 도크(301)와 동일하게 고정해야
     // UnitStructuralResultDock 의 layoutBounds.sidebarWidth 계산과 어긋나지 않는다.
     // 내부 컨트롤(방식·그룹·노드 칩·Wire·외경·실행)·store·단축키 로직은 그대로 유지.
     <div style={{
-      width: 274,
+      width: 301,
       flexShrink: 0,
       position: 'relative',
       background: '#0b0b1e',
@@ -154,35 +183,74 @@ export default function HoistPositionPanel() {
       flexDirection: 'column',
       gap: 7,
     }}>
-      <div style={{ fontSize: 14, color: '#90E8FF', letterSpacing: 0.8, fontWeight: 900 }}>
-        권상(Hoisting) 위치 설정
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+        <div style={{ fontSize: 14, color: '#90E8FF', letterSpacing: 0.8, fontWeight: 900 }}>
+          권상(Hoisting) 위치 설정
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+        {/* 가상판(Z-레벨 가이드 평판) 표시 토글 — hoist 리본 헤더 고정(사용자 요청 2026-07-03, 기본 켜짐). */}
+        <Tooltip
+          placement="bottom"
+          content={showHoistPlate
+            ? <>활성 권상 그룹의 <strong style={{ color: '#90E8FF' }}>Z-레벨 가이드 판(가상판)</strong>을 <strong>숨깁니다</strong>. (뷰가 가려질 때)</>
+            : <>활성 권상 그룹의 <strong style={{ color: '#90E8FF' }}>Z-레벨 가이드 판(가상판)</strong>을 <strong>표시합니다</strong>.</>}>
+          <button
+            type="button"
+            onClick={toggleHoistPlate}
+            role="switch"
+            aria-checked={showHoistPlate}
+            aria-label="가상판 표시 토글"
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 5, flexShrink: 0,
+              padding: '5px 10px', borderRadius: 6,
+              background: showHoistPlate ? 'rgba(0,209,255,0.16)' : '#0a0a18',
+              border: `1px solid ${showHoistPlate ? '#00D1FF' : '#2a2a4a'}`,
+              color: showHoistPlate ? '#90E8FF' : '#5a6a82',
+              cursor: 'pointer', fontSize: 11, fontWeight: 800, letterSpacing: 0.3,
+              transition: 'background 120ms ease, border-color 120ms ease, color 120ms ease',
+            }}>
+            {showHoistPlate ? <Eye size={13} strokeWidth={2.4} /> : <EyeOff size={13} strokeWidth={2.4} />}
+            가상판
+          </button>
+        </Tooltip>
+        {/* 초기화 — 모든 권상점 해지 + 생성된 wire 제거(처음부터 다시 지정). 헤더 고정 액션. */}
+        <Tooltip
+          placement="left"
+          content={
+            <>
+              <strong style={{ color: '#FFC447' }}>권상점 초기화</strong><br/>
+              지정된 <strong>모든 권상 그룹의 노드</strong>를 비우고 그룹을 1개로 되돌리며,
+              자세안정성 평가로 생성된 <strong>wire 표시도 모두 제거</strong>합니다.<br/>
+              권상 방식·Wire 길이·옵션은 유지되므로 곧바로 다시 지정할 수 있습니다.
+            </>
+          }>
+          <button
+            type="button"
+            onClick={onResetHoist}
+            disabled={!canReset}
+            aria-label="권상점 초기화"
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 5, flexShrink: 0,
+              padding: '5px 10px',
+              borderRadius: 6,
+              background: canReset ? 'rgba(255,196,71,0.14)' : '#0a0a18',
+              border: `1px solid ${canReset ? 'rgba(255,196,71,0.6)' : '#2a2a4a'}`,
+              color: canReset ? '#FFC447' : '#3a3a52',
+              cursor: canReset ? 'pointer' : 'not-allowed',
+              fontSize: 11, fontWeight: 800, letterSpacing: 0.3,
+              transition: 'background 120ms ease, border-color 120ms ease, color 120ms ease',
+            }}
+            onMouseEnter={e => { if (canReset) e.currentTarget.style.background = 'rgba(255,196,71,0.24)' }}
+            onMouseLeave={e => { if (canReset) e.currentTarget.style.background = 'rgba(255,196,71,0.14)' }}>
+            <RotateCcw size={13} strokeWidth={2.4} />
+            초기화
+          </button>
+        </Tooltip>
+        </div>
       </div>
 
-      {/* ── 권상 위치 자동 선정 — 자세안정성 평가 기반 ── */}
-      <button
-        onClick={() => { if (canAutoSelect) setAutoModalOpen(true) }}
-        disabled={!canAutoSelect}
-        title={!hasModel ? '모델을 먼저 로드하세요' : !mode ? 'STEP 1 에서 권상 방식을 먼저 선택하세요' : '자세안정성 평가로 최적 권상 위치를 엄선해 제안합니다'}
-        style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-          padding: '7px 10px', borderRadius: 7, width: '100%',
-          background: canAutoSelect ? 'linear-gradient(90deg, rgba(0,209,255,0.18), rgba(181,124,255,0.18))' : '#101024',
-          color: canAutoSelect ? '#E8FBFF' : '#4a5a72',
-          border: `1px solid ${canAutoSelect ? '#00D1FF' : '#2a2a4a'}`,
-          cursor: canAutoSelect ? 'pointer' : 'not-allowed', fontSize: 12, fontWeight: 800,
-        }}>
-        <Sparkles size={14} /> 권상 위치 자동 선정
-      </button>
-      {!mode && hasModel && (
-        <div style={{ fontSize: 10.5, color: '#8aa0b8', textAlign: 'center', marginTop: -2 }}>
-          STEP 1 권상 방식 선택 후 사용 가능
-        </div>
-      )}
-
-      {autoModalOpen && <HoistAutoResultModal onClose={() => setAutoModalOpen(false)} />}
-
       {/* 진행 로드맵 — 초심자가 "지금 어디까지 했고 다음에 뭘 하는지" 한눈에 보도록 */}
-      <StepFlow mode={mode} groupsValid={allGroupsValid} hasResult={!!stabilityReport} />
+      <StepFlow mode={mode} groupsValid={allGroupsValid} hasResult={!!stabilityReport} optionsTouched={optionsTouched} />
 
       {/* ── STEP 1. 권상 방식 ── */}
       <StepHeader n={1} title="권상 방식 선택" done={!!mode}
@@ -237,11 +305,131 @@ export default function HoistPositionPanel() {
         })}
       </div>
 
-      {/* ── STEP 2. 권상 위치 지정 ── */}
-      <StepHeader n={2} title="권상 위치 지정" done={allGroupsValid} disabled={!mode}
+      {/* ── STEP 2. 권상 위치 정하기 — 자동 추천(주) 또는 직접 지정(보조) ── */}
+      <StepHeader n={2} title="권상 위치 정하기" done={allGroupsValid} disabled={!mode}
         desc={mode
-          ? '그룹을 누른 뒤 3D 뷰에서 Shift+노드 클릭으로 권상점을 찍으세요. (민트색 = 같은 높이 후보)'
+          ? '구역을 나눠 PASS 위치를 추천받거나(권장), 3D에서 직접 클릭해 지정하세요.'
           : '먼저 STEP 1에서 권상 방식을 선택하세요.'} />
+
+      {/* 주 경로 — 자동 추천(구역 기반): 구역을 나눠 자세안정성 PASS 위치를 찾아 제안 */}
+      <button
+        onClick={() => { if (canAutoSelect) setAutoModalOpen(true) }}
+        disabled={!canAutoSelect}
+        title={!hasModel ? '모델을 먼저 로드하세요' : !mode ? 'STEP 1 에서 권상 방식을 먼저 선택하세요' : '구역을 나눠 자세안정성 PASS 위치를 찾아 추천합니다'}
+        style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+          padding: '9px 10px', borderRadius: 7, width: '100%',
+          background: canAutoSelect ? 'linear-gradient(90deg, rgba(0,209,255,0.22), rgba(181,124,255,0.22))' : '#101024',
+          color: canAutoSelect ? '#E8FBFF' : '#4a5a72',
+          border: `1px solid ${canAutoSelect ? '#00D1FF' : '#2a2a4a'}`,
+          cursor: canAutoSelect ? 'pointer' : 'not-allowed', fontSize: 12.5, fontWeight: 800,
+          boxShadow: canAutoSelect ? '0 0 12px rgba(0,209,255,0.20)' : 'none',
+        }}>
+        <Sparkles size={15} /> 자동 추천 (구역 기반)
+      </button>
+      <div style={{ fontSize: 10, color: canAutoSelect ? '#7fd7ff' : '#5a6a82', textAlign: 'center', marginTop: -2, lineHeight: 1.4 }}>
+        구역을 나눠 자세안정성 <b>PASS 위치</b>를 제안받습니다{mode ? '' : ' · 방식 선택 후 사용'}
+      </div>
+
+      {autoModalOpen && <HoistAutoResultModal onClose={() => setAutoModalOpen(false)} />}
+
+      {/* 보조 경로 — 직접 지정(3D Shift+클릭). 접지 않고 노출하되 시각적으로 보조. */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '3px 0 0' }}>
+        <span style={{ flex: 1, height: 1, background: '#2a2a4a' }} />
+        <span style={{ fontSize: 10, color: '#6a7a92', fontWeight: 700, whiteSpace: 'nowrap' }}>또는 직접 지정</span>
+        <span style={{ flex: 1, height: 1, background: '#2a2a4a' }} />
+      </div>
+      <div style={{ fontSize: 10, color: '#60708a', marginTop: -2, lineHeight: 1.4 }}>
+        그룹을 누른 뒤 3D 뷰에서 <b style={{ color: '#8aa0b8' }}>Shift+노드 클릭</b>으로 권상점을 직접 찍습니다. (민트색 = 후보 노드)
+      </div>
+
+      {/* Circle Guide — 무게중심 기준 등거리(가상 원) 후보 강조 토글 + 전용 Tolerance */}
+      <div style={{
+        marginTop: 2,
+        border: `1px solid ${circleGuideEnabled ? CANDIDATE_CSS + '66' : '#2a2a4a'}`,
+        borderRadius: 6,
+        background: circleGuideEnabled ? `${CANDIDATE_CSS}12` : '#0f0f22',
+        padding: '7px',
+        display: 'flex', flexDirection: 'column', gap: 6,
+      }}>
+        <Tooltip
+          placement="top"
+          content={
+            <>
+              <strong style={{ color: CANDIDATE_CSS }}>Circle Guide</strong><br/>
+              켜면 활성 그룹에서 <strong>첫 노드를 하나 찍었을 때</strong>, 무게중심(COG)을 중심으로
+              <strong> COG↔첫노드 수평거리</strong>를 반지름으로 하는 가상 원(수평 링)을 그리고,
+              그 원에서 <strong>±Tolerance</strong> 이내이면서 <strong>첫 노드와 같은 Z 레벨</strong>인 노드를 후보(민트)로 강조합니다.<br/>
+              같은 데크(높이)에서 무게중심 기준 <strong>등거리</strong> 지점을 쉽게 고르도록 돕습니다.<br/>
+              켜져 있는 동안 기존 "같은 높이" 후보 강조는 대체됩니다.
+            </>
+          }>
+          <button
+            type="button"
+            onClick={toggleCircleGuide}
+            role="switch"
+            aria-checked={circleGuideEnabled}
+            aria-label="Circle Guide 토글"
+            style={{
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'space-between', gap: 6,
+              width: '100%', padding: '6px 10px', borderRadius: 6,
+              background: circleGuideEnabled ? `${CANDIDATE_CSS}24` : '#0a0a18',
+              border: `1px solid ${circleGuideEnabled ? CANDIDATE_CSS : '#2a2a4a'}`,
+              color: circleGuideEnabled ? '#e8f4ff' : '#7a8aaa',
+              cursor: 'pointer', fontSize: 11.5, fontWeight: 800, letterSpacing: 0.3,
+              transition: 'background 120ms ease, border-color 120ms ease, color 120ms ease',
+            }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ width: 9, height: 9, borderRadius: '50%', background: circleGuideEnabled ? CANDIDATE_CSS : '#3a3a58', boxShadow: circleGuideEnabled ? `0 0 6px ${CANDIDATE_CSS}` : 'none' }} />
+              Circle Guide
+            </span>
+            <span style={{ fontSize: 9, fontWeight: 800, color: circleGuideEnabled ? CANDIDATE_CSS : '#505070' }}>
+              {circleGuideEnabled ? 'ON' : 'OFF'}
+            </span>
+          </button>
+        </Tooltip>
+        {circleGuideEnabled && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <div style={{ fontSize: 10, color: '#60708a', lineHeight: 1.4 }}>
+원 근처·같은 Z 레벨 판정 거리 <span style={{ color: CANDIDATE_CSS, fontWeight: 700 }}>Tolerance (mm)</span> — 비우면 자동(모델 크기 기반 ≈ {Math.round(autoCircleTolMm)}mm).
+            </div>
+            <div style={{ display: 'flex', gap: 4 }}>
+              <input
+                type="number"
+                min="0"
+                step="any"
+                value={hoistCircleTolMm ?? ''}
+                placeholder={`자동 ≈ ${Math.round(autoCircleTolMm)}`}
+                onChange={e => setHoistCircleTol(e.target.value)}
+                aria-label="Circle Guide Tolerance (mm)"
+                style={{
+                  flex: 1, padding: '5px 7px', borderRadius: 4,
+                  background: '#0c0c1c',
+                  border: `1px solid ${hoistCircleTolMm ? CANDIDATE_CSS + '66' : '#2a2a4a'}`,
+                  color: '#e8f4ff', fontSize: 12, outline: 'none', minWidth: 0, width: '100%',
+                }}
+              />
+              <Tooltip placement="top" content="Circle Guide Tolerance 를 자동값(모델 크기 기반)으로 되돌립니다.">
+                <button
+                  type="button"
+                  onClick={() => setHoistCircleTol(null)}
+                  disabled={hoistCircleTolMm == null}
+                  aria-label="Circle Guide Tolerance 자동으로 리셋"
+                  style={{
+                    padding: '0 9px', borderRadius: 4,
+                    background: hoistCircleTolMm == null ? '#0a0a18' : '#101024',
+                    border: '1px solid #2a2a4a',
+                    color: hoistCircleTolMm == null ? '#3a3a52' : '#7070a0',
+                    cursor: hoistCircleTolMm == null ? 'not-allowed' : 'pointer',
+                    fontSize: 10, fontWeight: 700,
+                  }}>
+                  자동
+                </button>
+              </Tooltip>
+            </div>
+          </div>
+        )}
+      </div>
 
       {Array.from({ length: groupCount }, (_, i) => i + 1).map(id => {
         const nodes = groups[id] ?? []
@@ -308,7 +496,7 @@ export default function HoistPositionPanel() {
                   ? (
                     <>
                       <strong style={{ color: '#E07070' }}>그룹 {id} 삭제</strong><br/>
-                      이 그룹을 통째로 제거합니다. 이후 그룹 ID 는 한 칸씩 당겨와 자동 재정렬됩니다 (예: 그룹 2 삭제 → 옛 그룹 3·4 가 새 2·3).
+                      이 그룹을 통째로 제거하고 <strong>해당 그룹의 wire 표시도 함께 삭제</strong>합니다. 이후 그룹 ID 는 한 칸씩 당겨와 자동 재정렬됩니다 (예: 그룹 2 삭제 → 옛 그룹 3·4 가 새 2·3).
                     </>
                   )
                   : '최소 1개 그룹은 유지해야 합니다.'
@@ -316,7 +504,12 @@ export default function HoistPositionPanel() {
                   <Tooltip placement="top" content={tipDel}>
                     <button
                       type="button"
-                      onClick={(e) => { e.stopPropagation(); if (canDelete) removeGroup(id) }}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        if (!canDelete) return
+                        removeGroup(id)       // 그룹 삭제(+ID 재정렬)
+                        dropGroupWires(id)    // 해당 그룹 wire 제거(+동일 규칙으로 ID 재정렬)
+                      }}
                       disabled={!canDelete}
                       aria-label={`그룹 ${id} 삭제`}
                       style={{
@@ -417,81 +610,10 @@ export default function HoistPositionPanel() {
 
       {/* ── STEP 3. 옵션 ── */}
       <StepHeader n={3} title="옵션 (선택 사항)"
-        desc="후보 강조 범위·Wire 길이·배관 외경 기준. 비워두면 자동값으로 진행됩니다." />
+        desc="Wire 길이·배관 외경 기준. 비워두면 자동값으로 진행됩니다." />
 
-      {/* 권상 후보 강조 Tolerance — 가상판 ±이 값 이내의 "같은 레벨" 노드를 후보(민트)로 강조 */}
-      <div style={{
-        marginTop: 2,
-        borderTop: '1px solid #2a2a4a',
-        paddingTop: 7,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 4,
-      }}>
-        <label style={{ fontSize: 11, color: '#90E8FF', fontWeight: 800, letterSpacing: 0.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
-          <span>후보 강조 Tolerance (mm)</span>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, color: '#9fb4cc', fontWeight: 600 }}>
-            <span style={{ width: 9, height: 9, borderRadius: '50%', background: CANDIDATE_CSS, boxShadow: `0 0 6px ${CANDIDATE_CSS}aa` }} />
-            권상 후보
-          </span>
-        </label>
-        <div style={{ fontSize: 10, color: '#60708a', lineHeight: 1.4 }}>
-          선택한 권상 노드의 가상판에서 <span style={{ color: CANDIDATE_CSS, fontWeight: 700 }}>±이 값</span> 이내의 같은 레벨 노드를 후보로 강조합니다. 비우면 자동(모델 높이 기반 ≈ {Math.round(autoTolMm)}mm).
-        </div>
-        <div style={{ display: 'flex', gap: 4 }}>
-          <Tooltip
-            placement="top"
-            content={
-              <>
-                <strong style={{ color: CANDIDATE_CSS }}>후보 강조 Tolerance (mm)</strong><br/>
-                선택한 권상 노드의 수평 가상판에서 |Δz| 가 이 값 이하인 같은 레벨 노드를 후보로 강조합니다.<br/>
-                X·Y 위치와 무관하게 Z 레벨만 보므로 모델 어느 구역에서나 일관되게 동작합니다.<br/>
-                비우면 모델 높이의 0.4%(최소 2mm)로 자동 설정됩니다.
-              </>
-            }>
-            <input
-              type="number"
-              min="0"
-              step="any"
-              value={hoistToleranceMm ?? ''}
-              placeholder={`자동 ≈ ${Math.round(autoTolMm)}`}
-              onChange={e => setHoistTolerance(e.target.value)}
-              aria-label="권상 후보 강조 Tolerance (mm)"
-              style={{
-                flex: 1,
-                padding: '5px 7px',
-                borderRadius: 4,
-                background: '#0c0c1c',
-                border: `1px solid ${hoistToleranceMm ? CANDIDATE_CSS + '66' : '#2a2a4a'}`,
-                color: '#e8f4ff',
-                fontSize: 12,
-                outline: 'none',
-                minWidth: 0,
-                width: '100%',
-              }}
-            />
-          </Tooltip>
-          <Tooltip placement="top" content="Tolerance 를 자동값(모델 높이 기반)으로 되돌립니다.">
-            <button
-              type="button"
-              onClick={() => setHoistTolerance(null)}
-              disabled={hoistToleranceMm == null}
-              aria-label="Tolerance 자동으로 리셋"
-              style={{
-                padding: '0 9px',
-                borderRadius: 4,
-                background: hoistToleranceMm == null ? '#0a0a18' : '#101024',
-                border: '1px solid #2a2a4a',
-                color: hoistToleranceMm == null ? '#3a3a52' : '#7070a0',
-                cursor: hoistToleranceMm == null ? 'not-allowed' : 'pointer',
-                fontSize: 10,
-                fontWeight: 700,
-              }}>
-              자동
-            </button>
-          </Tooltip>
-        </div>
-      </div>
+      {/* (후보 강조 Tolerance 입력은 제거됨 — STEP 2 의 Circle Guide 로 대체. 기본 같은-높이 강조는 자동값 사용) */}
+      {/* (가상판 표시 토글은 상단 리본 헤더로 이동함 — 사용자 요청 2026-07-03) */}
 
       {/* Wire 길이 — 모드 전환 시 기본값(Hydro 8m / Goliat 24m / 천장 Crane 5m) 자동 설정, 사용자가 변경 가능 */}
       {(() => {
@@ -758,11 +880,12 @@ export default function HoistPositionPanel() {
 }
 
 // ── 진행 로드맵(미니 스테퍼) — 초심자가 전체 흐름(방식→위치→옵션→실행)을 한눈에 ──
-function StepFlow({ mode, groupsValid, hasResult }) {
+// '옵션'은 선택 사항이라 done 개념이 없다 → optional 로 표시하고, 입력이 있으면 touched(점) 로만 구분.
+function StepFlow({ mode, groupsValid, hasResult, optionsTouched = false }) {
   const steps = [
     { n: 1, label: '방식', done: !!mode },
     { n: 2, label: '위치', done: !!mode && groupsValid },
-    { n: 3, label: '옵션', done: false },
+    { n: 3, label: '옵션', optional: true, touched: optionsTouched },
     { n: 4, label: '실행', done: !!hasResult },
   ]
   return (
@@ -771,22 +894,29 @@ function StepFlow({ mode, groupsValid, hasResult }) {
       padding: '6px 7px', borderRadius: 7,
       background: '#0e0e22', border: '1px solid #20203a',
     }}>
-      {steps.map((s, i) => (
+      {steps.map((s, i) => {
+        // 옵션(optional) 단계는 완료 개념 대신 '선택'으로 표시하고, 입력이 있으면 점(●)으로 구분.
+        const isOptional = s.optional === true
+        const borderColor = s.done ? '#2BD380' : '#2a3a55'
+        return (
         <Fragment key={s.n}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
             <span style={{
               width: 17, height: 17, borderRadius: '50%', flexShrink: 0,
               display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
               background: s.done ? '#1FA86A' : '#16233a',
-              color: s.done ? '#06121e' : '#90E8FF',
-              border: `1px solid ${s.done ? '#2BD380' : '#2a3a55'}`,
+              color: s.done ? '#06121e' : (isOptional && s.touched) ? '#7fd7ff' : '#90E8FF',
+              border: `1px ${isOptional ? 'dashed' : 'solid'} ${borderColor}`,
               fontSize: 9.5, fontWeight: 900,
-            }}>{s.done ? '✓' : s.n}</span>
-            <span style={{ fontSize: 9.5, fontWeight: 700, color: s.done ? '#9fe6c2' : '#8fa9bf', whiteSpace: 'nowrap' }}>{s.label}</span>
+            }}>{s.done ? '✓' : isOptional ? (s.touched ? '●' : '·') : s.n}</span>
+            <span style={{ fontSize: 9.5, fontWeight: 700, color: s.done ? '#9fe6c2' : '#8fa9bf', whiteSpace: 'nowrap' }}>
+              {s.label}{isOptional ? <span style={{ color: '#5a6a82', fontWeight: 600 }}> (선택)</span> : null}
+            </span>
           </div>
           {i < steps.length - 1 && <span style={{ flex: 1, height: 1, background: '#2a2a4a', minWidth: 6 }} />}
         </Fragment>
-      ))}
+        )
+      })}
     </div>
   )
 }

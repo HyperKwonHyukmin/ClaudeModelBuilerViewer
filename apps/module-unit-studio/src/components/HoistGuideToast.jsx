@@ -9,7 +9,8 @@ const AUTO_DISMISS_MS = 4500
  * id 가 변할 때마다 (같은 메시지 재발생 포함) 자동 dismiss 타이머가 리셋된다.
  *
  * kind:
- *   'noMode' — 권상 방식 미선택 안내 (주의 색)
+ *   'error' — 저장/해석 실패 등 오류 (빨강 색)
+ *   'noMode' — 권상 방식 미선택·자동해석 미실행 등 주의 안내 (호박 색)
  *   'success' — 자세안정성 평가 저장 등 완료 알림 (확인 색)
  *   기본 'info' — 일반 안내
  */
@@ -61,7 +62,15 @@ export default function HoistGuideToast() {
   )
 }
 
-function paletteFor(kind) {
+export function paletteFor(kind) {
+  if (kind === 'error') {
+    return {
+      border: 'rgba(255, 85, 102, 0.6)',
+      text:   '#FFC9D0',
+      icon:   AlertTriangle,
+      icon_color: '#FF5566',
+    }
+  }
   if (kind === 'noMode') {
     return {
       border: 'rgba(255, 184, 0, 0.55)',

@@ -61,7 +61,7 @@ describe('buildEditedStageJson', () => {
     expect(out.meta.editedAt).toBeTruthy()
   })
 
-  it('addRigid intent 가 새 RBE 로 들어가고 id 가 max+1 부여된다', () => {
+  it('addRigid intent 가 새 RBE 로 들어가고 id 가 elements+rigids 통합 max+1 부여된다', () => {
     const stage = new StageData(baseJson())
     const intents = [
       { id: 1, kind: 'addRigid', params: { independentNode: 1, dependentNodes: [2], cm: '123456' }, validation: { status: 'ok' } },
@@ -70,7 +70,27 @@ describe('buildEditedStageJson', () => {
     expect(out.rigids).toHaveLength(2)
     const added = out.rigids.find(r => r.independentNode === 1 && r.dependentNodes.includes(2))
     expect(added).toBeTruthy()
-    expect(added.id).toBe(51)   // 기존 max 50 + 1
+    // 통합 최대 id = elements(100,101,200) + rigids(50) 중 200 → 201.
+    // (RBE2 는 element ID 네임스페이스를 공유하므로 rigids max(50)+1=51 이 아니라 통합 max+1)
+    expect(added.id).toBe(201)
+  })
+
+  it('addRigid 신규 id 가 elements id(rigids max 보다 큼) 와 충돌하지 않는다 (통합 네임스페이스)', () => {
+    // elements 최대 id(200) > rigids max(50). 순진하게 rigids max+1(=51) 을 쓰면
+    // 나중에 같은 네임스페이스의 요소와 충돌할 수 있으므로 통합 max(200) 초과여야 한다.
+    const stage = new StageData(baseJson())
+    const intents = [
+      { id: 'r1', kind: 'addRigid', params: { independentNode: 1, dependentNodes: [2] }, validation: { status: 'ok' } },
+      { id: 'r2', kind: 'addRigid', params: { independentNode: 3, dependentNodes: [4] }, validation: { status: 'ok' } },
+    ]
+    const out = buildEditedStageJson(stage, intents)
+    const addedIds = out.rigids.filter(r => r.id > 200).map(r => r.id)
+    // 신규 rigid 2개 모두 200 초과 (201, 202) — 기존 element id(200) 와 충돌 없음
+    expect(addedIds).toHaveLength(2)
+    for (const id of addedIds) expect(id).toBeGreaterThan(200)
+    // 전체 element+rigid id 유일성 (충돌 없음) 확인
+    const allIds = [...out.elements.map(e => e.id), ...out.rigids.map(r => r.id)]
+    expect(new Set(allIds).size).toBe(allIds.length)
   })
 
   it('addSupportBeam intent 가 CBEAM + PBEAML L 로 주입된다', () => {

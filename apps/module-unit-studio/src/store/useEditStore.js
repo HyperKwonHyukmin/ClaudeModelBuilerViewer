@@ -7,7 +7,7 @@ import {
 } from '../data/EditIntent.js'
 import { buildEditedStageJson, buildEditedStageFileName } from '../data/applyEditedModel.js'
 import { rankHoistCandidates } from '../data/hoistCandidateRank.js'
-import { pipeNodeIds, partitionZones, assignNodesToZones, zoneCountFor } from '../data/hoistZonePartition.js'
+import { pipeNodeIds, partitionZones, assignNodesToZones, zoneCountFor, zoneShapeFor, countActiveZones, SHAPE_QUAD } from '../data/hoistZonePartition.js'
 import { useStageStore } from './useStageStore.js'
 import { useStabilityStore } from './useStabilityStore.js'
 import { getHost } from '../host/host.js'
@@ -37,6 +37,13 @@ export function getHoistDefaultWireLengthM(mode) {
 
 const VALID_HOIST_MODES = new Set(['hydro', 'goliat', 'ceiling'])
 
+// 편집(intent) 적용 시 자세안정성(posture) 결과를 그대로 유지하는 kind.
+// 가서포트(addSupportBeam)는 자세안정성 PASS 이후 Analysis 단계에서 추가하는 "구조 보강"이므로
+// 구조해석 결과만 무효화하고 자세안정성은 유지한다(기존 설계 의도). 그 외 모델 형상·질량을 바꾸는
+// 편집(addRigid/deleteElement/deleteGroup/deleteCategory/deleteOrphanNodes/emptyPipeFluid/rotateModel)은
+// 자세안정성 결과까지 낡게 만들므로 함께 무효화한다.
+const STABILITY_PRESERVING_KINDS = new Set(['addSupportBeam'])
+
 /**
  * useEditStore — 편집 모드 상태 + EditIntent 목록 관리.
  *
@@ -65,6 +72,12 @@ export const useEditStore = create((set, get) => ({
   // 이번 세션에 편집 모델(_edited.json)을 백엔드에 업로드한 적이 있는지 — 재해석 동기화 게이트.
   editedModelUploaded: false,
 
+  // 편집으로 직전 해석 결과(자세안정성/구조해석)가 무효화됐음을 알리는 플래그.
+  // addIntent/removeIntent/clearIntents 가 실제로 기존 결과를 초기화했을 때 true 로 세팅되고,
+  // 재평가(자세안정성 실행)·재해석(구조해석 실행) 시작 시 clearEditStaleNotice() 로 해제된다.
+  // AnalyzePanel 이 이 값을 배너로 노출해 "결과가 왜 사라졌는지"를 사용자에게 알린다.
+  editStaleNotice: false,
+
   // 편집 모드에서 Ctrl+Click 으로 누적된 다중 선택 element 목록 (일괄 삭제용)
   multiSelElements: [],
 
@@ -89,8 +102,18 @@ export const useEditStore = create((set, get) => ({
   pipeDiameterThreshold: null,
 
   // 권상 후보 강조 Tolerance(mm). null 이면 모델 높이 기반 자동값(autoHoistToleranceMm)을 쓴다.
-  // 가상판(선택 노드 Z)에서 |Δz| ≤ 이 값 인 같은 레벨 노드를 후보로 강조한다.
+  // 자동 최적화 엔진의 Z-밴드 tol 로도 쓰인다(buildHoistPartitionInput). null=auto(가장 넓은 PASS Z-밴드 스윕).
+  // (UI 입력은 제거됨 — 이제 항상 null=auto. 값 override 가 필요하면 setHoistTolerance 로만 설정.)
   hoistToleranceMm: null,
+
+  // Circle Guide — 켜면 활성 그룹 첫 노드로 "무게중심 중심 + COG→첫노드 수평거리 반지름" 가상 원(수평 링)을
+  // 만들고, 그 원 근처(±hoistCircleTolMm) 노드를 후보로 강조한다(기존 같은-높이 강조는 켜진 동안 OFF).
+  circleGuideEnabled: false,
+  // Circle Guide 후보 판정 Tolerance(mm) — |수평거리(node,COG) − 반지름| ≤ 이 값. null 이면 모델 크기 기반 자동값.
+  hoistCircleTolMm: null,
+
+  // 활성 권상 그룹의 Z-레벨 가이드 평판(가상판) 3D 표시 여부. 사용자가 뷰가 가려질 때 끌 수 있다(기본 표시).
+  showHoistPlate: true,
 
   // 권상 UX 가이드 토스트 (예: "권상 방식을 먼저 선택해 주세요"). { id, message, kind } | null
   // id 는 새 토스트마다 증가해 같은 메시지여도 자동 dismiss 타이머가 리셋되도록 한다.
@@ -250,6 +273,21 @@ export const useEditStore = create((set, get) => ({
   },
 
   /**
+   * 권상점 전체 초기화 — 모든 그룹의 노드를 비우고 그룹 수/활성 그룹을 1 로 되돌린다.
+   * 권상 방식(mode)·Wire 길이·옵션(tolerance/외경)은 유지한다.
+   * 생성된 wire 시각화 제거는 useStabilityStore.reset() 로 별도 처리(스토어 분리 유지).
+   */
+  resetHoistPoints: () => {
+    // 권상점을 초기화하면 직전 구조해석 결과는 무효 → 재해석 잠금(isFinished)을 함께 푼다.
+    invalidateStructuralResult()
+    set({
+      hoistGroups: { 1: [], 2: [], 3: [], 4: [] },
+      hoistGroupCount: 1,
+      activeHoistGroupId: 1,
+    })
+  },
+
+  /**
    * 권상 위치 자동 선정 모달의 제안 결과를 실제 Hoist 그룹 상태로 적용한다.
    * - 현재 권상 방식의 최대 그룹 수(Hydro 4/Goliat 3/Ceiling 1)를 넘는 제안은 버린다.
    * - 그룹당 노드는 최대 4개, 노드는 전체 그룹 중 한 곳에만 남긴다.
@@ -359,6 +397,19 @@ export const useEditStore = create((set, get) => ({
     set({ hoistToleranceMm: Number.isFinite(num) && num > 0 ? num : null })
   },
 
+  // Circle Guide 토글. 켜면 원 기반 후보 강조로 전환된다.
+  toggleCircleGuide: () => set(s => ({ circleGuideEnabled: !s.circleGuideEnabled })),
+  setCircleGuide: (v) => set({ circleGuideEnabled: !!v }),
+  // Circle Guide 후보 Tolerance(mm). 빈 값/0이하/NaN 은 null(자동값)로 처리.
+  setHoistCircleTol: (val) => {
+    const num = (val == null || val === '') ? null : Number(val)
+    set({ hoistCircleTolMm: Number.isFinite(num) && num > 0 ? num : null })
+  },
+
+  // 가상판(Z-레벨 가이드 평판) 표시 토글.
+  setShowHoistPlate: (v) => set({ showHoistPlate: !!v }),
+  toggleHoistPlate: () => set(s => ({ showHoistPlate: !s.showHoistPlate })),
+
   /**
    * 권상 UX 가이드 토스트를 띄운다. 같은 메시지를 다시 띄워도 id 가 갱신돼
    * 토스트 컴포넌트의 자동 dismiss 타이머가 리셋된다.
@@ -392,26 +443,24 @@ export const useEditStore = create((set, get) => ({
     })
     set({ supportPickNodes: [] })
     if (res.ok) {
+      // 구조해석 결과 무효화는 addIntent 가 담당(가서포트는 구조해석만 초기화, 자세안정성 유지).
       get().flashHoistGuide(`가서포트 설치됨 (N${a}↔N${b})`, 'success')
-      useUnitStructuralStore.getState().reset()
     } else {
       get().flashHoistGuide(res.validation?.errors?.[0] ?? '가서포트 추가 실패', 'error')
     }
   },
 
-  // 프로그램적 추가(테스트/대체 진입점) — 검증 통과 시 구조 결과 reset.
+  // 프로그램적 추가(테스트/대체 진입점) — 구조 결과 무효화는 addIntent 가 담당.
   addSupportBeam: (a, b) => {
-    const res = get().addIntent({
+    return get().addIntent({
       kind: 'addSupportBeam',
       params: { startNode: a, endNode: b, sectionKind: 'L', dims: [100, 100, 10, 10] },
     })
-    if (res.ok) useUnitStructuralStore.getState().reset()
-    return res
   },
 
+  // 구조 결과 무효화는 removeIntent 가 담당(가서포트 제거이므로 자세안정성은 유지).
   removeSupportBeam: (intentId) => {
     get().removeIntent(intentId)
-    useUnitStructuralStore.getState().reset()
   },
 
   markEditedModelUploaded: () => set({ editedModelUploaded: true }),
@@ -437,17 +486,31 @@ export const useEditStore = create((set, get) => ({
       return { ok: false, intent: null, validation }
     }
     set(s => ({ intents: [...s.intents, intent] }))
+    // 편집이 적용되면 직전 해석 결과는 이 모델에 대한 것이 아니게 된다 → 무효화하고 재실행 잠금을 푼다.
+    if (invalidateForEdit(draft.kind)) set({ editStaleNotice: true })
     return { ok: true, intent, validation }
   },
 
   removeIntent: (id) => {
+    const removed = get().intents.find(i => i.id === id)
     set(s => ({
       intents: s.intents.filter(i => i.id !== id),
       selectedIntentId: s.selectedIntentId === id ? null : s.selectedIntentId,
     }))
+    // 편집을 되돌리는 것도 모델을 바꾸므로 동일하게 무효화한다.
+    if (invalidateForEdit(removed?.kind)) set({ editStaleNotice: true })
   },
 
-  clearIntents: () => set({ intents: [], selectedIntentId: null }),
+  clearIntents: () => {
+    set({ intents: [], selectedIntentId: null })
+    // 모든 편집 제거 = 원본 모델로 복귀 → 자세안정성/구조해석 결과 모두 무효화.
+    const invStruct = invalidateStructuralResult()
+    const invStab = invalidateStabilityResult()
+    if (invStruct || invStab) set({ editStaleNotice: true })
+  },
+
+  // 재평가/재해석을 시작하거나 사용자가 확인하면 stale 배너를 내린다.
+  clearEditStaleNotice: () => set({ editStaleNotice: false }),
 
   selectIntent: (id) => set({ selectedIntentId: id }),
 
@@ -637,10 +700,14 @@ export const useEditStore = create((set, get) => ({
     wireLengthM: HOIST_DEFAULT_WIRE_M.hydro,
     pipeDiameterThreshold: null,
     hoistToleranceMm: null,
+    circleGuideEnabled: false,
+    hoistCircleTolMm: null,
+    showHoistPlate: true,
     hoistGuide: null,
     supportPickActive: false,
     supportPickNodes: [],
     editedModelUploaded: false,
+    editStaleNotice: false,
   }),
 
   /**
@@ -664,6 +731,12 @@ export const useEditStore = create((set, get) => ({
    * }>}
    */
   exportPostureStabilityToFile: async () => {
+    // 이중 실행 가드 — 자세안정성 해석이 이미 running 이면 즉시 거절한다.
+    // (구조해석 러너 useUnitStructuralRunner 의 running 가드와 동일 정책. 저장→자동해석 중
+    //  버튼 연타로 두 번째 실행이 첫 실행의 결과/파일을 덮어쓰는 레이스를 막는다.)
+    if (useStabilityStore.getState().running) {
+      return { ok: false, error: '이미 실행 중입니다' }
+    }
     const state = get()
     const hoisting = getHoistExport(state)
     const hoistError = validateHoistExport(hoisting)
@@ -673,6 +746,13 @@ export const useEditStore = create((set, get) => ({
     const stage = currentStage()
     const intents = state.intents ?? []
     const results = []
+
+    // 새 자세안정성 평가를 시작하므로 직전 구조해석(허용응력) 결과는 이 권상 구성에 대한 것이
+    // 아니게 된다 → 무효화해 구조 Run 버튼 잠금(isFinished='Success')을 푼다. 권상점을 다시 잡고
+    // 재평가·재해석하는 반복 워크플로에서 Run 이 '해석 완료'로 잠겨 재실행 불가하던 문제 수정(F1, 2026-07-07).
+    invalidateStructuralResult()
+    // 재평가를 시작했으므로 편집으로 인한 stale 배너는 내린다.
+    set({ editStaleNotice: false })
 
     // 1) 편집 intents 가 있으면 편집 적용 모델 먼저 저장
     let editedFileName = null
@@ -712,7 +792,8 @@ export const useEditStore = create((set, get) => ({
       }
     }
     let stability = null
-    if (typeof host.runStabilityAnalysis === 'function' && posturePath) {
+    const cliAvailable = typeof host.runStabilityAnalysis === 'function'
+    if (cliAvailable && posturePath) {
       useStabilityStore.getState().setRunning(true)
       try {
         const sr = await host.runStabilityAnalysis(posturePath)
@@ -730,6 +811,14 @@ export const useEditStore = create((set, get) => ({
         }
       } finally {
         useStabilityStore.getState().setRunning(false)
+      }
+    } else if (cliAvailable && !posturePath) {
+      // CLI 는 있으나 저장 위치의 절대경로를 확인할 수 없어 자동 해석을 못 돌렸다(파일 저장만 완료).
+      // 호출 측이 '저장 완료'로 오인하지 않도록 notRun 신호를 명시한다.
+      stability = {
+        ok: false,
+        notRun: true,
+        error: '저장 위치 경로를 확인할 수 없어 자세안정성 해석을 자동 실행하지 못했습니다. 저장된 _posture.json 으로 STEP 4에서 다시 실행하세요.',
       }
     }
 
@@ -791,7 +880,7 @@ export const useEditStore = create((set, get) => ({
     for (const k of groupCounts) {
       opts.onProgress?.({ done, total: groupCounts.length, groupCount: k })
       const payload = buildPostureStabilityPayload(
-        { ...state, hoistOptimization: { desiredGroupCount: k, pointsPerGroup, allowedNodeIds } },
+        { ...state, hoistOptimization: { desiredGroupCount: k, pointsPerGroup, allowedNodeIds, shapePreference: opts.shapePreference ?? 'auto' } },
         hoisting, stage, editedFileName,
       )
       const sr = await saveJsonArtifact(postureFileName, JSON.stringify(payload, null, 2))
@@ -826,7 +915,7 @@ export const useEditStore = create((set, get) => ({
   getZonePartitionInput: () => {
     const stage = currentStage()
     if (!stage || !stage.nodeMap || stage.nodeMap.size === 0) return null
-    return buildHoistPartitionInput(stage, get().hoistToleranceMm)
+    return buildHoistPartitionInput(stage, get().hoistToleranceMm, resolveModelCog(stage))
   },
 
   /**
@@ -855,10 +944,14 @@ export const useEditStore = create((set, get) => ({
     }
 
     const bands = Array.isArray(config?.bands) && config.bands.length > 0 ? config.bands : [1]
-    const groupCount = bands.reduce((n, b) => n + Math.max(1, Math.floor(b) || 1), 0)
+    // 실제 권상 그룹 수 = 0점(제외) 아닌 셀 수. 9구역(3×3) 중 일부만 활성화하는 흐름 지원.
+    const groupCount = countActiveZones(bands, config?.pointsPerZone)
     const maxGroups = getHoistMaxGroups(mode)
+    if (groupCount === 0) {
+      return { ok: false, error: '활성 구역이 없습니다 — 최소 한 구역의 포인트 수를 1 이상(0=제외)으로 설정하세요.' }
+    }
     if (groupCount > maxGroups) {
-      return { ok: false, error: `현재 권상 방식의 최대 그룹 수(${maxGroups})를 초과합니다 — 구역 합계 ${groupCount}.` }
+      return { ok: false, error: `현재 권상 방식의 최대 그룹 수(${maxGroups})를 초과합니다 — 활성 구역 ${groupCount}개.` }
     }
 
     const intents = state.intents ?? []
@@ -875,23 +968,35 @@ export const useEditStore = create((set, get) => ({
 
     // 구역 분할 → 각 구역을 옵티마이저 region 으로. region.nodeIds = 그 구역에 속한 노드(배관 제외 옵션 반영),
     // requestedPointCount = 구역별 포인트 수. 옵티마이저가 region 안에서 통과 점을 직접 고른다.
-    const input = buildHoistPartitionInput(stage, state.hoistToleranceMm)
-    const zones = partitionZones(input.bbox, { ...config, bands })
+    const input = buildHoistPartitionInput(stage, state.hoistToleranceMm, resolveModelCog(stage))
+    // 무게중심(COG) 기준 분할 — config.cogAnchor !== false(기본 on) 이고 COG 가 있으면 앵커 적용.
+    // 앵커가 있으면 2×2 는 분할선 교점이 COG, 그 이상 분할도 격자 중심이 COG 가 된다.
+    const anchor = (config?.cogAnchor !== false && input.cog) ? { x: input.cog.x, y: input.cog.y } : undefined
+    const zones = partitionZones(input.bbox, { ...config, bands, anchor })
     const byZone = assignNodesToZones(zones, input.nodeEntries)
     const includePipe = !!config?.includePipe
+    // 0점(제외) 구역은 region 을 만들지 않고 건너뛴다. groupId 는 활성 구역만 1..N 연속 부여.
     const regions = []
-    zones.forEach((z, i) => {
+    let gid = 0
+    for (const z of zones) {
+      const requestedPointCount = zoneCountFor(config, z.bandIndex, z.subIndex, 2)
+      if (requestedPointCount === 0) continue   // 제외 구역 (-1 = 자동: 엔진이 2~4점 스윕)
       let nodeIds = (byZone.get(z.id) ?? []).map(nd => nd.id)
       if (!includePipe && input.pipeNodes && input.pipeNodes.size > 0) {
         nodeIds = nodeIds.filter(id => !input.pipeNodes.has(id))
       }
-      const requestedPointCount = zoneCountFor(config, z.bandIndex, z.subIndex, 3)
       if (nodeIds.length >= 2) {
-        regions.push({ id: `zone-${z.bandIndex}-${z.subIndex}`, groupId: i + 1, requestedPointCount, nodeIds })
+        gid += 1
+        // 구역별 4점 형상(사용자 규칙 2026-07-03) — 명시 4점 구역만 사각형/일직선을 지정하고,
+        // 자동(-1)·2·3점 구역은 'auto'(엔진이 4점 변형에서 사각형·일직선 모두 시도)로 보낸다.
+        // 천장 Crane 은 구역별 형상 UI 가 없으므로 항상 'auto'(기존 동작 보존).
+        const shape = (mode !== 'ceiling' && requestedPointCount === 4)
+          ? zoneShapeFor(config, z.bandIndex, z.subIndex, SHAPE_QUAD) : 'auto'
+        regions.push({ id: `zone-${z.bandIndex}-${z.subIndex}`, groupId: gid, requestedPointCount, shape, nodeIds })
       }
-    })
+    }
     if (regions.length === 0) {
-      return { ok: false, error: '구역에서 권상 후보로 쓸 노드를 충분히 찾지 못했습니다. 분할을 줄이거나 배관 포함을 켜 보세요.' }
+      return { ok: false, error: '활성 구역에서 권상 후보로 쓸 노드를 충분히 찾지 못했습니다. 분할을 줄이거나 배관 포함을 켜 보세요.' }
     }
 
     // Stage0 파싱 보장용 시드(옵티마이저는 시드를 무시하고 region 안에서 자체 선택).
@@ -903,8 +1008,15 @@ export const useEditStore = create((set, get) => ({
 
     opts.onProgress?.({ done: 0, total: 1 })
 
+    // 권상 자동 선정의 Z 클러스터링 허용오차는 '수동 강조용 tolMm'(가상판 ±값, 좁음)과 분리한다.
+    // 사용자가 명시한 값이 있으면 존중하고, 없으면 null 로 보내 엔진이 '용인 Z단차'(MaxZDiffMm)를
+    // 기본값으로 쓰게 한다 → 같은 데크의 근소한 Z 편차 노드를 한 그룹으로 묶어 넓은 면적을 확보.
+    const optimizeTolMm = (Number.isFinite(state.hoistToleranceMm) && state.hoistToleranceMm > 0)
+      ? state.hoistToleranceMm
+      : null
     const payload = buildPostureStabilityPayload(
-      { ...state, hoistOptimization: { regions, tolMm: input.tolMm } },
+      // shapePreference(전역)는 region.shape 폴백용 기본값 'auto'(구역별 shape 로 대체됨, 사용자 규칙 2026-07-03).
+      { ...state, hoistOptimization: { regions, tolMm: optimizeTolMm, shapePreference: 'auto' } },
       hoisting, stage, editedFileName,
     )
     const postureFileName = buildPosturePayloadFileName(stage)
@@ -932,7 +1044,10 @@ export const useEditStore = create((set, get) => ({
     // C# 옵티마이저 리포트는 PascalCase(Diagnosis)로 직렬화되므로 camelCase 도 방어적으로 함께 확인한다.
     // PASS 후보를 찾았으면 엔진이 Diagnosis 를 채우지 않으므로(absent/null) 보통 null 이다.
     const diagnosis = rr.report?.diagnosis ?? rr.report?.Diagnosis ?? null
-    return { ok: true, candidates, hasPass: candidates.some(c => c.overallStatus === 'pass'), diagnosis }
+    // searchTrace — 엔진이 조합 탐색 과정(스캔 수·구역별 통계·단계별 FAIL 등)을 담는다.
+    // Diagnosis 와 동일하게 camel/Pascal 양쪽을 방어적으로 확인한다.
+    const searchTrace = rr.report?.searchTrace ?? rr.report?.SearchTrace ?? null
+    return { ok: true, candidates, hasPass: candidates.some(c => c.overallStatus === 'pass'), diagnosis, searchTrace }
   },
 
   /**
@@ -975,12 +1090,47 @@ function currentStage() {
 }
 
 /**
+ * 권상 구성/자세안정성 평가가 바뀌면 직전 구조해석(허용응력) 결과는 그 구성에 대한 것이
+ * 아니게 되므로 무효화한다. 결과가 있을 때만 reset 해 구조 Run 버튼 잠금(isFinished=Success)을
+ * 풀어 재해석을 허용한다 — 모델 회전/유체비움(useStageStore)이 쓰는 패턴과 동일(2026-07-07).
+ */
+function invalidateStructuralResult() {
+  const us = useUnitStructuralStore.getState()
+  if (us.status || us.result) { us.reset(); return true }
+  return false
+}
+
+/**
+ * 자세안정성(posture) 결과가 남아 있으면 무효화한다. 모델 형상·질량이 바뀌는 편집에서 호출.
+ * 결과가 있을 때만 reset 해 초기 편집 단계(아직 평가 전)에는 churn 이 없다.
+ * @returns {boolean} 실제로 초기화했으면 true
+ */
+function invalidateStabilityResult() {
+  const ss = useStabilityStore.getState()
+  if (ss.report || ss.overallStatus) { ss.reset(); return true }
+  return false
+}
+
+/**
+ * 편집 kind 에 맞춰 해석 결과를 무효화한다.
+ * - 구조해석(Unit): 모든 편집에서 무효화.
+ * - 자세안정성(posture): 가서포트(addSupportBeam) 는 유지, 그 외 모델 변경 편집은 무효화.
+ * @param {string|undefined} kind
+ * @returns {boolean} 구조/자세안정성 중 하나라도 실제 초기화했으면 true
+ */
+function invalidateForEdit(kind) {
+  const invStruct = invalidateStructuralResult()
+  const invStab = STABILITY_PRESERVING_KINDS.has(kind) ? false : invalidateStabilityResult()
+  return invStruct || invStab
+}
+
+/**
  * 구역 미니맵·구역 기반 평가의 공통 입력(순수). nodeEntries 는 배열(재순회 가능).
  * @param {import('../data/StageData.js').StageData} stage
  * @param {number|null} hoistToleranceMm
  * @returns {{bbox, nodeEntries:Array, pipeNodes:Set<number>, tolMm:number}|null}
  */
-export function buildHoistPartitionInput(stage, hoistToleranceMm) {
+export function buildHoistPartitionInput(stage, hoistToleranceMm, cog = null) {
   if (!stage || !stage.nodeMap || stage.nodeMap.size === 0) return null
   const heightMm = stage.bbox ? Math.max(0, stage.bbox.maxZ - stage.bbox.minZ) : 0
   const tolMm = (Number.isFinite(hoistToleranceMm) && hoistToleranceMm > 0)
@@ -991,6 +1141,8 @@ export function buildHoistPartitionInput(stage, hoistToleranceMm) {
     nodeEntries: [...stage.nodeMap],
     pipeNodes: pipeNodeIds(stage.elements ?? []),
     tolMm,
+    // 무게중심(COG) — 구역 분할 앵커용. null 이면 기하 중심 등분할로 폴백.
+    cog: (cog && Number.isFinite(cog.x) && Number.isFinite(cog.y)) ? { x: cog.x, y: cog.y } : null,
   }
 }
 
@@ -1256,13 +1408,17 @@ export function buildPostureStabilityPayload(state, hoisting, stage, editedFileN
         ? opt.allowedNodeIds.map(Number).filter(Number.isFinite)
         : [],
       lockGroupCount: !!opt.lockGroupCount,
-      tolMm: Number.isFinite(Number(opt.tolMm)) ? Number(opt.tolMm) : null,
+      tolMm: (opt.tolMm != null && Number.isFinite(Number(opt.tolMm))) ? Number(opt.tolMm) : null,
+      // 4점 형상 선호: 'auto'(기본) | 'quad'(사각형만) | 'line'(일직선만). 알 수 없는 값은 auto.
+      shapePreference: (opt.shapePreference === 'quad' || opt.shapePreference === 'line') ? opt.shapePreference : 'auto',
       regions: Array.isArray(opt.regions) ? opt.regions
         .filter(r => Array.isArray(r.nodeIds) && r.nodeIds.length > 0)
         .map(r => ({
           id: String(r.id ?? ''),
           groupId: Number(r.groupId),
           requestedPointCount: Number(r.requestedPointCount),
+          // 구역별 4점 형상(사용자 규칙 2026-07-03): 'quad'(사각형)|'line'(일직선)만 유효, 그 외는 'auto'.
+          shape: (r.shape === 'quad' || r.shape === 'line') ? r.shape : 'auto',
           nodeIds: r.nodeIds.map(Number).filter(Number.isFinite),
         }))
         .filter(r => Number.isInteger(r.groupId) && r.groupId > 0 && r.nodeIds.length > 0)
@@ -1342,6 +1498,52 @@ export function computeMassFallback(stage) {
                : (beamMassTon > 0)                     ? 'computed:beamOnly'
                :                                         'computed:pointMassOnly'
   return { totalMassTon: total, centerOfGravityMm: cog, source, beamMassTon, pointMassTon }
+}
+
+/** 포인트질량(장비)만의 질량중심 — 뷰어 computeStageCogFallback 과 동일(BEAM 자중 제외). */
+function pointMassCogFallback(stage) {
+  if (!stage || !Array.isArray(stage.pointMasses) || stage.pointMasses.length === 0) return null
+  let total = 0
+  const acc = { x: 0, y: 0, z: 0 }
+  for (const pm of stage.pointMasses) {
+    const n = stage.nodeMap?.get?.(pm.nodeId)
+    const mass = Number(pm.mass)
+    if (!n || !Number.isFinite(mass) || mass <= 0) continue
+    total += mass
+    acc.x += n.x * mass; acc.y += n.y * mass; acc.z += n.z * mass
+  }
+  if (total <= 0) return null
+  return { x: acc.x / total, y: acc.y / total, z: acc.z / total }
+}
+
+/**
+ * 구역 분할 앵커용 모델 무게중심(COG) 해석.
+ * ★ 3D 뷰어의 노란색 COG 마커(ThreeViewport getCogMm)와 **완전히 동일한 우선순위**로 해석한다 —
+ *   그래야 미니맵의 분할 중심이 뷰어의 실제 COG(노란 원)와 정확히 일치한다.
+ *   1) 유체 비움/회전 → mutated stage 재계산(BEAM 자중 포함)
+ *   2) stageSummary(_COG.json/00_StageSummary) → 3) stability input → 4) stability model
+ *   5) 포인트질량(장비)만의 질량중심(뷰어 최후 폴백과 동일)
+ * (과거 버전은 stabilityReport 를 보지 않고 곧장 computeMassFallback(BEAM 자중 지배 → ≈기하 중심)으로
+ *  폴백해, 자세안정성 평가로 실제 COG 가 있는데도 미니맵이 기하 중심을 가리키는 버그가 있었다.)
+ * @returns {{x:number,y:number,z:number}|null}
+ */
+export function resolveModelCog(stage) {
+  const { pipeFluidEmptied, modelRotated, stageSummary } = useStageStore.getState()
+  const stabilityReport = useStabilityStore.getState().report
+  const isCog = (v) => v && Number.isFinite(v.x) && Number.isFinite(v.y) && Number.isFinite(v.z)
+
+  if (pipeFluidEmptied || modelRotated) {
+    const recomputed = computeMassFallback(stage)?.centerOfGravityMm
+    if (isCog(recomputed)) return recomputed
+  }
+  const fromSummary = stageSummary?.massProperties?.centerOfGravityMm
+  if (isCog(fromSummary)) return fromSummary
+  const fromStability = stabilityReport?.input?.centerOfGravityMm
+  if (isCog(fromStability)) return fromStability
+  const fromPosture = stabilityReport?.model?.centerOfGravityMm
+  if (isCog(fromPosture)) return fromPosture
+  const pmFallback = pointMassCogFallback(stage)
+  return isCog(pmFallback) ? pmFallback : null
 }
 
 /**

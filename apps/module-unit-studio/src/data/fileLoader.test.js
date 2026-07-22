@@ -86,6 +86,42 @@ describe('loadFiles', () => {
     })
   })
 
+  it('생성자가 throw 하는 손상 phase 파일 1개가 나머지 파일 로드를 막지 않는다', async () => {
+    const makeJsonFile = (name, json) => ({
+      name,
+      text: async () => JSON.stringify(json),
+    })
+    const goodJson = {
+      meta: { stageName: 'Good', stageIndex: 1, unit: 'mm' },
+      nodes: [
+        { id: 1, x: 0, y: 0, z: 0 },
+        { id: 2, x: 1000, y: 0, z: 0 },
+      ],
+      elements: [
+        { id: 10, type: 'BEAM', category: 'Structure', startNode: 1, endNode: 2 },
+      ],
+    }
+    // isPhaseStageJson 은 true(nodes/elements 배열) 지만 nodes 에 null 이 있어
+    // StageData 생성자의 `nodeMap.set(n.id, ...)` 가 TypeError 로 throw 한다.
+    const brokenJson = {
+      meta: { stageName: 'Broken', stageIndex: 2, unit: 'mm' },
+      nodes: [null],
+      elements: [],
+    }
+
+    const result = await loadFiles([
+      makeJsonFile('01_Good.json', goodJson),
+      makeJsonFile('02_Broken.json', brokenJson),
+    ])
+
+    // 정상 파일은 로드되고, 실패 파일만 failedFiles 에 남는다
+    expect(result.stages).toHaveLength(1)
+    expect(result.summary.loaded).toBe(1)
+    expect(result.summary.failed).toBe(1)
+    expect(result.summary.failedFiles).toContain('02_Broken.json')
+    expect(result.summary.failedFiles).not.toContain('01_Good.json')
+  })
+
   it('uses posture JSON mass properties when no separate COG JSON exists', async () => {
     const makeJsonFile = (name, json) => ({
       name,

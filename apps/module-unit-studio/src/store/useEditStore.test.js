@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { useEditStore, getHoistMaxGroups, getHoistDefaultWireLengthM, buildPostureStabilityPayload, buildHoistPartitionInput } from './useEditStore.js'
+import { useEditStore, getHoistMaxGroups, getHoistDefaultWireLengthM, buildPostureStabilityPayload, buildHoistPartitionInput, resolveModelCog } from './useEditStore.js'
 import { useStageStore } from './useStageStore.js'
 import { useStabilityStore } from './useStabilityStore.js'
 import { StageData } from '../data/StageData.js'
@@ -60,6 +60,78 @@ describe('buildPostureStabilityPayload — 배관 유체 비움 시 무게중심
   })
 })
 
+describe('buildPostureStabilityPayload — 4점 형상 선호(shapePreference) 직렬화', () => {
+  const stage = { nodeMap: new Map([[1, { id: 1, x: 0, y: 0, z: 0 }]]), pointMasses: [], elements: [], meta: {} }
+  const hoisting = { mode: 'single', groupCount: 0, wireLengthM: null, groups: [] }
+  afterEach(() => { useStageStore.setState({ stageSummary: null, pipeFluidEmptied: false, modelRotated: false }) })
+
+  it('line/quad 지정 시 그대로 전달', () => {
+    const pL = buildPostureStabilityPayload({ hoistOptimization: { regions: [], shapePreference: 'line' } }, hoisting, stage, null)
+    expect(pL.hoistOptimization.shapePreference).toBe('line')
+    const pQ = buildPostureStabilityPayload({ hoistOptimization: { regions: [], shapePreference: 'quad' } }, hoisting, stage, null)
+    expect(pQ.hoistOptimization.shapePreference).toBe('quad')
+  })
+
+  it('미지정/알 수 없는 값이면 auto 로 폴백', () => {
+    const pNone = buildPostureStabilityPayload({ hoistOptimization: { regions: [] } }, hoisting, stage, null)
+    expect(pNone.hoistOptimization.shapePreference).toBe('auto')
+    const pBad = buildPostureStabilityPayload({ hoistOptimization: { regions: [], shapePreference: 'weird' } }, hoisting, stage, null)
+    expect(pBad.hoistOptimization.shapePreference).toBe('auto')
+  })
+
+  it('구역별 shape 를 region 마다 보존(quad/line 유효, 그 외 auto) — 사용자 규칙 2026-07-03', () => {
+    const regions = [
+      { id: 'zone-0-0', groupId: 1, requestedPointCount: 4, shape: 'quad', nodeIds: [1] },
+      { id: 'zone-0-1', groupId: 2, requestedPointCount: 4, shape: 'line', nodeIds: [1] },
+      { id: 'zone-1-0', groupId: 3, requestedPointCount: -1, shape: 'auto', nodeIds: [1] },
+      { id: 'zone-1-1', groupId: 4, requestedPointCount: 2, shape: 'weird', nodeIds: [1] },
+    ]
+    const p = buildPostureStabilityPayload({ hoistOptimization: { regions } }, hoisting, stage, null)
+    const out = p.hoistOptimization.regions
+    expect(out.map(r => r.shape)).toEqual(['quad', 'line', 'auto', 'auto'])
+    expect(out[0]).toMatchObject({ groupId: 1, requestedPointCount: 4, shape: 'quad' })
+  })
+})
+
+describe('resolveModelCog — 뷰어 노란 COG 마커와 동일 우선순위', () => {
+  // pointMass 만 있는 stage → point-mass 질량중심 = (500,200,0)
+  const stageWithPm = () => ({ nodeMap: new Map([[1, { id: 1, x: 500, y: 200, z: 0 }]]), pointMasses: [{ nodeId: 1, mass: 5 }], elements: [], meta: {} })
+  beforeEach(() => {
+    useStageStore.setState({ stageSummary: null, pipeFluidEmptied: false, modelRotated: false })
+    useStabilityStore.setState({ report: null })
+  })
+  afterEach(() => {
+    useStageStore.setState({ stageSummary: null, pipeFluidEmptied: false, modelRotated: false })
+    useStabilityStore.setState({ report: null })
+  })
+
+  it('stageSummary 있으면 그 COG 사용', () => {
+    useStageStore.setState({ stageSummary: { massProperties: { centerOfGravityMm: { x: 11, y: 22, z: 33 } } } })
+    expect(resolveModelCog(stageWithPm())).toEqual({ x: 11, y: 22, z: 33 })
+  })
+
+  it('stageSummary 없고 stabilityReport.input 있으면 그 COG(★버그 수정 핵심)', () => {
+    useStabilityStore.setState({ report: { input: { centerOfGravityMm: { x: 7, y: 8, z: 9 } } } })
+    expect(resolveModelCog(stageWithPm())).toEqual({ x: 7, y: 8, z: 9 })
+  })
+
+  it('stabilityReport.model 도 소스로 사용', () => {
+    useStabilityStore.setState({ report: { model: { centerOfGravityMm: { x: 1, y: 2, z: 3 } } } })
+    expect(resolveModelCog(stageWithPm())).toEqual({ x: 1, y: 2, z: 3 })
+  })
+
+  it('summary/stability 모두 없으면 포인트질량 질량중심으로 폴백(≠ 기하 중심)', () => {
+    expect(resolveModelCog(stageWithPm())).toEqual({ x: 500, y: 200, z: 0 })
+  })
+
+  it('회전 시 stale summary 무시하고 mutated stage 재계산', () => {
+    useStageStore.setState({ modelRotated: true, stageSummary: { massProperties: { centerOfGravityMm: { x: 999, y: 999, z: 999 } } } })
+    const cog = resolveModelCog(stageWithPm())
+    expect(cog.x).toBeCloseTo(500)
+    expect(cog.y).toBeCloseTo(200)
+  })
+})
+
 describe('useEditStore', () => {
   beforeEach(() => {
     useStageStore.setState({ stages: [makeStageData()] })
@@ -79,6 +151,35 @@ describe('useEditStore', () => {
     expect(s.enabled).toBe(false)
     expect(s.intents).toEqual([])
     expect(s.selectedIntentId).toBeNull()
+  })
+
+  it('reset() — 모든 권상/표시 상태 필드를 기본값으로 복원한다 (showHoistPlate 포함 회귀 가드)', () => {
+    // 여러 필드를 비기본값으로 오염시킨 뒤 reset() 이 전부 되돌리는지 검증.
+    // (과거 reset() 이 showHoistPlate 를 빠뜨려, 가상판을 끈 뒤 초기화해도 꺼진 상태가 잔류했다.)
+    useEditStore.setState({
+      showHoistPlate: false,
+      circleGuideEnabled: true,
+      hoistCircleTolMm: 123,
+      hoistToleranceMm: 50,
+      pipeDiameterThreshold: 99,
+      wireLengthM: 3,
+      hoistGroupCount: 3,
+      activeHoistGroupId: 2,
+      hoistGroups: { 1: [1, 2], 2: [3], 3: [], 4: [] },
+      hoistGuide: { id: 5, message: 'x', kind: 'info' },
+    })
+    useEditStore.getState().reset()
+    const s = useEditStore.getState()
+    expect(s.showHoistPlate).toBe(true)
+    expect(s.circleGuideEnabled).toBe(false)
+    expect(s.hoistCircleTolMm).toBeNull()
+    expect(s.hoistToleranceMm).toBeNull()
+    expect(s.pipeDiameterThreshold).toBeNull()
+    expect(s.wireLengthM).toBe(getHoistDefaultWireLengthM('hydro'))
+    expect(s.hoistGroupCount).toBe(1)
+    expect(s.activeHoistGroupId).toBe(1)
+    expect(s.hoistGroups).toEqual({ 1: [], 2: [], 3: [], 4: [] })
+    expect(s.hoistGuide).toBeNull()
   })
 
   it('exportEditedBdf — host.exportUnitBdf 없으면 안내 반환', async () => {
@@ -347,6 +448,23 @@ describe('useEditStore', () => {
     setHoistGroupCount(1)
     removeHoistGroup(1)
     expect(useEditStore.getState().hoistGroupCount).toBe(1)
+  })
+
+  it('resetHoistPoints: 모든 그룹 노드 비우기 + 그룹수/활성 1, 방식·Wire 길이 유지', () => {
+    useEditStore.setState({
+      hoistMode: 'goliat',
+      hoistGroupCount: 3,
+      activeHoistGroupId: 3,
+      hoistGroups: { 1: [1, 2], 2: [3, 4], 3: [5, 6], 4: [] },
+      wireLengthM: 24,
+    })
+    useEditStore.getState().resetHoistPoints()
+    const s = useEditStore.getState()
+    expect(s.hoistGroups).toEqual({ 1: [], 2: [], 3: [], 4: [] })
+    expect(s.hoistGroupCount).toBe(1)
+    expect(s.activeHoistGroupId).toBe(1)
+    expect(s.hoistMode).toBe('goliat')   // 권상 방식 유지
+    expect(s.wireLengthM).toBe(24)       // Wire 길이 유지
   })
 
   it('Goliat 에서 setActiveHoistGroup(4) 는 무시된다', () => {
@@ -1203,6 +1321,135 @@ describe('useEditStore — 가서포트', () => {
   })
 })
 
+describe('useEditStore — F1: 권상 재선정/재평가 시 이전 구조해석 결과 무효화', () => {
+  beforeEach(() => {
+    useStageStore.setState({ stages: [makeStageData()] })
+    useEditStore.getState().reset()
+    useUnitStructuralStore.getState().reset()
+  })
+
+  it('resetHoistPoints() 는 구조해석 결과(Success)가 있으면 무효화해 재해석 잠금(isFinished)을 푼다', () => {
+    // 구조해석이 한 번 완료(Success)되면 Run 버튼이 isFinished 로 잠긴다. 권상점을 다시 잡으면
+    // 그 결과는 무효이므로 resetHoistPoints 가 구조 store 를 reset 해 재해석을 허용해야 한다.
+    useUnitStructuralStore.setState({ status: 'Success', result: { members: [] } })
+    useEditStore.getState().resetHoistPoints()
+    expect(useUnitStructuralStore.getState().status).toBe(null)   // isFinished 해제
+    expect(useUnitStructuralStore.getState().result).toBe(null)
+  })
+
+  it('resetHoistPoints() 는 구조 결과가 없으면 구조 store 를 건드리지 않는다(불필요 리셋 없음)', () => {
+    useUnitStructuralStore.setState({ message: 'stale' })   // status/result 없음 → 가드로 no-op
+    useEditStore.getState().resetHoistPoints()
+    expect(useUnitStructuralStore.getState().message).toBe('stale')
+  })
+})
+
+describe('exportPostureStabilityToFile — 이중 실행 가드', () => {
+  beforeEach(() => {
+    useStageStore.setState({ stages: [makeStageData()] })
+    useEditStore.getState().reset()
+    useStabilityStore.getState().reset()
+  })
+
+  it('자세안정성 해석이 이미 running 이면 즉시 거절 반환한다', async () => {
+    useStabilityStore.setState({ running: true })
+    const r = await useEditStore.getState().exportPostureStabilityToFile()
+    expect(r.ok).toBe(false)
+    expect(r.error).toBe('이미 실행 중입니다')
+  })
+
+  it('running=false 면 running-guard 로 거절되지 않는다 (가드 통과)', async () => {
+    useStabilityStore.setState({ running: false })
+    const r = await useEditStore.getState().exportPostureStabilityToFile()
+    // 결과(성공/다른 사유 실패)와 무관하게 running 가드 메시지는 아니어야 한다.
+    expect(r.error).not.toBe('이미 실행 중입니다')
+  })
+})
+
+describe('useEditStore — P7: 일반 편집이 stale 해석 결과를 무효화', () => {
+  beforeEach(() => {
+    useStageStore.setState({ stages: [makeStageData()] })
+    useEditStore.getState().reset()
+    useUnitStructuralStore.getState().reset()
+    useStabilityStore.getState().reset()
+  })
+
+  // 해석 완료(Success) + 자세안정성 PASS 상태를 세팅하는 헬퍼
+  const seedResults = () => {
+    useUnitStructuralStore.setState({ status: 'Success', result: { members: [] } })
+    useStabilityStore.setState({ report: { stages: [] }, overallStatus: 'pass' })
+  }
+
+  it('addIntent(addRigid) 는 구조해석 + 자세안정성 결과를 모두 무효화하고 stale 배너를 켠다', () => {
+    seedResults()
+    const res = useEditStore.getState().addIntent({
+      kind: 'addRigid', params: { independentNode: 1, dependentNodes: [2] },
+    })
+    expect(res.ok).toBe(true)
+    expect(useUnitStructuralStore.getState().status).toBe(null)     // 구조 무효화
+    expect(useStabilityStore.getState().overallStatus).toBe(null)   // 자세안정성 무효화
+    expect(useEditStore.getState().editStaleNotice).toBe(true)
+  })
+
+  it('addSupportBeam 은 구조해석만 무효화하고 자세안정성은 유지한다(Analysis 단계 보강)', () => {
+    seedResults()
+    const res = useEditStore.getState().addSupportBeam(1, 4)
+    expect(res.ok).toBe(true)
+    expect(useUnitStructuralStore.getState().status).toBe(null)      // 구조 무효화
+    expect(useStabilityStore.getState().overallStatus).toBe('pass')  // 자세안정성 유지
+  })
+
+  it('removeIntent(모델 편집 되돌리기) 도 결과를 무효화한다', () => {
+    const add = useEditStore.getState().addIntent({ kind: 'deleteGroup', params: { groupId: 0 } })
+    seedResults()
+    useEditStore.getState().removeIntent(add.intent.id)
+    expect(useUnitStructuralStore.getState().status).toBe(null)
+    expect(useStabilityStore.getState().overallStatus).toBe(null)
+    expect(useEditStore.getState().editStaleNotice).toBe(true)
+  })
+
+  it('clearIntents 는 원본 복귀이므로 결과를 모두 무효화한다', () => {
+    useEditStore.getState().addIntent({ kind: 'deleteGroup', params: { groupId: 0 } })
+    seedResults()
+    useEditStore.getState().clearIntents()
+    expect(useUnitStructuralStore.getState().status).toBe(null)
+    expect(useStabilityStore.getState().overallStatus).toBe(null)
+    expect(useEditStore.getState().editStaleNotice).toBe(true)
+  })
+
+  it('해석 결과가 없으면 편집해도 stale 배너를 켜지 않는다(초기 편집 단계 churn 없음)', () => {
+    const res = useEditStore.getState().addIntent({
+      kind: 'addRigid', params: { independentNode: 1, dependentNodes: [2] },
+    })
+    expect(res.ok).toBe(true)
+    expect(useEditStore.getState().editStaleNotice).toBe(false)
+  })
+
+  it('검증 실패(자기참조) intent 는 추가도 무효화도 하지 않는다', () => {
+    seedResults()
+    const res = useEditStore.getState().addIntent({
+      kind: 'addRigid', params: { independentNode: 1, dependentNodes: [1] },  // 동일 노드 → error
+    })
+    expect(res.ok).toBe(false)
+    expect(useUnitStructuralStore.getState().status).toBe('Success')  // 그대로 유지
+    expect(useEditStore.getState().editStaleNotice).toBe(false)
+  })
+
+  it('clearEditStaleNotice() 와 reset() 이 stale 배너를 내린다', () => {
+    useUnitStructuralStore.setState({ status: 'Success' })
+    useEditStore.getState().addIntent({ kind: 'addRigid', params: { independentNode: 1, dependentNodes: [2] } })
+    expect(useEditStore.getState().editStaleNotice).toBe(true)
+    useEditStore.getState().clearEditStaleNotice()
+    expect(useEditStore.getState().editStaleNotice).toBe(false)
+    // reset 도 배너를 내린다
+    useUnitStructuralStore.setState({ status: 'Success' })
+    useEditStore.getState().addIntent({ kind: 'addRigid', params: { independentNode: 2, dependentNodes: [3] } })
+    expect(useEditStore.getState().editStaleNotice).toBe(true)
+    useEditStore.getState().reset()
+    expect(useEditStore.getState().editStaleNotice).toBe(false)
+  })
+})
+
 describe('zoneSelectHoistPositions', () => {
   const richStage = () => new StageData({
     meta: { phase: 'C', stageName: 'C_Final', unit: 'mm', schemaVersion: '1.1' },
@@ -1291,7 +1538,22 @@ describe('zoneSelectHoistPositions', () => {
     expect(Array.isArray(savedPayload.hoistOptimization.regions)).toBe(true)
     expect(savedPayload.hoistOptimization.regions.length).toBeGreaterThanOrEqual(1)
     expect(savedPayload.hoistOptimization.desiredGroupCount == null || savedPayload.hoistOptimization.desiredGroupCount <= 0).toBe(true)
-    expect(typeof savedPayload.hoistOptimization.tolMm).toBe('number')
+    // 자동 선정(사용자 허용오차 미지정): tolMm=null 로 보내 엔진이 '용인 Z단차'(MaxZDiffMm) 기본값으로
+    // 넓은 Z밴드를 클러스터링 → 같은 데크 근소 Z편차 노드를 한 그룹으로(면적 극대화).
+    expect(savedPayload.hoistOptimization.tolMm).toBeNull()
+  })
+
+  it('사용자가 허용오차(hoistToleranceMm)를 명시하면 optimize payload 에 그대로 전달', async () => {
+    const host = makeHost()
+    setHost(host)
+    useEditStore.getState().setHoistMode('hydro')
+    useEditStore.setState({ hoistToleranceMm: 42 })
+    const r = await useEditStore.getState().zoneSelectHoistPositions(config)
+    expect(r.ok).toBe(true)
+    const postureCall = host.uploadEvaluationArtifact.mock.calls.find(([name]) => /posture/i.test(name))
+    const savedPayload = JSON.parse(postureCall[1])
+    expect(savedPayload.hoistOptimization.tolMm).toBe(42)
+    useEditStore.setState({ hoistToleranceMm: null })
   })
 
   it('buildPostureStabilityPayload: regions+tolMm 만 넘기면 desiredGroupCount 는 null, regions/tolMm 은 그대로 직렬화', () => {
@@ -1326,6 +1588,38 @@ describe('zoneSelectHoistPositions', () => {
     const { toNodeGroups } = await import('../data/hoistCandidateRank.js')
     const applied = useEditStore.getState().applyAutoHoistGroups(toNodeGroups(r.candidates[0]))
     expect(applied.ok).toBe(true)
+  })
+
+  it('report.searchTrace(camelCase) 를 반환 객체에 그대로 담는다', async () => {
+    const trace = {
+      threadsUsed: 8, elapsedMs: 1234, totalCombosScanned: 5000,
+      layoutsAssembled: 40, layoutsBracketed: 20, layoutsEvaluated: 12,
+      passCount: 1, warnCount: 0, failCount: 11,
+      stageFailHistogram: { 2: 340, 6: 12 }, note: null,
+      zones: [{ groupId: 1, allowedNodeCount: 6, requestedPoints: 3, zLevels: 1, combosScanned: 20, shapeValidCount: 10, keptForAssembly: 4, note: null }],
+    }
+    setHost(makeHost({ ...passReport, searchTrace: trace }))
+    useEditStore.getState().setHoistMode('hydro')
+    const r = await useEditStore.getState().zoneSelectHoistPositions(config)
+    expect(r.ok).toBe(true)
+    expect(r.searchTrace).toEqual(trace)
+  })
+
+  it('report.SearchTrace(PascalCase) 도 방어적으로 반환한다', async () => {
+    const trace = { ThreadsUsed: 4, TotalCombosScanned: 999, PassCount: 0, FailCount: 5 }
+    setHost(makeHost({ ...passReport, SearchTrace: trace }))
+    useEditStore.getState().setHoistMode('hydro')
+    const r = await useEditStore.getState().zoneSelectHoistPositions(config)
+    expect(r.ok).toBe(true)
+    expect(r.searchTrace).toEqual(trace)
+  })
+
+  it('report 에 searchTrace 가 없으면 null 을 반환한다', async () => {
+    setHost(makeHost())
+    useEditStore.getState().setHoistMode('hydro')
+    const r = await useEditStore.getState().zoneSelectHoistPositions(config)
+    expect(r.ok).toBe(true)
+    expect(r.searchTrace).toBeNull()
   })
 
   it('getZonePartitionInput: bbox/nodeEntries/pipeNodes/tolMm 반환', () => {

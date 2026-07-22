@@ -57,6 +57,9 @@ export default function AnalyzePanel() {
   const supportPickActive = useEditStore(s => s.supportPickActive)
   const toggleSupportPick = useEditStore(s => s.toggleSupportPick)
   const removeSupportBeam = useEditStore(s => s.removeSupportBeam)
+  // 편집으로 직전 해석 결과가 초기화됐음을 알리는 배너 플래그
+  const editStaleNotice = useEditStore(s => s.editStaleNotice)
+  const clearEditStaleNotice = useEditStore(s => s.clearEditStaleNotice)
   // ⚠️ 셀렉터에서 .filter() 로 새 배열을 반환하면 Zustand v5 가 매 렌더마다 다른 참조로 보고
   // 무한 렌더 루프에 빠진다(패널 크래시 → 빈 화면). 안정적인 intents 참조만 구독하고 본문에서 필터링.
   const intents = useEditStore(s => s.intents)
@@ -67,7 +70,7 @@ export default function AnalyzePanel() {
 
   return (
     <div style={{
-      width: 274,
+      width: 301,
       flexShrink: 0,
       position: 'relative',
       background: '#0b0b1e',
@@ -89,6 +92,34 @@ export default function AnalyzePanel() {
           해석 (Analysis)
         </span>
       </div>
+
+      {/* ── 편집으로 결과가 무효화됐음을 알리는 배너 ─────── */}
+      {editStaleNotice && (
+        <div style={{
+          margin: '8px 8px 0', padding: '8px 10px',
+          background: 'rgba(255,196,71,0.10)',
+          border: '1px solid rgba(255,196,71,0.55)',
+          borderRadius: 6,
+          display: 'flex', alignItems: 'flex-start', gap: 7,
+        }}>
+          <AlertTriangle size={13} color="#FFC447" style={{ flexShrink: 0, marginTop: 1 }} />
+          <div style={{ flex: 1, fontSize: 10.5, lineHeight: 1.45, color: '#ffdf9e' }}>
+            모델이 편집되어 이전 해석 결과가 초기화되었습니다. 다시 실행해 주세요.
+            <button
+              type="button"
+              onClick={clearEditStaleNotice}
+              style={{
+                display: 'block', marginTop: 4,
+                background: 'transparent', border: 'none', padding: 0,
+                color: '#ffc447', fontSize: 10, fontWeight: 700, cursor: 'pointer',
+                textDecoration: 'underline',
+              }}
+            >
+              확인 (배너 닫기)
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ── 섹션 1: 자세안정성 평가 ─────────────────── */}
       <Section label="자세안정성 평가">

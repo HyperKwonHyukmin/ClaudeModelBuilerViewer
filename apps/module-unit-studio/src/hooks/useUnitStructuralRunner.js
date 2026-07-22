@@ -100,7 +100,12 @@ export function useUnitStructuralRunner() {
 
   const handleRun = async () => {
     if (!canRun) return
+    // canRun 은 렌더 시점 클로저라 빠른 2회 클릭 시 둘 다 통과할 수 있다 → 실행 직전 fresh 상태로 이중 제출 차단.
+    const liveStatus = useUnitStructuralStore.getState().status
+    if (liveStatus === 'Pending' || liveStatus === 'Running') return
     setStarted()
+    // 재해석을 시작했으므로 편집으로 인한 stale 배너는 내린다.
+    useEditStore.getState().clearEditStaleNotice?.()
     try {
       const sync = await syncEditedModel(host)
       if (sync && !sync.ok) { setFailure({ message: `보강 모델 반영 실패: ${sync.error}` }); return }

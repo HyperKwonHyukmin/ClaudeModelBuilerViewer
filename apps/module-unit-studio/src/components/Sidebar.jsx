@@ -24,7 +24,7 @@ const LAYER_DEFS = [
 
 const MIN_WIDTH = 130
 const MAX_WIDTH = 432
-const DEFAULT_WIDTH = 274   // 좌측 패널 기본 폭 (228 → +20%)
+const DEFAULT_WIDTH = 301   // 좌측 패널 기본 폭 (228 → +20% → +10% ≈ 301)
 
 export default function Sidebar() {
   const { loading, error, loadStages, loadSummary, stages, reset: resetStages } = useStageStore()
@@ -49,6 +49,31 @@ export default function Sidebar() {
   // - Workbench 호스트면 초기 폴더(=처음 부팅 시 백엔드가 주입한 모델)를 자동 재로드.
   //   Web 단독 모드는 getInitialFolder() 가 null 이라 비운 상태 유지.
   const handleReset = useCallback(() => {
+    // 파괴적 동작 — 잃을 작업이 있으면 삭제 영향을 구체적으로 보여주고 확인받는다.
+    // (Undo 가 없으므로 오클릭 1회로 편집·권상·해석 결과가 소실되는 것을 방지.)
+    const edit = useEditStore.getState()
+    const intentCount = edit.intents?.length ?? 0
+    const hoistGroups = edit.hoistGroups ?? {}
+    const hoistNodeCount = Object.values(hoistGroups)
+      .reduce((n, arr) => n + (Array.isArray(arr) ? arr.length : 0), 0)
+    const hoistGroupCount = Object.values(hoistGroups)
+      .filter(arr => Array.isArray(arr) && arr.length > 0).length
+    const stab = useStabilityStore.getState()
+    const hasStability = !!stab.overallStatus || !!stab.report
+    const struct = useUnitStructuralStore.getState()
+    const hasStructural = struct.status === 'Success' || !!struct.result
+    const hasLoaded = useStageStore.getState().stages.length > 0
+
+    if (hasLoaded || intentCount > 0 || hoistNodeCount > 0 || hasStability || hasStructural) {
+      const lines = ['전체 초기화하면 아래 작업 내용이 모두 삭제되고 되돌릴 수 없습니다.', '']
+      if (intentCount > 0)     lines.push(`• 편집 의도 ${intentCount}건 (RBE·삭제·가서포트 등)`)
+      if (hoistNodeCount > 0)  lines.push(`• 권상 위치 ${hoistGroupCount}개 그룹 · 노드 ${hoistNodeCount}개`)
+      if (hasStability)        lines.push('• 자세안정성 평가 결과')
+      if (hasStructural)       lines.push('• Unit 구조 해석 결과')
+      lines.push('', '정말 초기화하시겠습니까?')
+      if (!window.confirm(lines.join('\n'))) return
+    }
+
     resetStages()
     resetViewer()
     resetEdit()
@@ -127,6 +152,12 @@ export default function Sidebar() {
   useEffect(() => {
     publishSidebarWidth(width)
   }, [width, publishSidebarWidth])
+  // 모드 전환으로 이 Sidebar(Model 도크)가 언마운트되면 publish 폭을 기본(301)으로 되돌린다.
+  // 다른 모드의 좌측 도크는 모두 고정 301 인데 publish 를 안 하므로, Sidebar 를 리사이즈한 뒤
+  // 모드를 바꾸면 결과 dock(left=sidebarWidth)이 stale 값으로 어긋나던 것을 막는다.
+  useEffect(() => {
+    return () => publishSidebarWidth(DEFAULT_WIDTH)
+  }, [publishSidebarWidth])
 
   const fileInputRef = useRef(null)
 

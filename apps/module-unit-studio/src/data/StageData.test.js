@@ -189,6 +189,31 @@ describe('StageData', () => {
       expect(stage.elements.map(e => e.sourceCategory)).toEqual(['Structure', 'Structure'])
       expect(stage.healthMetrics.totals.elementsByCategory).toEqual({ Structure: 1, Pipe: 1 })
     })
+
+    it('category 미확정 요소는 개수·길이 집계에서 대칭으로 제외된다 (비대칭 오분류 방지)', () => {
+      // Structure(1-2, 2000mm) + Pipe(3-4, 4000mm) + category 미확정(1-3, ~2236mm).
+      // 예전엔 개수는 미확정을 양쪽 제외하지만 길이는 else 로 Pipe 에 더해 비대칭이었다.
+      const stage = new StageData(makeJson({
+        elements: [
+          { id: 10, type: 'CBEAM', startNode: 1, endNode: 2, category: 'Structure' },
+          { id: 11, type: 'CBEAM', startNode: 3, endNode: 4, category: 'Pipe' },
+          { id: 12, type: 'CBEAM', startNode: 1, endNode: 3 },   // category 미확정
+        ],
+        connectivity: null,
+        healthMetrics: null,
+      }))
+      const t = stage.healthMetrics.totals
+      const undefinedLen = Math.hypot(1000, 2000, 0)   // 1(1000,2000)→3(2000,4000)
+
+      // 개수: 미확정은 Structure/Pipe 어디에도 안 들어감 (합 2 < beam 3)
+      expect(t.elementsByCategory).toEqual({ Structure: 1, Pipe: 1 })
+      // 길이: 미확정은 어느 분류에도 안 더해짐 (Pipe 에 오분류되던 버그 수정)
+      expect(t.lengthByCategoryMm.Structure).toBeCloseTo(2000)
+      expect(t.lengthByCategoryMm.Pipe).toBeCloseTo(4000)
+      // 총길이는 미확정 포함, 분류합(6000)은 미확정 제외 — 대칭적으로 일관
+      expect(t.totalLengthMm).toBeCloseTo(6000 + undefinedLen)
+      expect(t.lengthByCategoryMm.Structure + t.lengthByCategoryMm.Pipe).toBeCloseTo(6000)
+    })
   })
 
   describe('bbox and center', () => {

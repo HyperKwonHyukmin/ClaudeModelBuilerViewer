@@ -4,17 +4,47 @@
  */
 
 /**
+ * 축 범위 [lo,hi] 를 n 등분하되, 인덱스 중심 n/2 를 앵커 c(무게중심 좌표)에 고정한 경계값.
+ * 저측 인덱스 [0..n/2] 는 lo→c, 고측 [n/2..n] 는 c→hi 로 선형 분배한다.
+ *   - 짝수 n → c 가 내부 경계가 된다(2분할이면 정확히 c 에서 갈림 → 2×2 교점 = COG).
+ *   - 홀수 n → c 가 인덱스 중심(가운데 셀 내부) → 격자 전체의 중심 = c.
+ *   - c 가 bbox 중앙이면 등분할과 수식적으로 동일하다(앵커 미지정 시 하위호환).
+ * c 가 비유한이면 bbox 중앙((lo+hi)/2)을 사용해 등분할로 폴백. c 는 퇴화 셀 방지를 위해
+ * [lo, hi] 안쪽으로 살짝 clamp 한다.
+ * @returns {number} i 번째 경계 위치(i=0 → lo, i=n → hi, 둘 다 정확)
+ */
+export function anchoredBoundary(lo, hi, c, i, n) {
+  if (!(n > 0)) return lo
+  const mid = n / 2
+  const span = hi - lo
+  let cc = Number.isFinite(c) ? c : (lo + hi) / 2
+  if (span > 0) {
+    const m = span * 1e-3
+    cc = Math.min(Math.max(cc, lo + m), hi - m)
+  } else {
+    cc = lo
+  }
+  return i <= mid
+    ? lo + (cc - lo) * (i / mid)
+    : cc + (hi - cc) * ((i - mid) / mid)
+}
+
+/**
  * XY 풋프린트를 "행별 가변 분할"로 나눈다.
- * bandAxis 로 풋프린트를 bands.length 개 등간격 밴드로 자르고, 각 밴드를 직교축으로
- * 그 밴드의 하위구역 수만큼 등분한다. 각 셀 = 한 권상 그룹 후보.
+ * bandAxis 로 풋프린트를 bands.length 개 밴드로 자르고, 각 밴드를 직교축으로
+ * 그 밴드의 하위구역 수만큼 나눈다. 각 셀 = 한 권상 그룹 후보.
+ * config.anchor({x,y}) 가 주어지면 무게중심(COG) 기준으로 분할한다(위 anchoredBoundary 참조).
+ * 없으면 bbox 기하 중심 기준 등분할(기존 동작과 동일).
  *
  * @param {{minX,maxX,minY,maxY}} bbox  모델 XY bbox(mm)
- * @param {{bandAxis:'x'|'y', bands:number[]}} config
+ * @param {{bandAxis:'x'|'y', bands:number[], anchor?:{x:number,y:number}}} config
  * @returns {Array<{id,bandIndex,subIndex,xMin,xMax,yMin,yMax}>}
  */
 export function partitionZones(bbox, config) {
   const bandAxis = config?.bandAxis === 'x' ? 'x' : 'y'
   const bands = Array.isArray(config?.bands) && config.bands.length > 0 ? config.bands : [1]
+  const anchor = (config?.anchor && Number.isFinite(config.anchor.x) && Number.isFinite(config.anchor.y))
+    ? config.anchor : null
   const xMin = bbox.minX, xMax = bbox.maxX, yMin = bbox.minY, yMax = bbox.maxY
   const bandCount = bands.length
   const zones = []
@@ -23,24 +53,21 @@ export function partitionZones(bbox, config) {
     const subCount = Math.max(1, Math.floor(bands[bi]) || 1)
     let bxMin = xMin, bxMax = xMax, byMin = yMin, byMax = yMax
     if (bandAxis === 'y') {
-      const step = (yMax - yMin) / bandCount
-      byMin = yMin + bi * step
-      byMax = bi === bandCount - 1 ? yMax : yMin + (bi + 1) * step
+      byMin = anchoredBoundary(yMin, yMax, anchor?.y, bi, bandCount)
+      byMax = anchoredBoundary(yMin, yMax, anchor?.y, bi + 1, bandCount)
     } else {
-      const step = (xMax - xMin) / bandCount
-      bxMin = xMin + bi * step
-      bxMax = bi === bandCount - 1 ? xMax : xMin + (bi + 1) * step
+      bxMin = anchoredBoundary(xMin, xMax, anchor?.x, bi, bandCount)
+      bxMax = anchoredBoundary(xMin, xMax, anchor?.x, bi + 1, bandCount)
     }
     for (let si = 0; si < subCount; si++) {
       let zxMin = bxMin, zxMax = bxMax, zyMin = byMin, zyMax = byMax
       if (bandAxis === 'y') {
-        const s = (bxMax - bxMin) / subCount
-        zxMin = bxMin + si * s
-        zxMax = si === subCount - 1 ? bxMax : bxMin + (si + 1) * s
+        // 하위구역은 직교축(X) 전 범위를 앵커 X 기준으로 나눈다 → 모든 밴드에서 X 경계 정렬(깨끗한 격자).
+        zxMin = anchoredBoundary(bxMin, bxMax, anchor?.x, si, subCount)
+        zxMax = anchoredBoundary(bxMin, bxMax, anchor?.x, si + 1, subCount)
       } else {
-        const s = (byMax - byMin) / subCount
-        zyMin = byMin + si * s
-        zyMax = si === subCount - 1 ? byMax : byMin + (si + 1) * s
+        zyMin = anchoredBoundary(byMin, byMax, anchor?.y, si, subCount)
+        zyMax = anchoredBoundary(byMin, byMax, anchor?.y, si + 1, subCount)
       }
       zones.push({ id: id++, bandIndex: bi, subIndex: si, xMin: zxMin, xMax: zxMax, yMin: zyMin, yMax: zyMax })
     }
@@ -198,7 +225,8 @@ export function buildZoneLayout(input, config) {
   const byZone = assignNodesToZones(zones, nodeEntries)
   const groups = []
   for (const z of zones) {
-    const count = zoneCountFor(config, z.bandIndex, z.subIndex, 3)
+    const count = zoneCountFor(config, z.bandIndex, z.subIndex, 2)
+    if (count <= 0) continue   // 0점 구역 = 제외(권상 포인트 없음)
     let cand = byZone.get(z.id) ?? []
     if (!config.includePipe && pipeNodes && pipeNodes.size > 0) {
       cand = cand.filter(nd => !pipeNodes.has(nd.id))
@@ -246,19 +274,89 @@ export function reconcilePointsPerZone(bands, prev, validPoints, defaultPoints) 
 }
 
 /**
- * 구역(bandIndex, subIndex)의 포인트 수. 누락 시 defaultPoints.
+ * 포인트 수의 '자동' 센티널 — 엔진(RequestedPointAuto=-1)이 방식이 허용하는 2~4점을
+ * 모두 탐색해 랭킹으로 제안한다(사용자 규칙 2026-07-03: 구역은 사용자가, 점 수는 엔진이).
+ */
+export const POINTS_AUTO = -1
+
+/**
+ * 구역(bandIndex, subIndex)의 포인트 수. 누락 시 defaultPoints. 0 = 제외 구역, -1 = 자동.
  * @param {{pointsPerZone?:number[][]}} config
  * @returns {number}
  */
-export function zoneCountFor(config, bandIndex, subIndex, defaultPoints = 3) {
+export function zoneCountFor(config, bandIndex, subIndex, defaultPoints = 2) {
   const v = config?.pointsPerZone?.[bandIndex]?.[subIndex]
+  // 미설정(null/undefined)은 기본값 경로. Number(null)===0 이라 가드 없이 그냥 Number 하면
+  // '미설정'(null)이 '명시적 제외'(0)로 오해된다 → early 가드로 구분.
+  if (v == null) return defaultPoints
   const n = Number(v)
   return Number.isFinite(n) ? n : defaultPoints
 }
 
+/** 4점 구역 형상 상수 — 'quad'(사각형) | 'line'(일직선). (사용자 규칙 2026-07-03: 구역별 지정) */
+export const SHAPE_QUAD = 'quad'
+export const SHAPE_LINE = 'line'
+
+/**
+ * 구역(bandIndex, subIndex)의 4점 형상 선호('quad'|'line'). 미설정/비정상이면 def.
+ * 포인트 수가 4가 아닌 구역에서는 의미 없다(엔진이 4점 그룹에만 적용).
+ * @param {{shapePerZone?:string[][]}} config
+ * @returns {'quad'|'line'}
+ */
+export function zoneShapeFor(config, bandIndex, subIndex, def = SHAPE_QUAD) {
+  const v = config?.shapePerZone?.[bandIndex]?.[subIndex]
+  return (v === SHAPE_QUAD || v === SHAPE_LINE) ? v : def
+}
+
+/**
+ * shapePerZone 를 bands 모양에 맞춰 재조정한다(순수). 기존 값은 위치별로 보존, 부족분/비정상은 def.
+ * pointsPerZone 와 형상은 항상 같은 [행][열] 격자를 공유한다.
+ * @param {number[]} bands
+ * @param {string[][]|null} prev
+ * @param {'quad'|'line'} def  새 셀 기본 형상(기본 'quad')
+ * @returns {string[][]}
+ */
+export function reconcileShapePerZone(bands, prev, def = SHAPE_QUAD) {
+  const src = Array.isArray(prev) ? prev : []
+  const list = Array.isArray(bands) && bands.length > 0 ? bands : [1]
+  const norm = (v) => (v === SHAPE_QUAD || v === SHAPE_LINE) ? v : def
+  return list.map((b, i) => {
+    const sub = Math.max(1, Math.floor(b) || 1)
+    const prevRow = Array.isArray(src[i]) ? src[i] : []
+    const row = []
+    for (let j = 0; j < sub; j++) row.push(j < prevRow.length ? norm(prevRow[j]) : def)
+    return row
+  })
+}
+
+/**
+ * 실제 권상 그룹이 되는 구역 수 = 포인트 수가 0(제외)이 아닌 셀의 개수.
+ * 명시적으로 0 인 셀만 제외하고, 값이 없는(미설정) 셀은 기본값(활성)으로 센다.
+ * @param {number[]} bands
+ * @param {number[][]|null|undefined} pointsPerZone
+ * @returns {number}
+ */
+export function countActiveZones(bands, pointsPerZone) {
+  const list = Array.isArray(bands) && bands.length > 0 ? bands : [1]
+  let n = 0
+  for (let i = 0; i < list.length; i++) {
+    const sub = Math.max(1, Math.floor(list[i]) || 1)
+    const row = Array.isArray(pointsPerZone?.[i]) ? pointsPerZone[i] : []
+    for (let j = 0; j < sub; j++) {
+      const v = row[j]
+      // 명시적 0 만 제외. null/undefined(미설정)은 Number(null)===0 이라도 활성으로 센다
+      // (미설정 셀이 '제외'로 오해되지 않도록 v == null 을 먼저 걸러낸다).
+      if (v != null && Number(v) === 0) continue
+      n++
+    }
+  }
+  return n
+}
+
 /**
  * 구역 미니맵용 SVG 뷰모델(순수). 모델 XY(mm)를 viewBox 좌표로 매핑한다.
- * viewBox 는 bbox 종횡비를 따르고 긴 변이 maxDim(기본 1000). SVG 는 Y가 아래로 증가하므로 Y를 뒤집는다.
+ * 방향은 앱 3D 뷰어의 평면도('A' 뷰)와 동일: 모델 +X(종) → 화면 위, +Y(횡) → 화면 왼쪽.
+ *   → 가로(W)는 Y 범위, 세로(H)는 X 범위에 비례한다. (SVG 는 y 가 아래로 증가)
  * nodeEntries 는 배열([id,{x,y,z}])이어야 한다(두 번 순회).
  * @param {{minX,maxX,minY,maxY}} bbox
  * @param {{bandAxis:'x'|'y', bands:number[], pointsPerZone?:number[][]}} config
@@ -273,27 +371,32 @@ export function buildZonePartitionView(bbox, config, nodeEntries, pipeNodes, opt
   const b = bbox ?? { minX: 0, maxX: 1, minY: 0, maxY: 1 }
   const spanX = (b.maxX - b.minX) || 1
   const spanY = (b.maxY - b.minY) || 1
-  const aspect = spanX / spanY
+  // 가로(W)=Y범위, 세로(H)=X범위. 평면도 방향(↑X · ←Y)에 맞춘 종횡비.
+  const aspectWH = spanY / spanX
   let W, H
-  if (aspect >= 1) { W = maxDim; H = Math.max(120, Math.round(maxDim / aspect)) }
-  else { H = maxDim; W = Math.max(120, Math.round(maxDim * aspect)) }
-  const sx = (mx) => ((mx - b.minX) / spanX) * W
-  const sy = (my) => ((b.maxY - my) / spanY) * H
+  if (aspectWH >= 1) { W = maxDim; H = Math.max(120, Math.round(maxDim / aspectWH)) }
+  else { H = maxDim; W = Math.max(120, Math.round(maxDim * aspectWH)) }
+  const sh = (my) => ((b.maxY - my) / spanY) * W // 가로: 모델 +Y → 화면 왼쪽
+  const sv = (mx) => ((b.maxX - mx) / spanX) * H // 세로: 모델 +X → 화면 위 (svg y-down)
 
   const axis = config?.bandAxis === 'x' ? 'x' : 'y'
   const zones = partitionZones(b, config)
   const byZone = assignNodesToZones(zones, nodeEntries)
   const cells = zones.map(z => {
-    const x0 = sx(z.xMin), x1 = sx(z.xMax)
-    const yTop = sy(z.yMax), yBot = sy(z.yMin)
-    const points = zoneCountFor(config, z.bandIndex, z.subIndex, 3)
+    const xa = sh(z.yMax), xb = sh(z.yMin)
+    const ya = sv(z.xMax), yb = sv(z.xMin)
+    const points = zoneCountFor(config, z.bandIndex, z.subIndex, 2)
+    const shape = zoneShapeFor(config, z.bandIndex, z.subIndex)   // 4점 구역 형상('quad'|'line')
     const nodeCount = (byZone.get(z.id) ?? []).length
     const label = axis === 'y' ? `${z.bandIndex + 1}행·${z.subIndex + 1}` : `${z.bandIndex + 1}열·${z.subIndex + 1}`
+    // 명시적 0 만 제외. -1(자동)은 활성 구역 — 노드 부족 판정은 최소 점 수(2) 기준.
+    const excluded = points === 0
+    const minNeeded = points === POINTS_AUTO ? 2 : points
     return {
       bandIndex: z.bandIndex, subIndex: z.subIndex,
-      x: Math.min(x0, x1), y: Math.min(yTop, yBot),
-      w: Math.abs(x1 - x0), h: Math.abs(yBot - yTop),
-      label, points, nodeCount, thin: nodeCount < points,
+      x: Math.min(xa, xb), y: Math.min(ya, yb),
+      w: Math.abs(xb - xa), h: Math.abs(yb - ya),
+      label, points, shape, nodeCount, excluded, thin: !excluded && nodeCount < minNeeded,
     }
   })
 
@@ -305,8 +408,13 @@ export function buildZonePartitionView(bbox, config, nodeEntries, pipeNodes, opt
     const take = (i++ % stride) === 0
     if (!take) continue
     if (!n || !Number.isFinite(n.x) || !Number.isFinite(n.y)) continue
-    dots.push({ x: sx(n.x), y: sy(n.y), pipe: pipeNodes ? pipeNodes.has(id) : false })
+    dots.push({ x: sh(n.y), y: sv(n.x), pipe: pipeNodes ? pipeNodes.has(id) : false })
   }
 
-  return { viewBox: { x: 0, y: 0, w: W, h: H }, cells, dots }
+  // COG 마커 — anchor(무게중심) 가 있으면 화면좌표로 변환해 미니맵에 십자 표시.
+  const anchor = (config?.anchor && Number.isFinite(config.anchor.x) && Number.isFinite(config.anchor.y))
+    ? config.anchor : null
+  const cog = anchor ? { x: sh(anchor.y), y: sv(anchor.x) } : null
+
+  return { viewBox: { x: 0, y: 0, w: W, h: H }, cells, dots, cog }
 }

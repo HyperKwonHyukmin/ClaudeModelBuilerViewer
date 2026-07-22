@@ -14,7 +14,7 @@ import { computeDeleteMask } from './applyEditIntents.js'
  *  - 기존 Rigid             : independent 가 사라지면 무효 → 제거.
  *                            independent 살아있고 dependent 일부만 사라지면 살아남은 dep 으로 축소.
  *                            모든 dep 가 사라지면 무효 → 제거.
- *  - addRigid              : 새 id (기존 max+1, 1, 2, ...) 부여 후 추가
+ *  - addRigid              : 새 id (elements+rigids 통합 max+1 …) 부여 후 추가 (RBE2=element ID 네임스페이스 공유)
  *  - properties / materials: 그대로 보존
  *  - meta                  : 기존 meta + edited:true + editedAt 타임스탬프
  *  - trace                 : 기존 trace 끝에 EditApplied 마커 1개 추가
@@ -63,11 +63,19 @@ export function buildEditedStageJson(stageData, intents) {
       dependentNodes: surviving,
     })
   }
-  // addRigid intents → 새 id 부여
-  let nextRigidId = (stageData.rigids ?? []).reduce((m, r) => Math.max(m, r.id ?? 0), 0) + 1
+  // ── 신규 id 카운터 (addRigid / addSupportBeam 공유) ────────────────────
+  // RBE2 는 Nastran 에서 element ID 네임스페이스를 CBEAM 등과 공유하므로, 새 rigid id 를
+  // rigids max 만으로 매기면 (rigids max < elements id 인 경우) 기존 BEAM 과 ID 충돌한다.
+  // → addSupportBeam 카운터와 동일하게 (살아남은) elements + rigids 통합 최대값+1 부터 매긴다.
+  const usedEid = new Set()
+  for (const e of elements) if (e.id != null) usedEid.add(e.id)
+  for (const r of rigids)   if (r.id != null) usedEid.add(r.id)
+  let nextId = (usedEid.size ? Math.max(...usedEid) : 0) + 1
+
+  // addRigid intents → 새 id 부여 (통합 네임스페이스)
   for (const ar of mask.addedRigids ?? []) {
     rigids.push({
-      id: nextRigidId++,
+      id: nextId++,
       independentNode: ar.independentNode,
       dependentNodes: [...ar.dependentNodes],
       cm: ar.cm ?? '123456',
@@ -76,11 +84,7 @@ export function buildEditedStageJson(stageData, intents) {
   }
 
   // ── addSupportBeam 주입 (CBEAM + PBEAML L) ────────────────────────────
-  // element id 는 기존 element/rigid(최종, addRigid 포함) 와 충돌하지 않게 그 최대값+1 부터.
-  const usedEid = new Set()
-  for (const e of elements) if (e.id != null) usedEid.add(e.id)
-  for (const r of rigids)   if (r.id != null) usedEid.add(r.id)
-  let nextElementId = (usedEid.size ? Math.max(...usedEid) : 0) + 1
+  // element id 는 위 통합 카운터(nextId)를 이어 사용 → addRigid 로 추가된 id 와도 충돌 없음.
   let nextPropertyId = (properties.length ? Math.max(...properties.map(p => p.id ?? 0)) : 0) + 1
   const supportMaterialId = resolveSupportMaterialId(stageData)
   for (const sb of mask.addedSupportBeams ?? []) {
@@ -91,7 +95,7 @@ export function buildEditedStageJson(stageData, intents) {
       materialId: supportMaterialId,
     })
     elements.push({
-      id: nextElementId++, type: 'CBEAM',
+      id: nextId++, type: 'CBEAM',
       startNode: sb.startNode, endNode: sb.endNode,
       propertyId: propId,
       orientation: computeSupportOrientation(stageData, sb.startNode, sb.endNode),

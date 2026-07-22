@@ -76,7 +76,15 @@ export const useStageStore = create((set) => ({
     }
 
     const changedCount = applyPipeFluidEmpty(stages, ids, PIPE_STEEL_RHO)
-    set({ stages: [...stages], pipeFluidEmptied: true, pipeFluidOriginalRhoMap: originalRhoMap })
+    // 배관/유체가 실제로 바뀐 경우에만 pipeFluidEmptied 를 true 로 세운다.
+    // changedCount===0(배관/유체 없음)인데 true 로 세우면 buildPostureStabilityPayload 가
+    // 정확한 StageSummary CoG 대신 근사 fallback 으로 강등된다.
+    const prevEmptied = useStageStore.getState().pipeFluidEmptied
+    set({
+      stages: [...stages],
+      pipeFluidEmptied: changedCount > 0 ? true : prevEmptied,
+      pipeFluidOriginalRhoMap: originalRhoMap,
+    })
 
     // 유체를 비우면 무게중심이 바뀌므로 기존 자세안정성/구조해석 결과는 stale → 무효화한다.
     // 자세안정성 평가를 다시 실행해야(구조해석 가드가 stabilityPath 부재로 자동 차단) 새 CoG 가

@@ -25,7 +25,13 @@ function statusRank(s) { return s === 'fail' ? 2 : s === 'warn' ? 1 : 0 }
 export function adaptStabilityReportToCandidate(report, ctx) {
   const stages = pick(report, 'stages') ?? []
   const byId = new Map()
-  for (const st of stages) byId.set(Number(pick(st, 'id')), st)
+  for (const st of stages) {
+    const idNum = Number(pick(st, 'id'))
+    // id 누락/비정상이면 Number(undefined)=NaN 이라 여러 stage 가 같은 NaN 키로 덮어써진다.
+    // 유효 정수 id 가 아닌 stage 는 byId 에 넣지 않는다(어차피 id 4/5/6 조회 대상이 아님).
+    if (!Number.isInteger(idNum)) continue
+    byId.set(idNum, st)
+  }
   const s4 = byId.get(4), s5 = byId.get(5), s6 = byId.get(6)
   const sum = (st) => pick(st, 'summary') ?? {}
 

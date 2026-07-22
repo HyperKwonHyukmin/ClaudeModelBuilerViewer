@@ -70,13 +70,41 @@ export const useStabilityStore = create((set, get) => ({
     stabilityPath: null,
     ranAt: null,
   }),
+
+  /**
+   * 권상 그룹 삭제를 시각화에 반영한다. 삭제된 groupId 의 wire/apex 를 제거하고,
+   * 그보다 큰 groupId 는 1씩 당겨 재정렬한다(useEditStore.removeHoistGroup 의 ID 재정렬과 동일 규칙 →
+   * 삭제 후에도 wire 색상이 패널 그룹 색상과 일치). report/visualization 이 없으면 no-op.
+   */
+  dropGroupWires: (deletedGroupId) => set(s => {
+    const rep = s.report
+    const gid = Number(deletedGroupId)
+    if (!rep || !rep.visualization || !Number.isInteger(gid)) return s
+    const reindex = (arr) => (Array.isArray(arr)
+      ? arr
+          .filter(w => Number(w.groupId) !== gid)
+          .map(w => (Number(w.groupId) > gid ? { ...w, groupId: Number(w.groupId) - 1 } : w))
+      : arr)
+    return {
+      report: {
+        ...rep,
+        visualization: {
+          ...rep.visualization,
+          wires: reindex(rep.visualization.wires),
+          apexes: reindex(rep.visualization.apexes),
+        },
+      },
+    }
+  }),
 }))
 
 /**
  * stages[] 의 user-displayed 항목들을 보고 전체 status 를 결정한다.
  *   - 하나라도 'fail' 이면 'fail'
  *   - 'warn' 이 있으면 'warn'
- *   - 그 외 'pass'
+ *   - 'pass' 가 하나라도 있으면 'pass'
+ *   - user stage 가 전부 'skip'(검증 미수행)이면 null (미실행 취급)
+ * 전부 skip 인데 'pass' 로 오판하면 검증 안 된 모델로 구조해석 Run 이 열리므로 null 을 반환한다.
  */
 function deriveOverallStatus(report) {
   if (!report || !Array.isArray(report.stages)) return null
@@ -84,7 +112,8 @@ function deriveOverallStatus(report) {
   if (userStages.length === 0) return null
   if (userStages.some(s => s.status === 'fail')) return 'fail'
   if (userStages.some(s => s.status === 'warn')) return 'warn'
-  return 'pass'
+  if (userStages.some(s => s.status === 'pass')) return 'pass'
+  return null
 }
 
 // dev 노출 — 자동화 검증/디버깅용

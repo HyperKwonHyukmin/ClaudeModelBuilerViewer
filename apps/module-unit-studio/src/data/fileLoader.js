@@ -93,25 +93,33 @@ export async function loadFiles(fileList) {
       summary.failedFiles.push(file.name)
       continue
     }
-    // 00_InputAudit.json — CSV 변환 감사 (한 폴더에 한 개; 마지막으로 만난 것이 최종)
-    if (isInputAuditJson(json)) {
-      inputAudit = new InputAuditData(json)
-      continue
+    // JSON.parse 는 됐지만 생성자(StageData/InputAuditData/StageSummaryData)가 throw 하면
+    // 해당 파일 하나 때문에 폴더 전체 로드가 중단되지 않도록, 그 파일만 실패 처리하고 계속한다.
+    try {
+      // 00_InputAudit.json — CSV 변환 감사 (한 폴더에 한 개; 마지막으로 만난 것이 최종)
+      if (isInputAuditJson(json)) {
+        inputAudit = new InputAuditData(json)
+        continue
+      }
+      // 00_StageSummary.json — phase 알고리즘 요약 + 모델 전체 질량/무게중심
+      if (isStageSummaryJson(json)) {
+        stageSummary = new StageSummaryData(json)
+        continue
+      }
+      // phase 데이터가 아닌 그 외 메타/요약 파일은 건너뜀
+      if (!isPhaseStageJson(json)) {
+        summary.skipped++
+        continue
+      }
+      const stage = new StageData(json)
+      // 원본 파일명 보존 — 편집 모드 export 파일명("<원본>_edit.json") 생성에 사용.
+      stage.sourceFileName = file.name
+      stages.push(stage)
+    } catch (err) {
+      console.warn(`[fileLoader] Failed to construct data for ${file.name}:`, err)
+      summary.failed++
+      summary.failedFiles.push(file.name)
     }
-    // 00_StageSummary.json — phase 알고리즘 요약 + 모델 전체 질량/무게중심
-    if (isStageSummaryJson(json)) {
-      stageSummary = new StageSummaryData(json)
-      continue
-    }
-    // phase 데이터가 아닌 그 외 메타/요약 파일은 건너뜀
-    if (!isPhaseStageJson(json)) {
-      summary.skipped++
-      continue
-    }
-    const stage = new StageData(json)
-    // 원본 파일명 보존 — 편집 모드 export 파일명("<원본>_edit.json") 생성에 사용.
-    stage.sourceFileName = file.name
-    stages.push(stage)
   }
 
   // 모든 stage의 group 색·번호를 마지막 stage 기준으로 통일 (multi-viewport 시각적 비교용)

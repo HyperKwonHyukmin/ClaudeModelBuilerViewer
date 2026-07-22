@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { partitionZones, assignNodesToZones } from './hoistZonePartition.js'
+import { partitionZones, assignNodesToZones, anchoredBoundary } from './hoistZonePartition.js'
 import { pipeNodeIds, dominantZLevel, polygonArea2D, selectWidestPoints } from './hoistZonePartition.js'
 import { buildZoneLayout } from './hoistZonePartition.js'
-import { reconcilePointsPerZone, zoneCountFor, buildZonePartitionView } from './hoistZonePartition.js'
+import { reconcilePointsPerZone, zoneCountFor, buildZonePartitionView, countActiveZones } from './hoistZonePartition.js'
+import { zoneShapeFor, reconcileShapePerZone, SHAPE_QUAD, SHAPE_LINE } from './hoistZonePartition.js'
 
 const bbox = { minX: 0, maxX: 100, minY: 0, maxY: 100, minZ: 0, maxZ: 0 }
 
@@ -30,6 +31,67 @@ describe('partitionZones', () => {
     expect(z[0]).toMatchObject({ xMin: 0, xMax: 50, yMin: 0, yMax: 100 })
     expect(z[1]).toMatchObject({ xMin: 50, xMax: 100, yMin: 0, yMax: 50 })
     expect(z[2]).toMatchObject({ xMin: 50, xMax: 100, yMin: 50, yMax: 100 })
+  })
+})
+
+describe('anchoredBoundary (무게중심 기준 분할)', () => {
+  it('양 끝 경계(i=0,i=n)는 항상 lo/hi 로 정확', () => {
+    expect(anchoredBoundary(0, 100, 30, 0, 3)).toBeCloseTo(0, 6)
+    expect(anchoredBoundary(0, 100, 30, 3, 3)).toBeCloseTo(100, 6)
+  })
+
+  it('n=2(짝수) → 내부 경계가 정확히 앵커 위치', () => {
+    expect(anchoredBoundary(0, 100, 30, 1, 2)).toBeCloseTo(30, 6)
+    expect(anchoredBoundary(0, 100, 70, 1, 2)).toBeCloseTo(70, 6)
+  })
+
+  it('앵커=bbox 중앙이면 등분할과 동일(하위호환)', () => {
+    // n=3, c=50 → 33.33.., 66.66..
+    expect(anchoredBoundary(0, 100, 50, 1, 3)).toBeCloseTo(100 / 3, 6)
+    expect(anchoredBoundary(0, 100, 50, 2, 3)).toBeCloseTo(200 / 3, 6)
+  })
+
+  it('앵커 비유한 → bbox 중앙 등분할로 폴백', () => {
+    expect(anchoredBoundary(0, 100, undefined, 1, 2)).toBeCloseTo(50, 6)
+    expect(anchoredBoundary(0, 100, NaN, 1, 2)).toBeCloseTo(50, 6)
+  })
+
+  it('n=3(홀수) → 앵커가 인덱스 중심(가운데 셀 내부)', () => {
+    // c=30: i=1 → 0 + 30*(1/1.5)=20, i=2 → 30 + 70*(0.5/1.5)=53.33..
+    expect(anchoredBoundary(0, 100, 30, 1, 3)).toBeCloseTo(20, 6)
+    expect(anchoredBoundary(0, 100, 30, 2, 3)).toBeCloseTo(30 + 70 / 3, 6)
+    // 가운데 셀 [20, 53.33] 안에 c=30 이 포함
+    expect(30).toBeGreaterThan(anchoredBoundary(0, 100, 30, 1, 3))
+    expect(30).toBeLessThan(anchoredBoundary(0, 100, 30, 2, 3))
+  })
+})
+
+describe('partitionZones — COG 앵커', () => {
+  it('2×2 anchor={x:30,y:70} → 분할선 교점이 COG', () => {
+    const z = partitionZones(bbox, { bandAxis: 'y', bands: [2, 2], anchor: { x: 30, y: 70 } })
+    expect(z).toHaveLength(4)
+    // Y 밴드 경계 = 70(=cogY), X 하위 경계 = 30(=cogX)
+    const ys = new Set(z.flatMap(c => [c.yMin, c.yMax]))
+    const xs = new Set(z.flatMap(c => [c.xMin, c.xMax]))
+    expect([...ys]).toEqual(expect.arrayContaining([0, 70, 100]))
+    expect([...xs]).toEqual(expect.arrayContaining([0, 30, 100]))
+    // 좌하 셀 = [0..30]×[0..70]
+    expect(z.find(c => c.xMin === 0 && c.yMin === 0)).toMatchObject({ xMax: 30, yMax: 70 })
+  })
+
+  it('anchor 없으면 등분할(기존 동작 불변)', () => {
+    const z = partitionZones(bbox, { bandAxis: 'y', bands: [2, 2] })
+    expect(z.find(c => c.xMin === 0 && c.yMin === 0)).toMatchObject({ xMax: 50, yMax: 50 })
+  })
+
+  it('3×3 anchor → 격자 중심이 COG(가운데 셀이 COG 를 포함)', () => {
+    const z = partitionZones(bbox, { bandAxis: 'y', bands: [3, 3, 3], anchor: { x: 40, y: 60 } })
+    expect(z).toHaveLength(9)
+    const mid = z.find(c => c.bandIndex === 1 && c.subIndex === 1)
+    expect(40).toBeGreaterThanOrEqual(mid.xMin)
+    expect(40).toBeLessThanOrEqual(mid.xMax)
+    expect(60).toBeGreaterThanOrEqual(mid.yMin)
+    expect(60).toBeLessThanOrEqual(mid.yMax)
   })
 })
 
@@ -217,6 +279,11 @@ describe('zoneCountFor', () => {
     expect(zoneCountFor(config, 5, 5, 3)).toBe(3)
     expect(zoneCountFor({}, 0, 0, 2)).toBe(2)
   })
+  it('null(미설정)은 기본값 경로, 명시적 0 은 제외값(0) — Number(null)=0 오해 방지', () => {
+    const cfg = { pointsPerZone: [[null, 0]] }
+    expect(zoneCountFor(cfg, 0, 0, 2)).toBe(2)   // null → 기본값(미설정)
+    expect(zoneCountFor(cfg, 0, 1, 2)).toBe(0)   // 명시적 0 → 0(제외)
+  })
 })
 
 describe('buildZonePartitionView', () => {
@@ -234,16 +301,24 @@ describe('buildZonePartitionView', () => {
     const view = buildZonePartitionView(vbbox, { bandAxis: 'x', bands: [1], pointsPerZone: [[3]] }, [], new Set())
     expect(view.cells[0].label).toBe('1열·1')
   })
-  it('viewBox 종횡비 = bbox 종횡비(가로 2배 → 1000x500)', () => {
-    const view = buildZonePartitionView(vbbox, { bandAxis: 'y', bands: [1] }, [], new Set())
-    expect(view.viewBox.w).toBe(1000)
-    expect(view.viewBox.h).toBe(500)
+  it('anchor 없으면 cog=null, 있으면 COG 화면좌표 반환', () => {
+    const noAnchor = buildZonePartitionView(vbbox, { bandAxis: 'y', bands: [2] }, [], new Set())
+    expect(noAnchor.cog).toBeNull()
+    const withAnchor = buildZonePartitionView(vbbox, { bandAxis: 'y', bands: [2], anchor: { x: 50, y: 25 } }, [], new Set())
+    expect(withAnchor.cog).toMatchObject({ x: 250, y: 500 })
   })
-  it('Y축 뒤집기 — maxY 노드는 위(작은 svgY), minY 노드는 아래(큰 svgY)', () => {
-    const entries = [[1, { x: 0, y: 50, z: 0 }], [2, { x: 0, y: 0, z: 0 }]]
+  it('viewBox 종횡비 = 평면도(가로=Y범위, 세로=X범위) → 500x1000', () => {
+    const view = buildZonePartitionView(vbbox, { bandAxis: 'y', bands: [1] }, [], new Set())
+    expect(view.viewBox.w).toBe(500)
+    expect(view.viewBox.h).toBe(1000)
+  })
+  it('평면도 방향 — +X는 위(작은 svgY), +Y는 왼쪽(작은 svgX)', () => {
+    const entries = [[1, { x: 100, y: 50, z: 0 }], [2, { x: 0, y: 0, z: 0 }]]
     const view = buildZonePartitionView(vbbox, { bandAxis: 'y', bands: [1] }, entries, new Set())
-    expect(view.dots[0].y).toBeCloseTo(0)
-    expect(view.dots[1].y).toBeCloseTo(500)
+    expect(view.dots[0].x).toBeCloseTo(0)    // maxY → 왼쪽
+    expect(view.dots[0].y).toBeCloseTo(0)    // maxX → 위
+    expect(view.dots[1].x).toBeCloseTo(500)  // minY → 오른쪽
+    expect(view.dots[1].y).toBeCloseTo(1000) // minX → 아래
   })
   it('thin: 노드수 < 포인트수면 true', () => {
     const entries = [[1, { x: 10, y: 10, z: 0 }], [2, { x: 20, y: 20, z: 0 }]]
@@ -272,8 +347,99 @@ describe('buildZonePartitionView', () => {
     expect(Number.isFinite(view.cells[0].y)).toBe(true)
     expect(Number.isFinite(view.cells[0].h)).toBe(true)
   })
-  it('극단 종횡비(1000:1)도 H ≥ 120 보장', () => {
+  it('극단 종횡비(X 1000:1)도 W ≥ 120 보장', () => {
     const view = buildZonePartitionView({ minX: 0, maxX: 1000, minY: 0, maxY: 1 }, { bandAxis: 'y', bands: [1] }, [], new Set())
-    expect(view.viewBox.h).toBe(120)
+    expect(view.viewBox.w).toBe(120)
+    expect(view.viewBox.h).toBe(1000)
+  })
+  it('0점 셀은 excluded=true, points<=0', () => {
+    const config = { bandAxis: 'y', bands: [1, 1], pointsPerZone: [[0], [3]] }
+    const view = buildZonePartitionView(vbbox, config, [], new Set())
+    expect(view.cells[0].excluded).toBe(true)
+    expect(view.cells[0].points).toBe(0)
+    expect(view.cells[1].excluded).toBe(false)
+  })
+  it('자동(-1) 셀은 활성(excluded=false), 노드 부족 판정은 최소 2점 기준 (2026-07-03)', () => {
+    const config = { bandAxis: 'y', bands: [1, 1], pointsPerZone: [[-1], [-1]] }
+    // 첫 구역(y<25)에만 노드 2개 — 자동 셀도 최소 2노드면 thin 아님, 0~1노드면 thin.
+    const entries = [[1, { x: 10, y: 10, z: 0 }], [2, { x: 20, y: 20, z: 0 }]]
+    const view = buildZonePartitionView(vbbox, config, entries, new Set())
+    expect(view.cells[0].excluded).toBe(false)
+    expect(view.cells[0].points).toBe(-1)
+    expect(view.cells[0].thin).toBe(false)   // 노드 2 ≥ 최소 2
+    expect(view.cells[1].thin).toBe(true)    // 노드 0 < 최소 2
+  })
+})
+
+describe('countActiveZones', () => {
+  it('기본(2점 초기값 흐름) [1,1] → 2 그룹', () => {
+    expect(countActiveZones([1, 1], [[2], [2]])).toBe(2)
+  })
+  it('3×3 중 0점(제외) 셀 제외 — 3개만 활성', () => {
+    // 9구역 중 3개만 포인트>0, 나머지 0(제외)
+    const ppz = [[3, 0, 0], [0, 4, 0], [0, 0, 2]]
+    expect(countActiveZones([3, 3, 3], ppz)).toBe(3)
+  })
+  it('값 미설정(undefined) 셀은 활성으로 카운트(기본 2점)', () => {
+    // ppz 가 bands 보다 부족 — 미설정 셀은 명시적 0 이 아니므로 활성
+    expect(countActiveZones([1, 1, 1], [[3]])).toBe(3)
+  })
+  it('모두 0이면 0 그룹', () => {
+    expect(countActiveZones([1, 1], [[0], [0]])).toBe(0)
+  })
+  it('자동(-1) 셀은 활성으로 카운트 (2026-07-03)', () => {
+    expect(countActiveZones([1, 1], [[-1], [0]])).toBe(1)
+    expect(countActiveZones([1, 1], [[-1], [4]])).toBe(2)
+  })
+  it('null(미설정) 셀은 활성, 명시적 0 만 제외 (Number(null)=0 오해 방지)', () => {
+    // 왼쪽 셀 null → 활성, 오른쪽 셀 0 → 제외 → 활성 1개
+    expect(countActiveZones([1, 1], [[null], [0]])).toBe(1)
+    // null 과 undefined(누락) 모두 활성
+    expect(countActiveZones([1, 1], [[null], [4]])).toBe(2)
+  })
+})
+
+describe('buildZoneLayout — 0점 구역 제외', () => {
+  it('0점 구역은 그룹으로 만들지 않는다', () => {
+    // 두 구역 각각 노드 충분. 왼쪽(x<50) 0점(제외), 오른쪽(x>=50) 2점.
+    const bbox = { minX: 0, maxX: 100, minY: 0, maxY: 100, minZ: 0, maxZ: 0 }
+    const nodeEntries = [
+      [1, { x: 10, y: 10, z: 0 }], [2, { x: 20, y: 20, z: 0 }],  // 왼쪽 구역
+      [3, { x: 70, y: 10, z: 0 }], [4, { x: 80, y: 20, z: 0 }],  // 오른쪽 구역
+    ]
+    const config = { bandAxis: 'x', bands: [1, 1], includePipe: true, pointsPerZone: [[0], [2]] }
+    const res = buildZoneLayout({ bbox, nodeEntries, pipeNodes: new Set(), tolMm: 10 }, config)
+    expect(res.ok).toBe(true)
+    expect(res.groups).toHaveLength(1)  // 오른쪽만
+  })
+})
+
+describe('구역별 4점 형상(shapePerZone) — 사용자 규칙 2026-07-03', () => {
+  it('zoneShapeFor — 설정값 반환, 미설정/비정상은 기본 quad', () => {
+    const config = { shapePerZone: [['line', 'quad'], [undefined, 'weird']] }
+    expect(zoneShapeFor(config, 0, 0)).toBe('line')
+    expect(zoneShapeFor(config, 0, 1)).toBe('quad')
+    expect(zoneShapeFor(config, 1, 0)).toBe('quad')   // 미설정 → 기본
+    expect(zoneShapeFor(config, 1, 1)).toBe('quad')   // 비정상 → 기본
+    expect(zoneShapeFor(null, 0, 0)).toBe('quad')     // config 없음 → 기본
+    expect(zoneShapeFor({}, 5, 5, 'line')).toBe('line') // 명시 기본값 존중
+  })
+
+  it('reconcileShapePerZone — bands 모양에 맞춰 보존/확장, 부족분은 quad', () => {
+    const prev = [['line']]
+    const next = reconcileShapePerZone([2, 1], prev)
+    expect(next).toEqual([['line', 'quad'], ['quad']])
+    expect(SHAPE_QUAD).toBe('quad')
+    expect(SHAPE_LINE).toBe('line')
+  })
+
+  it('buildZonePartitionView — 셀에 shape 필드가 실린다', () => {
+    const bb = { minX: 0, maxX: 100, minY: 0, maxY: 100, minZ: 0, maxZ: 0 }
+    const cfg = { bandAxis: 'y', bands: [1, 1], pointsPerZone: [[4], [4]], shapePerZone: [['quad'], ['line']] }
+    const view = buildZonePartitionView(bb, cfg, [], null)
+    const c0 = view.cells.find(c => c.bandIndex === 0 && c.subIndex === 0)
+    const c1 = view.cells.find(c => c.bandIndex === 1 && c.subIndex === 0)
+    expect(c0.shape).toBe('quad')
+    expect(c1.shape).toBe('line')
   })
 })
