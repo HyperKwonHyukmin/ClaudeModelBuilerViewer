@@ -97,7 +97,8 @@ export function buildHoistCandidateNodes(hoistGroups, stageData, activeGroupId, 
 }
 
 // 바깥 와이어프레임 외곽선 — 노드를 가리지 않게 비가림(depthTest off).
-function buildShellMarkers(positions) {
+// (Circle Guide 오버레이도 동일 마커/라벨을 공유하도록 export)
+export function buildShellMarkers(positions) {
   const geo = new THREE.SphereGeometry(SHELL_R, 16, 12)
   const mat = new THREE.MeshBasicMaterial({
     color: CAND_COLOR,
@@ -111,7 +112,7 @@ function buildShellMarkers(positions) {
 }
 
 // 안쪽 코어 점 — 후보 위치를 또렷이 찍어준다.
-function buildCoreMarkers(positions) {
+export function buildCoreMarkers(positions) {
   const geo = new THREE.SphereGeometry(CORE_R, 12, 8)
   const mat = new THREE.MeshBasicMaterial({
     color: CAND_COLOR,
@@ -137,7 +138,7 @@ function makeInstanced(geo, mat, positions, renderOrder) {
 }
 
 // 후보 노드 무리의 XY 중심 위에 "권상 후보 · N점 (±Tmm)" 라벨 스프라이트를 띄운다.
-function makeCandidateLabel(text, positions) {
+export function makeCandidateLabel(text, positions) {
   const c = new THREE.Vector3()
   for (const p of positions) c.add(p)
   if (positions.length > 0) c.multiplyScalar(1 / positions.length)

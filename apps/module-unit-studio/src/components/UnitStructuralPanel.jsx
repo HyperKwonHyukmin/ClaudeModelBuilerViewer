@@ -40,7 +40,7 @@ export default function UnitStructuralPanel() {
     status, progress, message, result, summary, warnings, error, ranAt,
     sfInput, setSfInput, commitSf,
     allowInput, setAllowInput, commitAllow,
-    overall, stabilityPath, ipcAvailable,
+    overall, stabilityPath, ipcAvailable, shapeRelaxed,
     isRunning, isFinished, isReady, canRun,
     handleRun,
   } = useUnitStructuralRunner()
@@ -60,7 +60,7 @@ export default function UnitStructuralPanel() {
     try {
       const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null')
       if (saved && Number.isFinite(saved.x) && Number.isFinite(saved.y)) return saved
-    } catch {}
+    } catch { /* 손상된 저장값 무시 */ }
     return null
   })()
   const [pos, setPos] = useState(initial)
@@ -99,7 +99,7 @@ export default function UnitStructuralPanel() {
   // localStorage 영구 저장 (anchored 플래그도 함께)
   useEffect(() => {
     if (!pos) return
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...pos, anchored })) } catch {}
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...pos, anchored })) } catch { /* 저장 실패 무시 */ }
   }, [pos, anchored])
 
   // 헤더 잡고 드래그 — panel 을 viewport 안 자유롭게 이동
@@ -161,6 +161,7 @@ export default function UnitStructuralPanel() {
           overall={overall}
           ipcAvailable={ipcAvailable}
           stabilityPath={stabilityPath}
+          shapeRelaxed={shapeRelaxed}
         />
 
         <InputsRow
@@ -180,7 +181,7 @@ export default function UnitStructuralPanel() {
             isFinished ? '이미 해석이 완료되었습니다 — 다시 실행하려면 좌하단 "초기화" 후 폴더를 다시 여세요'
             : canRun ? 'Unit 구조 해석 실행'
             : isRunning ? '실행 중...'
-            : '자세안정성 PASS + Workbench 환경 필요'
+            : '자세안정성 PASS/WARN + Workbench 환경 필요'
           }
           style={{
             display: 'inline-flex',
@@ -281,7 +282,7 @@ function Header({ status, ranAt, onClose, onDragStart }) {
   )
 }
 
-function ReadinessRow({ isReady, overall, ipcAvailable, stabilityPath }) {
+function ReadinessRow({ isReady, overall, ipcAvailable, stabilityPath, shapeRelaxed = false }) {
   // 차단 사유 — fail/미실행/IPC 없음/path 없음
   const blocking = []
   if (overall === 'fail') blocking.push('자세안정성 FAIL')
@@ -314,7 +315,14 @@ function ReadinessRow({ isReady, overall, ipcAvailable, stabilityPath }) {
           ⚠ 자세안정성 WARN — 진행 가능하지만 결과 검토 필요
         </div>
         <div style={{ color: '#cfd5e6' }}>
-          간섭/슬링각 등 경고 사항이 남아있습니다. 결과 패널에서 함께 확인하세요.
+          {shapeRelaxed
+            // Strict 평가 OFF 로 형상 FAIL 이 warn 으로 강등된 상태 — 통상 경고와 성격이 다르므로
+            // "형상 기준을 만족하지 못했다"는 사실을 분명히 적는다.
+            ? <>
+                <strong style={{ color: '#FFC447' }}>Strict 평가 OFF</strong> — 권상 형상 기준(형상 분류·Z단차·평면도 등)을
+                만족하지 못했으나 경고로 처리해 진행합니다. 전도·Wire 길이는 정상 판정된 상태입니다.
+              </>
+            : '간섭/슬링각 등 경고 사항이 남아있습니다. 결과 패널에서 함께 확인하세요.'}
         </div>
       </div>
     )

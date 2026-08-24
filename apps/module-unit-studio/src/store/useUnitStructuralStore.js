@@ -48,12 +48,14 @@ export const useUnitStructuralStore = create((set) => ({
     set({ allowableMpa: Number.isFinite(n) && n > 0 ? n : 220 })
   },
 
-  // polling stream 갱신 — main process 가 viewer:unit-structural-progress 로 push
-  setProgress: ({ status, progress, message }) => set({
-    status: status ?? null,
-    progress: typeof progress === 'number' ? progress : 0,
-    message: message ?? '',
-  }),
+  // polling stream 갱신 — main process 가 viewer:unit-structural-progress 로 push.
+  // status/값이 없는 부분 이벤트로 실행 중 status 가 null 로 지워져 버튼이 재활성(이중 제출 표면)되지
+  // 않도록, 누락 필드는 이전 상태를 유지한다.
+  setProgress: ({ status, progress, message }) => set((s) => ({
+    status: status ?? s.status,
+    progress: typeof progress === 'number' ? progress : s.progress,
+    message: message ?? s.message,
+  })),
 
   setSuccess: ({ analysisId, summary, warnings, resultPath, result }) => set({
     status: 'Success',

@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { Layers, Minus, Plus } from 'lucide-react'
-import { buildZonePartitionView, reconcilePointsPerZone } from '../data/hoistZonePartition.js'
+import { buildZonePartitionView, reconcilePointsPerZone, reconcileShapePerZone, countActiveZones, SHAPE_QUAD, SHAPE_LINE } from '../data/hoistZonePartition.js'
 import ZonePartitionMap from './ZonePartitionMap.jsx'
 
 /**
@@ -9,19 +9,44 @@ import ZonePartitionMap from './ZonePartitionMap.jsx'
  */
 export default function HoistZoneConfig({ value, onChange, mode, maxGroups, partitionInput }) {
   const ceiling = mode === 'ceiling'
-  const validPoints = ceiling ? [3, 4] : [2, 3, 4]
+  const goliat = mode === 'goliat'
+  // 셀 클릭 순환 순서. 0 = 제외(권상 포인트 없음), -1 = 자동(엔진이 방식 허용 점 수 스윕 후 순위 제안).
+  // 천장 Crane 은 1그룹 고정이라 제외 개념 없음. Goliat(Trolley)은 3점 미지원 → 2·4점만
+  // (사용자 규칙 2026-07-03).
+  const validPoints = ceiling ? [3, 4, -1] : goliat ? [2, 4, -1, 0] : [2, 3, 4, -1, 0]
   const bands = value.bands
-  const groupCount = bands.reduce((n, b) => n + Math.max(1, b), 0)
-  const over = groupCount > maxGroups
+  // 방식별 기본 점 수 — 천장 Crane 은 4점(사용자 지시 2026-07-31), 그 외는 2점.
+  // ⚠️ 기본값이 validPoints 에 없으면 reconcilePointsPerZone 이 validPoints[0] 으로 떨어진다.
+  //    천장 Crane 의 validPoints[0] 은 3 이라, 여기서 4 를 명시하지 않으면 기본이 3점으로 돌아간다.
+  const defaultPoints = ceiling ? 4 : 2
 
-  // bands 모양에 맞춰 정규화한 pointsPerZone 로 작업(누락/형상 불일치 방어)
-  const ppz = reconcilePointsPerZone(bands, value.pointsPerZone, validPoints, 3)
+  // bands 모양에 맞춰 정규화한 pointsPerZone·shapePerZone 로 작업(누락/형상 불일치 방어).
+  const ppz = reconcilePointsPerZone(bands, value.pointsPerZone, validPoints, defaultPoints)
+  const spz = reconcileShapePerZone(bands, value.shapePerZone)
+
+  // 실제 권상 그룹 수 = 0점(제외) 아닌 셀 수. 9구역(3×3) 중 일부만 활성화하는 흐름을 지원.
+  const groupCount = countActiveZones(bands, ppz)
+  const over = groupCount > maxGroups
+  const noneActive = groupCount === 0
+
+  // 무게중심(COG) 기준 분할(기본 on).
+  const cogOn = value.cogAnchor !== false
+  const hasCog = !!partitionInput?.cog
+
+  // 셀 클릭 순환 상태 — 4점은 형상(사각형/일직선) 2개 하위 상태로 분리해 '구역별 4점 형상'을 지정한다
+  // (사용자 규칙 2026-07-03). 천장 Crane 은 형상 선택 없이 4점 단일 상태. 각 상태 = {points, shape?}.
+  const cycleStates = ceiling
+    ? validPoints.map(p => ({ points: p }))
+    : validPoints.flatMap(p => p === 4
+      ? [{ points: 4, shape: SHAPE_QUAD }, { points: 4, shape: SHAPE_LINE }]
+      : [{ points: p }])
 
   const patch = (p) => onChange({ ...value, ...p })
   const commitBands = (nextBands) => onChange({
     ...value,
     bands: nextBands,
-    pointsPerZone: reconcilePointsPerZone(nextBands, ppz, validPoints, 3),
+    pointsPerZone: reconcilePointsPerZone(nextBands, ppz, validPoints, defaultPoints),
+    shapePerZone: reconcileShapePerZone(nextBands, spz),
   })
   const setBand = (i, v) => {
     const next = [...bands]
@@ -31,20 +56,29 @@ export default function HoistZoneConfig({ value, onChange, mode, maxGroups, part
   const addBand = () => { if (!ceiling && bands.length < maxGroups) commitBands([...bands, 1]) }
   const removeBand = (i) => { if (!ceiling && bands.length > 1) commitBands(bands.filter((_, j) => j !== i)) }
   const cycleCell = (bi, si) => {
-    const cur = ppz[bi]?.[si] ?? validPoints[0]
-    const next = validPoints[(validPoints.indexOf(cur) + 1) % validPoints.length]
+    const curP = ppz[bi]?.[si] ?? validPoints[0]
+    const curS = spz[bi]?.[si] ?? SHAPE_QUAD
+    // 현재 상태 index — 4점(비-천장)은 형상까지 일치해야 정확히 다음 상태로 넘어간다.
+    const idx = cycleStates.findIndex(s =>
+      s.points === curP && (s.points !== 4 || ceiling || s.shape === curS))
+    const next = cycleStates[(idx + 1) % cycleStates.length] ?? cycleStates[0]
     const nextPpz = ppz.map(row => [...row])
-    nextPpz[bi][si] = next
-    patch({ pointsPerZone: nextPpz })
+    const nextSpz = spz.map(row => [...row])
+    nextPpz[bi][si] = next.points
+    if (next.points === 4 && !ceiling && next.shape) nextSpz[bi][si] = next.shape
+    patch({ pointsPerZone: nextPpz, shapePerZone: nextSpz })
   }
 
   const view = useMemo(
-    () => partitionInput
-      ? buildZonePartitionView(partitionInput.bbox, { ...value, pointsPerZone: ppz }, partitionInput.nodeEntries, partitionInput.pipeNodes)
-      : null,
-    // ppz 는 매 렌더 새 배열이라 dep 식별자로 못 쓴다 → 원본 입력값들로 추적
+    () => {
+      if (!partitionInput) return null
+      // 무게중심 분할 on 이고 COG 가 있으면 anchor 로 넘겨 미니맵도 COG 기준 격자로 그린다.
+      const anchor = (cogOn && partitionInput.cog) ? partitionInput.cog : undefined
+      return buildZonePartitionView(partitionInput.bbox, { ...value, pointsPerZone: ppz, shapePerZone: spz, anchor }, partitionInput.nodeEntries, partitionInput.pipeNodes)
+    },
+    // ppz/spz 는 매 렌더 새 배열이라 dep 식별자로 못 쓴다 → 원본 입력값들로 추적
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [partitionInput, value.bandAxis, value.bands, value.pointsPerZone, value.includePipe],
+    [partitionInput, value.bandAxis, value.bands, value.pointsPerZone, value.shapePerZone, value.includePipe, cogOn],
   )
 
   return (
@@ -84,11 +118,29 @@ export default function HoistZoneConfig({ value, onChange, mode, maxGroups, part
         <Seg active={value.includePipe} onClick={() => patch({ includePipe: true })}>포함</Seg>
       </Row>
 
-      {/* groupCount 표시 */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: over ? '#FF99A6' : '#9fe6c2' }}>
+      {/* 무게중심 기준 분할 — 2×2면 분할선 교점이 COG, 그 이상도 격자 중심이 COG. */}
+      <Row label="분할 기준">
+        <Seg active={cogOn} onClick={() => patch({ cogAnchor: true })} disabled={ceiling}>무게중심(COG)</Seg>
+        <Seg active={!cogOn} onClick={() => patch({ cogAnchor: false })} disabled={ceiling}>기하 중심</Seg>
+        {cogOn && !hasCog && (
+          <span style={{ fontSize: 10, color: '#FFC447', alignSelf: 'center' }}>COG 미확인 → 기하 중심 사용</span>
+        )}
+      </Row>
+
+      {/* 4점 형상은 구역별로 지정한다(전역 설정 제거, 사용자 규칙 2026-07-03) — 미니맵에서 4점 셀을
+          클릭해 사각형(▭)↔일직선(―)을 순환한다. 같은 4점이라도 구역마다 형상을 다르게 둘 수 있다. */}
+      {!ceiling && (
+        <div style={{ fontSize: 10.5, color: '#7a8aa2', lineHeight: 1.5, marginTop: -2 }}>
+          <b style={{ color: '#90E8FF' }}>4점 형상</b>은 미니맵에서 <b>4점 구역을 클릭</b>해 구역별로 <b>사각형(▭)↔일직선(―)</b>을 지정합니다.
+        </div>
+      )}
+
+      {/* groupCount 표시 — 0점(제외) 셀을 뺀 실제 권상 그룹 수 */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: (over || noneActive) ? '#FF99A6' : '#9fe6c2' }}>
         <Layers size={13} />
-        총 권상 그룹 {groupCount}개 / 최대 {maxGroups}개
-        {over && <span style={{ fontWeight: 800 }}> · 초과! 구역 수를 줄이세요</span>}
+        권상 그룹 {groupCount}개 / 최대 {maxGroups}개 <span style={{ color: '#6a7a92' }}>(0점=제외 · 자동=점 수 엔진 추천)</span>
+        {over && <span style={{ fontWeight: 800 }}> · 초과! 일부 구역을 0점(제외)으로</span>}
+        {noneActive && <span style={{ fontWeight: 800 }}> · 활성 구역이 없습니다</span>}
       </div>
     </div>
   )

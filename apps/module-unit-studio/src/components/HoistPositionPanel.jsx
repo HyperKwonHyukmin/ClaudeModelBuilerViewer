@@ -1,5 +1,5 @@
 import { Fragment, useState } from 'react'
-import { ClipboardList, Eye, EyeOff, Loader2, Play, Plus, RotateCcw, Sparkles, Trash2, X } from 'lucide-react'
+import { AlertTriangle, ClipboardList, Eye, EyeOff, Loader2, Play, Plus, RotateCcw, ShieldAlert, ShieldCheck, Sparkles, Trash2, X } from 'lucide-react'
 import {
   useEditStore,
   getHoistMaxGroups,
@@ -88,7 +88,6 @@ export default function HoistPositionPanel() {
   const stabilityOverall = useStabilityStore(s => s.overallStatus)
   const openStabilityPanel = useStabilityStore(s => s.openPanel)
   const resetStability = useStabilityStore(s => s.reset)
-  const dropGroupWires = useStabilityStore(s => s.dropGroupWires)
 
   const maxGroupsForMode = getHoistMaxGroups(mode)
   const minNodesForMode  = getHoistMinNodesPerGroup(mode)   // ceiling=3, 그 외=2
@@ -251,6 +250,9 @@ export default function HoistPositionPanel() {
 
       {/* 진행 로드맵 — 초심자가 "지금 어디까지 했고 다음에 뭘 하는지" 한눈에 보도록 */}
       <StepFlow mode={mode} groupsValid={allGroupsValid} hasResult={!!stabilityReport} optionsTouched={optionsTouched} />
+
+      {/* Strict 평가 토글 + 완화 상태 상시 경고 — STEP 들보다 위에 둔다(평가 전체의 전제 조건). */}
+      <StrictEvaluationControl />
 
       {/* ── STEP 1. 권상 방식 ── */}
       <StepHeader n={1} title="권상 방식 선택" done={!!mode}
@@ -507,8 +509,9 @@ export default function HoistPositionPanel() {
                       onClick={(e) => {
                         e.stopPropagation()
                         if (!canDelete) return
-                        removeGroup(id)       // 그룹 삭제(+ID 재정렬)
-                        dropGroupWires(id)    // 해당 그룹 wire 제거(+동일 규칙으로 ID 재정렬)
+                        // 그룹 삭제(+ID 재정렬). wire 시각화 재정렬(dropGroupWires)은
+                        // removeHoistGroup 이 스토어에서 함께 보장하므로 여기서 중복 호출하지 않는다.
+                        removeGroup(id)
                       }}
                       disabled={!canDelete}
                       aria-label={`그룹 ${id} 삭제`}
@@ -875,6 +878,100 @@ export default function HoistPositionPanel() {
           </Tooltip>
         )}
       </div>
+    </div>
+  )
+}
+
+// ── Strict 평가 토글 ────────────────────────────────────────────────────────
+// OFF(기본) 면 엔진이 형상 판정을 완화한다 — Stage 1(형상 분류)·Stage 2(Z단차·convex·평면도·
+// Trolley 단변·삼각형 내각) FAIL 을 warn 으로 강등하고, 옵티마이저 후보 게이트의 형상 검증도
+// 우회해 형상 미충족 조합까지 권상 후보로 열거한다. 그 결과 권상 위치를 확정해 wire 를 설치하고
+// 다음 단계로 넘어갈 수 있다.
+//
+// 완화되지 <b>않는</b> 것 — 이 두 가지는 OFF 여도 그대로 FAIL 이라 다음 단계가 막힌다:
+//   · Stage 3 wireLengthM ≤ 0 (정점 자체를 만들 수 없음)
+//   · Stage 6 전도 (COG 가 지지영역 이탈 — 모듈이 실제로 넘어지는 위험)
+// 안전 판정을 느슨하게 하는 쪽이 기본값이므로 OFF 일 때는 항상 경고 배너를 함께 노출한다.
+function StrictEvaluationControl() {
+  const strict = useEditStore(s => s.strictEvaluation)
+  const setStrict = useEditStore(s => s.setStrictEvaluation)
+  const stabilityReport = useStabilityStore(s => s.report)
+
+  const tip = strict
+    ? (
+      <>
+        <strong style={{ color: '#6AE07A' }}>Strict 평가 ON</strong> — 형상 기준을 모두 만족해야 통과합니다.<br/>
+        · 형상 분류·Z단차·평면도·볼록성·삼각형 내각 위반 시 <strong>FAIL</strong><br/>
+        · 끄면 위 항목이 경고로만 표시되고 권상 위치를 확정할 수 있습니다.
+      </>
+    )
+    : (
+      <>
+        <strong style={{ color: '#FFC447' }}>Strict 평가 OFF</strong> — 형상 기준 미달을 경고로만 표시합니다.<br/>
+        · 형상 분류·Z단차·평면도·볼록성·삼각형 내각 → <strong>경고</strong>(권상 위치 확정 가능)<br/>
+        · <strong style={{ color: '#FF99A6' }}>전도(자세안정성)</strong>와 <strong style={{ color: '#FF99A6' }}>Wire 길이 오류</strong>는 그대로 FAIL 입니다.<br/>
+        · 켜면 기존처럼 형상 미달 시 진행이 막힙니다.
+      </>
+    )
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <Tooltip content={tip} placement="right">
+        <button
+          type="button"
+          role="switch"
+          aria-checked={strict}
+          aria-label="Strict 평가 토글"
+          onClick={() => setStrict(!strict)}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 7, width: '100%',
+            padding: '6px 8px', borderRadius: 7, cursor: 'pointer',
+            background: strict ? 'rgba(106,224,122,0.14)' : 'rgba(255,196,71,0.12)',
+            border: `1px solid ${strict ? 'rgba(106,224,122,0.55)' : 'rgba(255,196,71,0.55)'}`,
+            color: strict ? '#6AE07A' : '#FFC447',
+            transition: 'background 150ms ease, border-color 150ms ease, color 150ms ease',
+          }}>
+          {strict ? <ShieldCheck size={13} strokeWidth={2.4} /> : <ShieldAlert size={13} strokeWidth={2.4} />}
+          <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: 0.3, whiteSpace: 'nowrap' }}>
+            Strict 평가
+          </span>
+          {/* 스위치 트랙 — 우측 정렬 */}
+          <span style={{
+            marginLeft: 'auto', position: 'relative', flexShrink: 0,
+            width: 28, height: 15, borderRadius: 999,
+            background: strict ? 'rgba(106,224,122,0.35)' : 'rgba(120,130,150,0.30)',
+            border: `1px solid ${strict ? 'rgba(106,224,122,0.7)' : 'rgba(140,150,170,0.5)'}`,
+            transition: 'background 150ms ease, border-color 150ms ease',
+          }}>
+            <span style={{
+              position: 'absolute', top: 1, left: strict ? 14 : 1,
+              width: 11, height: 11, borderRadius: '50%',
+              background: strict ? '#6AE07A' : '#8aa0b8',
+              transition: 'left 150ms ease, background 150ms ease',
+            }} />
+          </span>
+          <span style={{ fontSize: 10, fontWeight: 800, width: 24, textAlign: 'right', flexShrink: 0 }}>
+            {strict ? 'ON' : 'OFF'}
+          </span>
+        </button>
+      </Tooltip>
+
+      {/* 완화 상태 상시 경고 — 토글이 꺼져 있는 동안 계속 보인다(결과 유무와 무관). */}
+      {!strict && (
+        <div style={{
+          display: 'flex', alignItems: 'flex-start', gap: 6,
+          padding: '6px 8px', borderRadius: 6,
+          background: 'rgba(255,196,71,0.08)',
+          border: '1px dashed rgba(255,196,71,0.45)',
+          color: '#FFC447', fontSize: 10, lineHeight: 1.5,
+        }}>
+          <AlertTriangle size={12} strokeWidth={2.4} style={{ flexShrink: 0, marginTop: 1 }} />
+          <span>
+            형상 기준 미달을 <strong>경고로만</strong> 표시합니다{stabilityReport ? ' (현재 결과도 이 기준으로 평가됨)' : ''}.
+            <br/>전도·Wire 길이 오류는 그대로 FAIL 입니다.
+          </span>
+        </div>
+      )}
     </div>
   )
 }

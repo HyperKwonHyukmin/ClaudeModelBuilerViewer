@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import {
   CheckCircle2,
   AlertTriangle,
@@ -9,8 +9,11 @@ import {
   X,
   Wrench,
   ShieldAlert,
+  GripVertical,
 } from 'lucide-react'
 import { useStabilityStore } from '../store/useStabilityStore.js'
+import { useEditStore } from '../store/useEditStore.js'
+import { describeFailedGroups, groupNodeLabel } from '../data/hoistGroupNodeLabel.js'
 
 const STATUS_COLOR = {
   pass: { fg: '#37E08A', bg: 'rgba(55,224,138,0.10)', border: 'rgba(55,224,138,0.45)', label: 'PASS', Icon: CheckCircle2 },
@@ -18,6 +21,22 @@ const STATUS_COLOR = {
   fail: { fg: '#FF5566', bg: 'rgba(255,85,102,0.10)', border: 'rgba(255,85,102,0.45)', label: 'FAIL', Icon: XCircle },
   skip: { fg: '#7a8aaa', bg: 'rgba(122,138,170,0.08)', border: 'rgba(122,138,170,0.35)', label: 'SKIP', Icon: AlertTriangle },
 }
+
+const PANEL_WIDTH = 430
+// 기본 위치 = 뷰포트 좌측 끝에 붙임. 과거엔 left:256 이라 모델 한가운데를 가렸다.
+// y=62 는 뷰포트 좌상단 뷰 툴바(평면/정면/…, top:10 · 높이 ~26px)를 지나 그 아래에 놓기 위한 값이다.
+// (이 창의 offsetParent 는 뷰포트 셀이 아니라 그 위 그리드 컨테이너라 툴바보다 원점이 높다.)
+const DEFAULT_POS = { x: 0, y: 62 }
+const POS_KEY = 'mu.stabilityPanel.pos.v1'
+
+function loadPos() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(POS_KEY) ?? 'null')
+    if (raw && Number.isFinite(raw.x) && Number.isFinite(raw.y)) return { x: raw.x, y: raw.y }
+  } catch { /* ignore */ }
+  return { ...DEFAULT_POS }
+}
+const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi)
 
 export default function StabilityReportPanel() {
   const open = useStabilityStore(s => s.panelOpen)
@@ -28,15 +47,63 @@ export default function StabilityReportPanel() {
   const ranAt = useStabilityStore(s => s.ranAt)
   const close = useStabilityStore(s => s.closePanel)
 
+  // 창 위치 — 기본은 뷰포트 좌측 끝(뷰어 가림 최소화)이고, 헤더를 끌어 옮길 수 있다.
+  // 옮긴 위치는 localStorage 에 남아 평가를 다시 실행해도 유지된다.
+  const panelRef = useRef(null)
+  const [pos, setPos] = useState(loadPos)
+  const posRef = useRef(pos)
+  const dragRef = useRef(null)   // { sx, sy, ox, oy }
+  const [dragging, setDragging] = useState(false)   // 커서 모양 전환용(렌더에서 ref 를 읽지 않도록 state)
+
+  const onDragStart = useCallback((e) => {
+    // 닫기 버튼 등 조작 요소 위에서 시작한 포인터는 드래그로 삼지 않는다.
+    if (e.button !== 0 || e.target.closest('button')) return
+    dragRef.current = { sx: e.clientX, sy: e.clientY, ox: posRef.current.x, oy: posRef.current.y }
+    setDragging(true)
+    e.currentTarget.setPointerCapture(e.pointerId)
+    e.preventDefault()
+  }, [])
+
+  const onDragMove = useCallback((e) => {
+    const d = dragRef.current
+    if (!d) return
+    const el = panelRef.current
+    const parent = el?.offsetParent
+    // 창이 부모(뷰포트 셀) 밖으로 완전히 빠져나가 다시 못 잡는 일이 없도록 가장자리에서 멈춘다.
+    const maxX = Math.max(0, (parent?.clientWidth ?? window.innerWidth) - (el?.offsetWidth ?? PANEL_WIDTH))
+    const maxY = Math.max(0, (parent?.clientHeight ?? window.innerHeight) - 40)
+    const next = {
+      x: clamp(d.ox + e.clientX - d.sx, 0, maxX),
+      y: clamp(d.oy + e.clientY - d.sy, 0, maxY),
+    }
+    posRef.current = next
+    setPos(next)
+  }, [])
+
+  const onDragEnd = useCallback((e) => {
+    if (!dragRef.current) return
+    dragRef.current = null
+    setDragging(false)
+    try { e.currentTarget.releasePointerCapture(e.pointerId) } catch { /* ignore */ }
+    try { localStorage.setItem(POS_KEY, JSON.stringify(posRef.current)) } catch { /* ignore */ }
+  }, [])
+
+  // 헤더 더블클릭 → 좌측 끝 기본 위치로 되돌리기(창을 잃어버렸을 때의 탈출구).
+  const resetPos = useCallback(() => {
+    posRef.current = { ...DEFAULT_POS }
+    setPos({ ...DEFAULT_POS })
+    try { localStorage.removeItem(POS_KEY) } catch { /* ignore */ }
+  }, [])
+
   if (!open) return null
 
   return (
-    <div style={{
+    <div ref={panelRef} style={{
       position: 'absolute',
-      top: 42,
-      left: 256,
-      width: 430,
-      maxHeight: 'calc(100vh - 56px)',
+      top: pos.y,
+      left: pos.x,
+      width: PANEL_WIDTH,
+      maxHeight: `calc(100% - ${pos.y + 8}px)`,
       zIndex: 22,
       background: 'rgba(8, 6, 22, 0.95)',
       backdropFilter: 'blur(12px)',
@@ -47,7 +114,15 @@ export default function StabilityReportPanel() {
       flexDirection: 'column',
       overflow: 'hidden',
     }}>
-      <Header overall={overall} ranAt={ranAt} onClose={close} />
+      <Header
+        overall={overall} ranAt={ranAt} onClose={close}
+        dragging={dragging}
+        onPointerDown={onDragStart}
+        onPointerMove={onDragMove}
+        onPointerUp={onDragEnd}
+        onPointerCancel={onDragEnd}
+        onDoubleClick={resetPos}
+      />
       <div style={{ flex: 1, overflowY: 'auto', padding: '10px 12px 12px', display: 'flex', flexDirection: 'column', gap: 10 }}>
         {running && <RunningBlock />}
         {!running && error && <ErrorBlock error={error} />}
@@ -62,17 +137,24 @@ export default function StabilityReportPanel() {
   )
 }
 
-function Header({ overall, ranAt, onClose }) {
+function Header({ overall, ranAt, onClose, dragging, ...dragHandlers }) {
   const sc = overall ? STATUS_COLOR[overall] : null
   return (
-    <div style={{
-      display: 'flex',
-      alignItems: 'center',
-      gap: 8,
-      padding: '10px 12px',
-      borderBottom: '1px solid rgba(0,209,255,0.20)',
-      background: 'linear-gradient(180deg, rgba(0,209,255,0.06) 0%, transparent 100%)',
-    }}>
+    <div
+      {...dragHandlers}
+      title="드래그해서 창을 옮길 수 있습니다 (더블클릭 = 좌측 끝으로 되돌리기)"
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        padding: '10px 12px',
+        borderBottom: '1px solid rgba(0,209,255,0.20)',
+        background: 'linear-gradient(180deg, rgba(0,209,255,0.06) 0%, transparent 100%)',
+        cursor: dragging ? 'grabbing' : 'grab',
+        touchAction: 'none',
+        userSelect: 'none',
+      }}>
+      <GripVertical size={13} color="#4d6a82" style={{ flexShrink: 0 }} />
       <span style={{ fontSize: 13, fontWeight: 900, color: '#90E8FF', letterSpacing: 0.6, flex: 1 }}>
         자세안정성 평가 결과
       </span>
@@ -174,7 +256,10 @@ function ErrorBlock({ error }) {
 }
 
 function ReportBlock({ report }) {
-  const summary = useMemo(() => buildReadableSummary(report), [report])
+  // 리포트에는 groupId 만 있고 노드 번호가 없다. 노드 선택은 스튜디오가 소유한 정보라
+  // (hoistGroups: { groupId: [nodeId,...] }) 여기서 되짚어 "고쳐야 할 노드 번호"까지 보여준다.
+  const hoistGroups = useEditStore(s => s.hoistGroups)
+  const summary = useMemo(() => buildReadableSummary(report, hoistGroups), [report, hoistGroups])
   const [showDetails, setShowDetails] = useState(false)
   const sc = STATUS_COLOR[summary.status] ?? STATUS_COLOR.skip
 
@@ -433,7 +518,7 @@ function KeyValueRow({ k, v }) {
   )
 }
 
-function buildReadableSummary(report) {
+function buildReadableSummary(report, hoistGroups) {
   const supplied = report?.overall?.userSummary
   if (supplied) {
     return {
@@ -454,20 +539,20 @@ function buildReadableSummary(report) {
   for (const stage of stages) {
     if (stage.displayPolicy === 'internal') continue
     if (stage.status === 'pass') {
-      const msg = summarizeStage(stage)
+      const msg = summarizeStage(stage, hoistGroups)
       if (msg) passHighlights.push(msg)
     } else if (stage.status === 'warn') {
       warnings.push({
         stage: stage.stage,
         headline: shortStageLabel(stage),
-        message: summarizeStage(stage),
+        message: summarizeStage(stage, hoistGroups),
         action: actionForStage(stage),
       })
     } else if (stage.status === 'fail') {
       criticalIssues.push({
         stage: stage.stage,
         headline: shortStageLabel(stage),
-        message: summarizeStage(stage),
+        message: summarizeStage(stage, hoistGroups),
         action: actionForStage(stage),
       })
     }
@@ -488,13 +573,16 @@ function buildReadableSummary(report) {
   }
 }
 
-function summarizeStage(stage) {
+function summarizeStage(stage, hoistGroups) {
   const s = stage?.summary ?? {}
-  if (stage.stage === 2) {
-    const failed = Array.isArray(stage.results) ? stage.results.find(r => r?.valid === false) : null
-    if (failed?.reason) return `${failed.groupId ? `Group ${failed.groupId}: ` : ''}${failed.reason}`
+  // Stage 1(형상 분류) · Stage 2(형상 검증) — 기준을 만족하지 못한 그룹의 '노드 번호'까지 알려준다.
+  // 사용자가 실제로 고칠 대상은 그룹이 아니라 노드이므로, 번호 없이 "Group 2 실패"만 알리면
+  // 어느 노드를 바꿔야 하는지 다시 찾아야 한다.
+  if (stage.stage === 1 || stage.stage === 2) {
+    const detail = describeFailedGroups(stage.results, hoistGroups)
+    if (detail) return detail
     if (s.failed) return `${s.failed}개 그룹의 권상 형상이 기준을 만족하지 않습니다.`
-    return '권상 형상 기준을 만족합니다.'
+    return stage.stage === 2 ? '권상 형상 기준을 만족합니다.' : '권상 형상이 분류되었습니다.'
   }
   if (stage.stage === 4) {
     if (s.minAngleDeg == null) return '슬링 와이어 각도 기준을 만족합니다.'
@@ -529,7 +617,15 @@ function summarizeStage(stage) {
     return '와이어-구조물 간섭이 확인되지 않았습니다.'
   }
   if (stage.stage === 6) {
-    if (s.isStable === false) return `COG 투영점이 지지 기준에서 ${formatNumber(s.deviationMm)}mm 벗어났습니다. 허용값은 ${formatNumber(s.thresholdMm)}mm입니다.`
+    if (s.isStable === false) {
+      // 전도는 '지지 다각형을 이루는 권상 노드' 전체가 원인이라 관련 노드를 함께 제시한다.
+      const groups = Object.keys(hoistGroups ?? {})
+        .filter(gid => (hoistGroups[gid] ?? []).length > 0)
+        .map(gid => groupNodeLabel(gid, hoistGroups))
+        .filter(Boolean)
+      const where = groups.length ? ` 관련 권상점 — ${groups.join(' / ')}.` : ''
+      return `COG 투영점이 지지 기준에서 ${formatNumber(s.deviationMm)}mm 벗어났습니다. 허용값은 ${formatNumber(s.thresholdMm)}mm입니다.${where}`
+    }
     return 'COG 투영점이 권상 지지 영역 안에 있습니다.'
   }
   if (stage.status === 'pass') return `${shortStageLabel(stage)} 통과`

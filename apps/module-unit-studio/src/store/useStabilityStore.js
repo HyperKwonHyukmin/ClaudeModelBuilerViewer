@@ -116,6 +116,39 @@ function deriveOverallStatus(report) {
   return null
 }
 
+/**
+ * 이 리포트가 'Strict 평가 OFF' 로 형상 판정을 완화한 상태에서 나왔는지.
+ * 엔진이 Stage 1·2 summary 에 남기는 shapeGateRelaxed 플래그를 본다 — 이 플래그는 완화가
+ * 실제로 적용됐을 때(= 형상 위반이 있어 FAIL 이 warn 으로 강등됐을 때)만 true 다.
+ * 따라서 "토글이 꺼져 있다"가 아니라 "이 결과가 완화 덕분에 통과했다"를 뜻한다.
+ *
+ * ※ 구버전 엔진의 리포트에는 이 키가 없어 false 가 된다(안전한 폴백 — 없던 경고를 만들지 않음).
+ * @param {object|null} report
+ * @returns {boolean}
+ */
+export function isShapeGateRelaxed(report) {
+  if (!report || !Array.isArray(report.stages)) return false
+  return report.stages.some(s => s?.summary?.shapeGateRelaxed === true)
+}
+
+/**
+ * 구조해석을 막고 있는(= status 가 fail 인) 사용자 표시 stage 들의 라벨.
+ *
+ * 'Strict 평가 OFF' 는 형상 판정(Stage 1·2)만 warn 으로 내린다. Wire 길이(Stage 3)·전도(Stage 6)·
+ * 리깅 하중(Stage 7)은 완화 대상이 아니라 그대로 fail 이다. 그래서 사용자 눈에는 "형상은 경고인데
+ * 왜 구조해석이 안 되지?" 로 보인다 — 무엇이 막고 있는지 항목 이름을 그대로 보여줘야 한다.
+ *
+ * @param {object|null} report
+ * @returns {string[]}
+ */
+export function failingStageLabels(report) {
+  if (!report || !Array.isArray(report.stages)) return []
+  return report.stages
+    .filter(s => s?.displayPolicy !== 'internal' && s?.status === 'fail')
+    .map(s => s?.displayLabel || s?.name || (s?.stage != null ? `Stage ${s.stage}` : null))
+    .filter(Boolean)
+}
+
 // dev 노출 — 자동화 검증/디버깅용
 if (typeof window !== 'undefined' && import.meta.env.DEV) {
   window.__stabilityStore = useStabilityStore

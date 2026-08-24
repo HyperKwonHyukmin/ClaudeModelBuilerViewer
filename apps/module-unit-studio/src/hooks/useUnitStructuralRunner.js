@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useStabilityStore } from '../store/useStabilityStore.js'
+import { useStabilityStore, isShapeGateRelaxed, failingStageLabels } from '../store/useStabilityStore.js'
 import { useUnitStructuralStore } from '../store/useUnitStructuralStore.js'
 import { getHost } from '../host/host.js'
 import { useEditStore } from '../store/useEditStore.js'
@@ -59,6 +59,10 @@ export function useUnitStructuralRunner() {
 
   const overall = useStabilityStore(s => s.overallStatus)
   const stabilityPath = useStabilityStore(s => s.stabilityPath)
+  const stabilityReport = useStabilityStore(s => s.report)
+  // 이 결과가 'Strict 평가 OFF' 완화 덕분에 통과했는지 — 결과 표기·경고 문구에 쓴다.
+  // (전도·Wire 길이는 완화 대상이 아니므로, 이 값이 true 여도 그 두 항목은 정상 판정된 상태다.)
+  const shapeRelaxed = useMemo(() => isShapeGateRelaxed(stabilityReport), [stabilityReport])
 
   const host = getHost()
   const ipcAvailable = typeof host.runUnitStructural === 'function'
@@ -91,12 +95,18 @@ export function useUnitStructuralRunner() {
   // 차단 사유 — fail/미실행/IPC 없음/path 없음
   const blocking = useMemo(() => {
     const b = []
-    if (overall === 'fail') b.push('자세안정성 FAIL')
+    if (overall === 'fail') {
+      // 어떤 항목이 막는지 이름을 그대로 보여준다. Strict 평가 OFF 로 형상(Stage 1·2)이 warn 이어도
+      // Wire 길이(Stage 3)·전도(Stage 6)·리깅 하중(Stage 7)은 완화 대상이 아니라 여전히 fail 이라,
+      // 사유를 안 적으면 "형상은 경고인데 왜 실행이 안 되지?" 로 보인다.
+      const labels = failingStageLabels(stabilityReport)
+      b.push(labels.length ? `자세안정성 FAIL — ${labels.join(', ')}` : '자세안정성 FAIL')
+    }
     else if (overall == null) b.push('자세안정성 미실행')
     if (!ipcAvailable) b.push('Workbench 환경 아님')
     if (!stabilityPath) b.push('stability JSON 없음')
     return b
-  }, [overall, ipcAvailable, stabilityPath])
+  }, [overall, ipcAvailable, stabilityPath, stabilityReport])
 
   const handleRun = async () => {
     if (!canRun) return
@@ -135,7 +145,7 @@ export function useUnitStructuralRunner() {
     sfInput, setSfInput, commitSf: () => setSafetyFactor(sfInput),
     allowInput, setAllowInput, commitAllow: () => setAllowableMpa(allowInput),
     // 준비/실행 상태
-    overall, stabilityPath, ipcAvailable,
+    overall, stabilityPath, ipcAvailable, shapeRelaxed,
     isRunning, isFinished, stabilityOk, isReady, canRun, blocking,
     handleRun,
   }

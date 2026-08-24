@@ -43,20 +43,23 @@ export default function UnitStructuralResultDock() {
     try {
       const v = Number(localStorage.getItem(HEIGHT_STORAGE_KEY))
       if (Number.isFinite(v) && v >= MIN_HEIGHT) return v
-    } catch {}
+    } catch { /* 손상된 저장값 무시 */ }
     return DEFAULT_HEIGHT
   })
   useEffect(() => {
-    try { localStorage.setItem(HEIGHT_STORAGE_KEY, String(height)) } catch {}
+    try { localStorage.setItem(HEIGHT_STORAGE_KEY, String(height)) } catch { /* 저장 실패 무시 */ }
   }, [height])
 
   // 헤더 위 얇은 grip 을 잡고 위/아래로 드래그하면 dock 크기 조정.
   // 화면 80% 까지 확장, 최소 MIN_HEIGHT 까지 축소. 접혀있을 때는 비활성.
+  // isDragging(state) — 드래그 중 transition 을 끈다. 렌더 중 ref 를 읽지 않도록 state 로 관리.
+  const [isDragging, setIsDragging] = useState(false)
   const dragStateRef = useRef(null)  // { startY, startHeight }
   const onResizeMouseDown = useCallback((e) => {
     if (collapsed) return
     e.preventDefault()
     dragStateRef.current = { startY: e.clientY, startHeight: height }
+    setIsDragging(true)
     const onMove = (ev) => {
       const ds = dragStateRef.current
       if (!ds) return
@@ -68,6 +71,7 @@ export default function UnitStructuralResultDock() {
     }
     const onUp = () => {
       dragStateRef.current = null
+      setIsDragging(false)
       window.removeEventListener('mousemove', onMove)
       window.removeEventListener('mouseup', onUp)
     }
@@ -93,7 +97,7 @@ export default function UnitStructuralResultDock() {
       display: 'flex',
       flexDirection: 'column',
       height: collapsed ? 38 : height,
-      transition: dragStateRef.current ? 'none' : 'left 0.18s ease, right 0.18s ease, height 0.18s ease',
+      transition: isDragging ? 'none' : 'left 0.18s ease, right 0.18s ease, height 0.18s ease',
       boxShadow: '0 -8px 24px -8px rgba(0,0,0,0.6)',
     }}>
       {!collapsed && <ResizeHandle onMouseDown={onResizeMouseDown} />}
@@ -108,7 +112,7 @@ export default function UnitStructuralResultDock() {
       {!collapsed && (
         <div style={{ flex: 1, overflow: 'auto', padding: '6px 10px 10px' }}>
           {tab === 'members' ? (
-            <MembersTable members={result.members ?? []} allowable={allowable} />
+            <MembersTable members={result.members ?? []} />
           ) : tab === 'displacements' ? (
             <DisplacementsTable displacements={result.displacements ?? []} />
           ) : (
@@ -192,6 +196,8 @@ function Header({ summary, allowable, tab, setTab, collapsed, onToggleCollapse }
       <button
         onClick={onToggleCollapse}
         title={collapsed ? '결과 패널 펼치기' : '결과 패널 접기'}
+        aria-label={collapsed ? '결과 패널 펼치기' : '결과 패널 접기'}
+        aria-expanded={!collapsed}
         style={{
           width: 22, height: 22,
           background: 'transparent', border: '1px solid #2a2a4a',
@@ -221,7 +227,7 @@ function TabBtn({ active, onClick, children }) {
 
 // ── Members table ────────────────────────────────────────────────
 
-function MembersTable({ members, allowable }) {
+function MembersTable({ members }) {
   const [sortKey, setSortKey] = useState('maxStressMPa')
   const [sortDir, setSortDir] = useState('desc')
   const [exceedOnly, setExceedOnly] = useState(false)
