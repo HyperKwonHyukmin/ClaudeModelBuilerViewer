@@ -15,7 +15,7 @@ import EditPanel from './EditPanel.jsx'
  * App.jsx 의 동기화 useEffect 가 activeMode === 'edit' 진입 시 editStore.enabled 를 true 로 만들어
  * EditPanel(과 그에 딸린 단축키 리스너)이 마운트된다.
  *
- * 외곽 컨테이너는 Sidebar(ModelPanel)와 동일한 다크 룩 + 폭 274 고정.
+ * 외곽 컨테이너는 Sidebar(ModelPanel)와 동일한 다크 룩 + 폭 301 고정.
  * (Edit/Analyze 패널 폭을 Sidebar DEFAULT_WIDTH 와 동일하게 고정해야
  *  UnitStructuralResultDock 의 layoutBounds.sidebarWidth 계산과 어긋나지 않는다.)
  */
@@ -25,7 +25,7 @@ export default function EditModePanel() {
   return (
     <div
       style={{
-        width: 274,
+        width: 301,
         flexShrink: 0,
         position: 'relative',
         background: '#0b0b1e',

@@ -26,9 +26,11 @@ const VALID_KINDS = new Set(['addRigid', 'deleteGroup', 'deleteElement', 'delete
  * 새 EditIntent 1건을 만든다 (검증은 별도, validateIntent 호출 후 합치기).
  * @param {'addRigid'|'deleteGroup'} kind
  * @param {object} params
- * @returns {{ id: string, kind: string, createdAt: string, params: object, validation: { status: 'ok', warnings: [], errors: [] } }}
+ * @param {{ batchId?: string|null }} [opts]  한 사용자 액션으로 여러 intent 를 추가할 때 공통 batchId
+ *   를 부여하면 Ctrl+Z(undoLastIntent) 가 그 batch 전체를 한 번에 되돌린다.
+ * @returns {{ id: string, kind: string, createdAt: string, params: object, batchId: string|null, validation: { status: 'ok', warnings: [], errors: [] } }}
  */
-export function createIntent(kind, params) {
+export function createIntent(kind, params, opts = {}) {
   if (!VALID_KINDS.has(kind)) {
     throw new Error(`Unknown EditIntent kind: ${kind}`)
   }
@@ -37,8 +39,14 @@ export function createIntent(kind, params) {
     kind,
     createdAt: new Date().toISOString(),
     params: { ...params },
+    batchId: opts.batchId ?? null,
     validation: { status: 'ok', warnings: [], errors: [] },
   }
+}
+
+/** 한 사용자 액션(일괄 삭제 등)으로 추가되는 intent 들을 묶는 batchId 를 생성한다. */
+export function makeBatchId() {
+  return makeId()
 }
 
 /**
@@ -203,6 +211,7 @@ export function serializeIntents(intents, stageData = null, hoisting = null) {
       kind:       i.kind,
       createdAt:  i.createdAt,
       params:     i.params,
+      batchId:    i.batchId ?? null,
       validation: i.validation,
     })),
   }
@@ -228,6 +237,7 @@ export function parseIntents(json) {
     kind:       raw.kind,
     createdAt:  raw.createdAt ?? new Date().toISOString(),
     params:     raw.params ?? {},
+    batchId:    raw.batchId ?? null,
     validation: raw.validation ?? { status: 'ok', warnings: [], errors: [] },
   }))
   return {

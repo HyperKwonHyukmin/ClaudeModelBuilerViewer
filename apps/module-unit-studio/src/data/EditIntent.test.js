@@ -6,6 +6,7 @@ import {
   serializeIntents,
   parseIntents,
   summarizeIntent,
+  makeBatchId,
 } from './EditIntent.js'
 import { StageData } from './StageData.js'
 
@@ -370,5 +371,24 @@ describe('validateIntent — addSupportBeam', () => {
     expect(s).toContain('가서포트')
     expect(s).toContain('N1')
     expect(s).toContain('N4')
+  })
+})
+
+describe('batchId (액션 단위 undo)', () => {
+  it('createIntent 는 opts.batchId 를 담고, 미지정 시 null', () => {
+    expect(createIntent('deleteElement', { elementId: 1 }, { batchId: 'B1' }).batchId).toBe('B1')
+    expect(createIntent('deleteElement', { elementId: 1 }).batchId).toBeNull()
+  })
+
+  it('makeBatchId 는 매번 다른 문자열을 만든다', () => {
+    const a = makeBatchId(); const b = makeBatchId()
+    expect(typeof a).toBe('string')
+    expect(a).not.toBe(b)
+  })
+
+  it('serialize → parse 왕복에서 batchId 가 보존된다', () => {
+    const intents = [createIntent('deleteElement', { elementId: 7 }, { batchId: 'BATCH' })]
+    const restored = parseIntents(JSON.parse(JSON.stringify(serializeIntents(intents))))
+    expect(restored.intents[0].batchId).toBe('BATCH')
   })
 })

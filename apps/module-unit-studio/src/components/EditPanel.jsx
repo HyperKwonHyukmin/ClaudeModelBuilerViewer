@@ -3,7 +3,7 @@ import { Trash2, X, Link2, Eraser } from 'lucide-react'
 import { useEditStore } from '../store/useEditStore.js'
 import { useStageStore } from '../store/useStageStore.js'
 import { useViewerStore } from '../store/useViewerStore.js'
-import { summarizeIntent } from '../data/EditIntent.js'
+import { summarizeIntent, makeBatchId } from '../data/EditIntent.js'
 import { computeDeleteMask } from '../data/applyEditIntents.js'
 import GroupManager from './GroupManager.jsx'
 import AddRigidDialog from './AddRigidDialog.jsx'
@@ -25,6 +25,11 @@ export default function EditPanel() {
   const removeIntent     = useEditStore(s => s.removeIntent)
   const clearIntents     = useEditStore(s => s.clearIntents)
   const addIntent        = useEditStore(s => s.addIntent)
+  const undoLastIntent   = useEditStore(s => s.undoLastIntent)
+
+  // rotateModel 은 provenance 전용이라 개별 삭제/Ctrl+Z 대상이 아니다(되돌리기는 Sidebar '회전 초기화').
+  // 목록/카운트/전체초기화는 삭제 가능한 intent 만 대상으로 한다.
+  const listIntents = intents.filter(i => i.kind !== 'rotateModel')
 
   const stages           = useStageStore(s => s.stages)
   const lastStage        = stages.length > 0 ? stages[stages.length - 1] : null
@@ -83,11 +88,12 @@ export default function EditPanel() {
         return
       }
     }
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && intents.length > 0) {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+      // 액션(batch) 단위 되돌리기 — 일괄 삭제 N건은 한 번에, rotateModel provenance 는 건너뜀.
       e.preventDefault()
-      removeIntent(intents[intents.length - 1].id)
+      undoLastIntent()
     }
-  }, [showAddRigid, multiSelElements.length, clearMultiSelElements, pendingNodeSelection.length, selectedIntentId, intents, clearNodeSelection, selectIntent, removeIntent, pickedEntity, isLastStage, addIntent])
+  }, [showAddRigid, multiSelElements.length, clearMultiSelElements, pendingNodeSelection.length, selectedIntentId, intents, clearNodeSelection, selectIntent, removeIntent, pickedEntity, isLastStage, addIntent, undoLastIntent])
 
   useEffect(() => {
     if (!enabled) return
@@ -98,14 +104,14 @@ export default function EditPanel() {
   if (!enabled) return null
 
   const handleClear = () => {
-    if (intents.length === 0) return
-    if (!window.confirm(`${intents.length}개의 편집 intent 를 모두 삭제할까요?`)) return
+    if (listIntents.length === 0) return
+    if (!window.confirm(`${listIntents.length}개의 편집 intent 를 모두 삭제할까요? (회전은 '회전 초기화'로만 해제됩니다)`)) return
     clearIntents()
   }
 
-  // 검증 상태별 카운트
-  const errCount  = intents.filter(i => i.validation?.status === 'error').length
-  const warnCount = intents.filter(i => i.validation?.status === 'warning').length
+  // 검증 상태별 카운트 (삭제 가능한 intent 기준)
+  const errCount  = listIntents.filter(i => i.validation?.status === 'error').length
+  const warnCount = listIntents.filter(i => i.validation?.status === 'warning').length
 
   return (
     <div style={{
@@ -121,7 +127,7 @@ export default function EditPanel() {
       }}>
         <span>편집 의도</span>
         <span style={{ fontSize: 9, color: '#7070a0', letterSpacing: 0.5, textTransform: 'none' }}>
-          {intents.length} 개
+          {listIntents.length} 개
           {warnCount > 0 && <span style={{ color: '#FFAA55' }}> · 경고 {warnCount}</span>}
           {errCount  > 0 && <span style={{ color: '#FF8866' }}> · 오류 {errCount}</span>}
         </span>
@@ -252,27 +258,27 @@ export default function EditPanel() {
       {/* 보조 액션 — 전체 초기화 */}
       <button
         onClick={handleClear}
-        disabled={intents.length === 0}
+        disabled={listIntents.length === 0}
         title="모든 편집 의도 제거"
         style={{
           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
           padding: '4px 9px',
           background: 'transparent',
-          color: intents.length === 0 ? '#3a3a50' : '#7070a0',
-          border: `1px solid ${intents.length === 0 ? '#1e1e30' : '#2e2e50'}`,
+          color: listIntents.length === 0 ? '#3a3a50' : '#7070a0',
+          border: `1px solid ${listIntents.length === 0 ? '#1e1e30' : '#2e2e50'}`,
           borderRadius: 5, fontSize: 10, fontWeight: 600,
-          cursor: intents.length === 0 ? 'not-allowed' : 'pointer',
+          cursor: listIntents.length === 0 ? 'not-allowed' : 'pointer',
           alignSelf: 'flex-end',
         }}
         onMouseEnter={e => {
-          if (intents.length > 0) {
+          if (listIntents.length > 0) {
             e.currentTarget.style.background = 'rgba(192,74,74,0.18)'
             e.currentTarget.style.color = '#e07070'
             e.currentTarget.style.borderColor = '#7a3a3a'
           }
         }}
         onMouseLeave={e => {
-          if (intents.length > 0) {
+          if (listIntents.length > 0) {
             e.currentTarget.style.background = 'transparent'
             e.currentTarget.style.color = '#7070a0'
             e.currentTarget.style.borderColor = '#2e2e50'
@@ -288,12 +294,12 @@ export default function EditPanel() {
       {/* AddRigid 다이얼로그 */}
       {showAddRigid && <AddRigidDialog onClose={() => setShowAddRigid(false)} />}
 
-      {/* intent 목록 */}
-      {intents.length === 0 ? (
+      {/* intent 목록 (rotateModel provenance 제외 — 되돌리기는 '회전 초기화') */}
+      {listIntents.length === 0 ? (
         <EmptyStateGuide hasSelection={pendingNodeSelection.length > 0} />
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 3, maxHeight: 240, overflowY: 'auto' }}>
-          {intents.map((intent, idx) => (
+          {listIntents.map((intent, idx) => (
             <IntentRow
               key={intent.id}
               index={idx + 1}
@@ -390,10 +396,12 @@ function BulkDeleteBox({ elements, intents, addIntent, removeIntent, clearMultiS
   )
 
   const handleBulkAdd = () => {
+    // 한 번의 '일괄 삭제' = 하나의 사용자 액션. 공통 batchId 를 부여해 Ctrl+Z 로 전체를 한 번에 되돌린다.
+    const batchId = makeBatchId()
     for (const el of elements) {
       const exists = intents.find(i => i.kind === 'deleteElement' && i.params?.elementId === el.id)
       if (!exists) {
-        addIntent({ kind: 'deleteElement', params: { elementId: el.id, category: el.category, startNode: el.startNode, endNode: el.endNode } })
+        addIntent({ kind: 'deleteElement', params: { elementId: el.id, category: el.category, startNode: el.startNode, endNode: el.endNode } }, { batchId })
       }
     }
     clearMultiSelElements()

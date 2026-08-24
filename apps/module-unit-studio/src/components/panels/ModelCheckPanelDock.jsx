@@ -13,7 +13,7 @@ export default function ModelCheckPanelDock() {
 
   return (
     <div style={{
-      width: 274, flexShrink: 0,
+      width: 301, flexShrink: 0,
       background: '#0b0b1e',
       borderRight: '1px solid #1e1e38',
       display: 'flex', flexDirection: 'column',

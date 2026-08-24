@@ -86,7 +86,8 @@ export default function RotateModelDialog({ onClose, onApplied }) {
           <input type="number" value={angleText} onChange={e => setAngleText(e.target.value)} step="1" placeholder="180"
             style={inputStyle} />
           <div style={{ fontSize: 9, color: '#7a8aaa' }}>
-            무게중심(CoG) 기준으로 회전합니다. 회전은 누적되며 되돌리려면 모델을 다시 로드하세요.
+            무게중심(CoG) 기준으로 회전합니다. 회전은 누적되며, 개별 되돌리기는 불가합니다 —
+            해제하려면 좌측 '모델 조작'의 <strong style={{ color: '#FFE6A8' }}>회전 초기화</strong> 를 사용하세요.
           </div>
         </Section>
 

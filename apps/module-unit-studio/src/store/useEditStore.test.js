@@ -1640,3 +1640,125 @@ describe('zoneSelectHoistPositions', () => {
     expect(buildHoistPartitionInput({ nodeMap: new Map(), bbox: { minX: 0, maxX: 1, minY: 0, maxY: 1, minZ: 0, maxZ: 0 }, elements: [] }, null)).toBeNull()
   })
 })
+
+// ── [1]/[4] rotateModel provenance 제외 + 액션(batch) 단위 Ctrl+Z ──────────────
+describe('useEditStore — undoLastIntent / clearRotateModelIntents / clearIntents(rotateModel 보존)', () => {
+  beforeEach(() => {
+    useStageStore.setState({ stages: [makeStageData()] })
+    useEditStore.getState().reset()
+    useStabilityStore.getState().reset()
+    useUnitStructuralStore.getState().reset()
+  })
+  afterEach(() => {
+    useStageStore.setState({ stages: [] })
+    useStabilityStore.getState().reset()
+    useUnitStructuralStore.getState().reset()
+  })
+
+  const seed = (intents) => useEditStore.setState({ intents, selectedIntentId: null })
+  const el = (id, batchId = null) => ({ id, kind: 'deleteElement', batchId, params: { elementId: id }, validation: { status: 'ok', warnings: [], errors: [] } })
+  const rot = (id = 'r') => ({ id, kind: 'rotateModel', batchId: null, params: { axis: 'Z', angleDeg: 45 }, validation: { status: 'ok', warnings: [], errors: [] } })
+
+  it('undoLastIntent: batchId 로 묶인 일괄 삭제 3건을 한 번에 되돌린다', () => {
+    seed([el('a'), el('b', 'B1'), el('c', 'B1'), el('d', 'B1')])
+    const r = useEditStore.getState().undoLastIntent()
+    expect(r.removed).toBe(3)
+    expect(useEditStore.getState().intents.map(i => i.id)).toEqual(['a'])
+  })
+
+  it('undoLastIntent: batchId 없는 단건은 1개만 되돌린다', () => {
+    seed([el('a'), el('b')])
+    useEditStore.getState().undoLastIntent()
+    expect(useEditStore.getState().intents.map(i => i.id)).toEqual(['a'])
+  })
+
+  it('undoLastIntent: rotateModel 은 대상에서 제외한다', () => {
+    seed([rot('r'), el('x')])
+    useEditStore.getState().undoLastIntent()   // x 제거
+    expect(useEditStore.getState().intents.map(i => i.kind)).toEqual(['rotateModel'])
+    useEditStore.getState().undoLastIntent()   // 남은 건 rotateModel 뿐 → no-op
+    expect(useEditStore.getState().intents.map(i => i.kind)).toEqual(['rotateModel'])
+  })
+
+  it('clearIntents 는 rotateModel provenance 를 남긴다(3D 착시 방지)', () => {
+    seed([rot('r'), el('x'), el('y')])
+    useEditStore.getState().clearIntents()
+    expect(useEditStore.getState().intents.map(i => i.kind)).toEqual(['rotateModel'])
+  })
+
+  it('clearRotateModelIntents 는 rotateModel 만 제거하고 선택도 해제한다', () => {
+    useEditStore.setState({ intents: [rot('r'), el('x')], selectedIntentId: 'r' })
+    useEditStore.getState().clearRotateModelIntents()
+    const s = useEditStore.getState()
+    expect(s.intents.map(i => i.id)).toEqual(['x'])
+    expect(s.selectedIntentId).toBeNull()
+  })
+
+  it('addIntent 는 opts.batchId 를 intent 에 부여한다', () => {
+    const r = useEditStore.getState().addIntent(
+      { kind: 'addSupportBeam', params: { startNode: 1, endNode: 2, sectionKind: 'L', dims: [100, 100, 10, 10] } },
+      { batchId: 'BX' },
+    )
+    expect(r.ok).toBe(true)
+    expect(r.intent.batchId).toBe('BX')
+  })
+})
+
+// ── [2b] removeHoistGroup 이 stability wire 재정렬을 스토어에서 보장 ──────────────
+describe('useEditStore — removeHoistGroup ↔ dropGroupWires 통합', () => {
+  beforeEach(() => {
+    useStageStore.setState({ stages: [makeStageData()] })
+    useEditStore.getState().reset()
+    useStabilityStore.getState().reset()
+  })
+  afterEach(() => {
+    useStageStore.setState({ stages: [] })
+    useStabilityStore.getState().reset()
+  })
+
+  it('그룹 삭제가 성공하면 stability wires 를 동일 규칙으로 재정렬한다', () => {
+    const ed = useEditStore.getState()
+    ed.setHoistMode('hydro')
+    ed.setHoistGroupCount(3)
+    useStabilityStore.setState({ report: { visualization: { wires: [
+      { groupId: 1, endMm: { x: 100 } },
+      { groupId: 2, endMm: { x: 200 } },
+      { groupId: 3, endMm: { x: 300 } },
+    ] } } })
+    useEditStore.getState().removeHoistGroup(2)
+    const wires = useStabilityStore.getState().report.visualization.wires
+    expect(wires.map(w => w.groupId)).toEqual([1, 2])        // 그룹 2 제거, 3→2
+    expect(wires.find(w => w.groupId === 2).endMm.x).toBe(300) // 옛 그룹 3
+  })
+
+  it('no-op(마지막 1그룹) 이면 wire 를 건드리지 않는다', () => {
+    useEditStore.getState().setHoistMode('hydro')   // count=1
+    useStabilityStore.setState({ report: { visualization: { wires: [{ groupId: 1, endMm: { x: 100 } }] } } })
+    useEditStore.getState().removeHoistGroup(1)
+    expect(useStabilityStore.getState().report.visualization.wires.map(w => w.groupId)).toEqual([1])
+  })
+})
+
+// ── [3] importFromJson 그룹 간 노드 중복 제거 ──────────────────────────────────
+describe('useEditStore — importFromJson 노드 중복 제거', () => {
+  beforeEach(() => {
+    useStageStore.setState({ stages: [] })
+    useEditStore.getState().reset()
+  })
+
+  it('같은 nodeId 가 여러 그룹에 있으면 먼저 나온 그룹에만 남긴다', () => {
+    const payload = {
+      schemaVersion: '1.0',
+      intents: [],
+      hoisting: { mode: { id: 'hydro' }, groupCount: 2, groups: [
+        { id: 1, nodeIds: [10, 11, 12] },
+        { id: 2, nodeIds: [12, 13, 14] },
+      ] },
+    }
+    const r = useEditStore.getState().importFromJson(payload)
+    expect(r.ok).toBe(true)
+    const s = useEditStore.getState()
+    expect(s.hoistGroups[1]).toEqual([10, 11, 12])
+    expect(s.hoistGroups[2]).toEqual([13, 14])   // 12 는 그룹 1 에만
+  })
+})

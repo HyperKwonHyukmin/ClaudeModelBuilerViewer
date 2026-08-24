@@ -20,18 +20,21 @@ import { useStageStore } from '../store/useStageStore.js'
  * useEditStore.exportEditedBdf() → host.exportUnitBdf(업로드+변환+다운로드+Save-As).
  * WorkBench 앱(브리지) 미지원 환경에서는 버튼이 안내 메시지를 표시한다.
  *
- * 폭 274 고정(AnalyzePanel 과 동일), background '#0b0b1e'.
+ * 폭 301 고정(AnalyzePanel 과 동일), background '#0b0b1e'.
  */
 export default function SavePanel() {
   // 안정적 참조만 구독하고 본문에서 파생값 계산(Zustand v5 무한 렌더 루프 회피).
   const intents = useEditStore(s => s.intents)
   const exportEditedBdf = useEditStore(s => s.exportEditedBdf)
   const stageCount = useStageStore(s => s.stages?.length ?? 0)
+  // 회전 적용 여부는 intent 유무가 아니라 실제 회전 상태(useStageStore.modelRotated)로 판정한다 —
+  // rotateModel intent 는 provenance 전용이라, intent 만 지워도 좌표는 회전된 채 남기 때문.
+  const modelRotated = useStageStore(s => s.modelRotated)
 
   const supportCount  = intents.filter(i => i.kind === 'addSupportBeam').length
   const addRigidCount = intents.filter(i => i.kind === 'addRigid').length
   const deleteCount   = intents.filter(i => i.kind?.startsWith('delete')).length
-  const rotated       = intents.some(i => i.kind === 'rotateModel')
+  const rotated       = modelRotated
   const fluidEmptied  = intents.some(i => i.kind === 'emptyPipeFluid')
   const hasEdits = supportCount + addRigidCount + deleteCount > 0 || rotated || fluidEmptied
 
@@ -41,19 +44,24 @@ export default function SavePanel() {
 
   const onSave = async () => {
     setStatus({ phase: 'saving', message: 'BDF 생성 중...', stats: null })
-    const r = await exportEditedBdf()
-    if (r?.ok) {
-      setStatus({ phase: 'ok', message: r.savedPath ?? '저장 완료', stats: r.stats ?? null })
-    } else if (r?.canceled) {
-      setStatus({ phase: 'idle', message: '', stats: null })
-    } else {
-      setStatus({ phase: 'error', message: r?.error ?? '저장 실패', stats: null })
+    try {
+      const r = await exportEditedBdf()
+      if (r?.ok) {
+        setStatus({ phase: 'ok', message: r.savedPath ?? '저장 완료', stats: r.stats ?? null })
+      } else if (r?.canceled) {
+        setStatus({ phase: 'idle', message: '', stats: null })
+      } else {
+        setStatus({ phase: 'error', message: r?.error ?? '저장 실패', stats: null })
+      }
+    } catch (e) {
+      // exportEditedBdf 가 throw 하면 'saving' 에 고착돼 버튼이 영구 disabled 되는 것을 방지.
+      setStatus({ phase: 'error', message: e?.message ?? String(e), stats: null })
     }
   }
 
   return (
     <div style={{
-      width: 274,
+      width: 301,
       flexShrink: 0,
       position: 'relative',
       background: '#0b0b1e',

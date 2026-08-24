@@ -171,3 +171,149 @@ describe('useStageStore.rotateModel', () => {
     expect(s.nodeMap.get(2).x).toBe(100)
   })
 })
+
+describe('useStageStore.resetRotation', () => {
+  const makeStageData = () => new StageData({
+    meta: { phase: 'C', stageName: 'C', unit: 'mm', schemaVersion: '1.1' },
+    nodes: [{ id: 1, x: 0, y: 0, z: 0, tags: [] }, { id: 2, x: 100, y: 0, z: 0, tags: [] }],
+    elements: [{ id: 1, type: 'CBEAM', startNode: 1, endNode: 2, propertyId: 10, orientation: [0, 0, 1] }],
+    rigids: [], properties: [{ id: 10, kind: 'TUBE', dims: [50, 40] }], materials: [], pointMasses: [],
+  })
+
+  beforeEach(() => {
+    useStageStore.setState({ stages: [], pipeFluidEmptied: false, modelRotated: false, rotationStack: [] })
+    useStabilityStore.getState().reset()
+    useUnitStructuralStore.getState().reset()
+  })
+
+  it('rotateModel 은 회전 이력을 rotationStack 에 push 한다', () => {
+    const s = makeStageData()
+    useStageStore.setState({ stages: [s] })
+    useStageStore.getState().rotateModel({ axis: 'Z', angleDeg: 90, pivot: { x: 0, y: 0, z: 0 } })
+    const stack = useStageStore.getState().rotationStack
+    expect(stack.length).toBe(1)
+    expect(stack[0]).toMatchObject({ axis: 'Z', angleDeg: 90, pivot: { x: 0, y: 0, z: 0 } })
+  })
+
+  it('단일 회전 → resetRotation 이 원좌표로 복원 + modelRotated=false + 스택 비움', () => {
+    const s = makeStageData()
+    useStageStore.setState({ stages: [s] })
+    useStageStore.getState().rotateModel({ axis: 'Z', angleDeg: 90, pivot: { x: 0, y: 0, z: 0 } })
+    const r = useStageStore.getState().resetRotation()
+    expect(r.undoneCount).toBe(1)
+    const n2 = useStageStore.getState().stages[0].nodeMap.get(2)
+    expect(Math.abs(n2.x - 100) < 1e-6).toBe(true)
+    expect(Math.abs(n2.y) < 1e-6).toBe(true)
+    expect(useStageStore.getState().modelRotated).toBe(false)
+    expect(useStageStore.getState().rotationStack).toEqual([])
+  })
+
+  it('누적 회전(2건) → resetRotation 이 역순 역회전으로 원좌표 복원', () => {
+    const s = makeStageData()
+    useStageStore.setState({ stages: [s] })
+    useStageStore.getState().rotateModel({ axis: 'Z', angleDeg: 90, pivot: { x: 0, y: 0, z: 0 } })
+    useStageStore.getState().rotateModel({ axis: 'X', angleDeg: 45, pivot: { x: 0, y: 0, z: 0 } })
+    expect(useStageStore.getState().rotationStack.length).toBe(2)
+    useStageStore.getState().resetRotation()
+    const n2 = useStageStore.getState().stages[0].nodeMap.get(2)
+    expect(Math.abs(n2.x - 100) < 1e-6).toBe(true)
+    expect(Math.abs(n2.y) < 1e-6).toBe(true)
+    expect(Math.abs(n2.z) < 1e-6).toBe(true)
+  })
+
+  it('resetRotation 은 stages 새 참조로 교체(뷰어 rebuild 트리거)', () => {
+    const s = makeStageData()
+    useStageStore.setState({ stages: [s] })
+    useStageStore.getState().rotateModel({ axis: 'Z', angleDeg: 30, pivot: { x: 0, y: 0, z: 0 } })
+    const before = useStageStore.getState().stages[0]
+    useStageStore.getState().resetRotation()
+    expect(useStageStore.getState().stages[0]).not.toBe(before)
+  })
+
+  it('resetRotation 은 기존 자세안정성/구조해석 결과를 무효화한다', () => {
+    const s = makeStageData()
+    useStageStore.setState({ stages: [s] })
+    useStageStore.getState().rotateModel({ axis: 'Z', angleDeg: 90, pivot: { x: 0, y: 0, z: 0 } })
+    useStabilityStore.setState({ report: { stages: [] }, stabilityPath: '/x', overallStatus: 'pass' })
+    useUnitStructuralStore.setState({ status: 'Success', result: { ok: 1 } })
+    const r = useStageStore.getState().resetRotation()
+    expect(r.invalidatedStability).toBe(true)
+    expect(useStabilityStore.getState().report).toBe(null)
+    expect(useUnitStructuralStore.getState().status).toBe(null)
+  })
+
+  it('회전 이력이 없으면 resetRotation 은 no-op', () => {
+    const s = makeStageData()
+    useStageStore.setState({ stages: [s] })
+    const r = useStageStore.getState().resetRotation()
+    expect(r.undoneCount).toBe(0)
+    expect(r.changedNodeCount).toBe(0)
+  })
+})
+
+describe('useStageStore.restorePipeFluid', () => {
+  function makeStage() {
+    const materials = [
+      { id: 1, name: 'Steel', rho: 7.85e-9 },
+      { id: 2, name: 'Steel_Fluid_A', rho: 1.3e-8 },
+    ]
+    const properties = [{ id: 10, materialId: 1 }, { id: 20, materialId: 2 }]
+    return {
+      elements: [
+        { id: 1, type: 'BEAM', category: 'Structure', propertyId: 10 },
+        { id: 2, type: 'BEAM', category: 'Pipe', propertyId: 20 },
+      ],
+      propertyMap: new Map(properties.map(p => [p.id, p])),
+      materialMap: new Map(materials.map(m => [m.id, m])),
+      materials,
+    }
+  }
+
+  beforeEach(() => {
+    useStageStore.setState({ stages: [], pipeFluidEmptied: false, pipeFluidOriginalRhoMap: null })
+    useStabilityStore.getState().reset()
+    useUnitStructuralStore.getState().reset()
+  })
+
+  it('emptyPipeFluid → restorePipeFluid 왕복: rho/플래그가 원복된다', () => {
+    const stage = makeStage()
+    useStageStore.setState({ stages: [stage] })
+    useStageStore.getState().emptyPipeFluid()
+    expect(stage.materialMap.get(2).rho).toBe(PIPE_STEEL_RHO)
+    expect(useStageStore.getState().pipeFluidEmptied).toBe(true)
+
+    const r = useStageStore.getState().restorePipeFluid()
+    expect(r.changedCount).toBe(1)
+    expect(stage.materialMap.get(2).rho).toBe(1.3e-8)   // 원래 유체 포함 밀도로 복원
+    expect(useStageStore.getState().pipeFluidEmptied).toBe(false)
+    expect(useStageStore.getState().pipeFluidOriginalRhoMap).toBe(null)
+  })
+
+  it('왕복 복원 시 기존 해석 결과를 무효화한다', () => {
+    const stage = makeStage()
+    useStageStore.setState({ stages: [stage] })
+    useStageStore.getState().emptyPipeFluid()
+    useStabilityStore.setState({ report: { stages: [] }, stabilityPath: '/x', overallStatus: 'pass' })
+    useUnitStructuralStore.setState({ status: 'Success', result: { ok: 1 } })
+    const r = useStageStore.getState().restorePipeFluid()
+    expect(r.invalidatedStability).toBe(true)
+    expect(useStabilityStore.getState().report).toBe(null)
+    expect(useUnitStructuralStore.getState().status).toBe(null)
+  })
+
+  it('pipeFluidOriginalRhoMap={} 이면 no-op (바꿀 rho 없음)', () => {
+    const stage = makeStage()
+    useStageStore.setState({ stages: [stage], pipeFluidEmptied: true, pipeFluidOriginalRhoMap: {} })
+    const r = useStageStore.getState().restorePipeFluid()
+    expect(r.changedCount).toBe(0)
+    expect(r.invalidatedStability).toBe(false)
+    expect(useStageStore.getState().pipeFluidEmptied).toBe(false)
+    expect(useStageStore.getState().pipeFluidOriginalRhoMap).toBe(null)
+  })
+
+  it('stages 가 비거나 백업맵이 없으면 no-op', () => {
+    const r = useStageStore.getState().restorePipeFluid()
+    expect(r.changedCount).toBe(0)
+    expect(r.invalidatedStability).toBe(false)
+  })
+})

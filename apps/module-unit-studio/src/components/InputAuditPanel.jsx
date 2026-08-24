@@ -198,7 +198,9 @@ export default function InputAuditPanel({ embedded = false, forceOpen = false })
                   const sc = STATUS_COLOR[r.status] ?? '#888'
                   const matched = stage ? matchCountInStage(stage, r.name) : null
                   const selected = isCurrentRow(r)
-                  const clickable = r.name != null && (matched?.total ?? 0) > 0 || r.rawFields?.pos
+                  // 이름이 있어야 클릭 동작(onRowClick 이 !name 이면 즉시 return)하므로 name 을 필수로 묶는다.
+                  // (과거: A && B || pos 우선순위로 이름 없이 pos 만 있어도 '포커스' 툴팁이 떠 클릭해도 무동작이던 불일치)
+                  const clickable = r.name != null && ((matched?.total ?? 0) > 0 || !!r.rawFields?.pos)
                   return (
                     <tr
                       key={`${r.kind}_${r.physicalLineNumber}_${i}`}

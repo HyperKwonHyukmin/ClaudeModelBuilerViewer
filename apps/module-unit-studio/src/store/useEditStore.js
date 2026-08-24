@@ -37,6 +37,28 @@ export function getHoistDefaultWireLengthM(mode) {
 
 const VALID_HOIST_MODES = new Set(['hydro', 'goliat', 'ceiling'])
 
+// ── Strict 평가 토글 ───────────────────────────────────────────────────────
+// OFF(기본) 면 _posture.json 에 strictEvaluation:false 를 실어 보내고, 엔진이 형상 판정을 완화한다:
+//   Stage 1(형상 분류)·Stage 2(Z단차·convex·평면도·Trolley 단변·삼각형 내각) FAIL → warn 강등
+//   + 옵티마이저 후보 게이트(GroupShapeValidator.IsComboAcceptable)의 형상 검증 우회
+// 완화되지 않는 것: Stage 3(wireLengthM≤0)·Stage 6(전도) — 항상 FAIL 로 다음 단계를 막는다.
+// ⚠️ 기본 OFF 는 사용자 지시(2026-07-27). 안전 판정을 느슨하게 하는 쪽이 기본값이므로
+//    HoistPositionPanel 이 상시 경고 배너를, Stage0 summary 가 strictEvaluation 플래그를 남긴다.
+const STRICT_EVAL_STORAGE_KEY = 'mu.hoist.strictEvaluation.v1'
+
+function loadStrictEvaluation() {
+  try {
+    const raw = localStorage.getItem(STRICT_EVAL_STORAGE_KEY)
+    return raw === null ? false : raw === 'true'
+  } catch {
+    return false   // localStorage 접근 불가(사생활 모드 등) → 기본값
+  }
+}
+
+function persistStrictEvaluation(value) {
+  try { localStorage.setItem(STRICT_EVAL_STORAGE_KEY, String(!!value)) } catch { /* 저장 실패 무시 */ }
+}
+
 // 편집(intent) 적용 시 자세안정성(posture) 결과를 그대로 유지하는 kind.
 // 가서포트(addSupportBeam)는 자세안정성 PASS 이후 Analysis 단계에서 추가하는 "구조 보강"이므로
 // 구조해석 결과만 무효화하고 자세안정성은 유지한다(기존 설계 의도). 그 외 모델 형상·질량을 바꾸는
@@ -111,6 +133,10 @@ export const useEditStore = create((set, get) => ({
   circleGuideEnabled: false,
   // Circle Guide 후보 판정 Tolerance(mm) — |수평거리(node,COG) − 반지름| ≤ 이 값. null 이면 모델 크기 기반 자동값.
   hoistCircleTolMm: null,
+
+  // Strict 평가 — 자세안정성 형상 판정의 엄격도. 기본 OFF(=완화). 세션 간 유지(localStorage).
+  // 모델 로드/reset 으로 초기화되지 않는다(사용자 환경설정 성격, pipeDiameterThreshold 와 동일).
+  strictEvaluation: loadStrictEvaluation(),
 
   // 활성 권상 그룹의 Z-레벨 가이드 평판(가상판) 3D 표시 여부. 사용자가 뷰가 가려질 때 끌 수 있다(기본 표시).
   showHoistPlate: true,
@@ -357,9 +383,11 @@ export const useEditStore = create((set, get) => ({
    */
   removeHoistGroup: (groupId) => {
     if (!ALL_HOIST_GROUP_IDS.includes(groupId)) return
+    let removed = false
     set(s => {
       if (s.hoistGroupCount <= 1) return s
       if (groupId > s.hoistGroupCount) return s
+      removed = true
       const nextCount = s.hoistGroupCount - 1
       const nextGroups = { 1: [], 2: [], 3: [], 4: [] }
       // groupId 이전 그룹은 그대로 유지
@@ -377,6 +405,9 @@ export const useEditStore = create((set, get) => ({
         activeHoistGroupId: nextActive,
       }
     })
+    // 그룹 삭제가 실제로 적용됐으면 stability wire 시각화도 동일한 ID 재정렬 규칙으로 맞춘다 —
+    // cross-store 불변식을 컴포넌트 관례가 아니라 스토어에서 보장(호출자는 removeHoistGroup 만 호출).
+    if (removed) useStabilityStore.getState().dropGroupWires(groupId)
   },
 
   // 권상 와이어 길이(m) 입력. 빈 문자열/NaN/0이하는 null 로 처리.
@@ -409,6 +440,22 @@ export const useEditStore = create((set, get) => ({
   // 가상판(Z-레벨 가이드 평판) 표시 토글.
   setShowHoistPlate: (v) => set({ showHoistPlate: !!v }),
   toggleHoistPlate: () => set(s => ({ showHoistPlate: !s.showHoistPlate })),
+
+  /**
+   * Strict 평가 토글. ON = 형상 위반 시 FAIL(기존 동작), OFF = warn 강등 + 옵티마이저 게이트 완화.
+   * 값은 localStorage 에 즉시 영속화된다(세션 간 유지 — 사용자 지시 2026-07-27).
+   * 이미 저장된 자세안정성 결과는 이전 엄격도로 평가된 것이므로, 토글을 바꾸면 결과를 무효화해
+   * 사용자가 STEP 4 를 다시 실행하도록 유도한다(엄격도와 표시 결과의 불일치 방지).
+   */
+  setStrictEvaluation: (v) => {
+    const next = !!v
+    if (get().strictEvaluation === next) return
+    persistStrictEvaluation(next)
+    set({ strictEvaluation: next })
+    // 저장된 리포트는 바뀐 기준과 맞지 않으므로 내린다(wire 오버레이 포함).
+    const ss = useStabilityStore.getState()
+    if (ss.report || ss.overallStatus) ss.reset()
+  },
 
   /**
    * 권상 UX 가이드 토스트를 띄운다. 같은 메시지를 다시 띄워도 id 가 갱신돼
@@ -474,11 +521,13 @@ export const useEditStore = create((set, get) => ({
    * - status='error' 면 거절(반환값 false), 그 외에는 저장(true).
    *
    * @param {{ kind: string, params: object }} draft
+   * @param {{ batchId?: string|null }} [opts]  한 사용자 액션으로 여러 intent 를 추가할 때 공통 batchId
+   *   를 부여하면 Ctrl+Z(undoLastIntent) 가 그 batch 전체를 한 번에 되돌린다.
    * @returns {{ ok: boolean, intent: object|null, validation: object }}
    */
-  addIntent: (draft) => {
+  addIntent: (draft, opts = {}) => {
     const stage = currentStage()
-    const intent = createIntent(draft.kind, draft.params)
+    const intent = createIntent(draft.kind, draft.params, { batchId: opts.batchId })
     const validation = validateIntent(intent, stage, get().intents)
     intent.validation = validation
 
@@ -502,11 +551,58 @@ export const useEditStore = create((set, get) => ({
   },
 
   clearIntents: () => {
-    set({ intents: [], selectedIntentId: null })
-    // 모든 편집 제거 = 원본 모델로 복귀 → 자세안정성/구조해석 결과 모두 무효화.
+    // rotateModel 은 provenance 전용 intent 로, 실제 회전 상태(useStageStore.modelRotated +
+    // rotationStack)와 짝을 이룬다. 여기서 지우면 좌표는 회전된 채 표시만 어긋나므로(3D 착시)
+    // rotateModel 은 남기고, 되돌리기는 Sidebar '회전 초기화'(resetRotation)로만 수행한다.
+    set(s => ({ intents: s.intents.filter(i => i.kind === 'rotateModel'), selectedIntentId: null }))
+    // 편집 제거 = (회전 외) 원본 모델로 복귀 → 자세안정성/구조해석 결과 모두 무효화.
     const invStruct = invalidateStructuralResult()
     const invStab = invalidateStabilityResult()
     if (invStruct || invStab) set({ editStaleNotice: true })
+  },
+
+  /**
+   * rotateModel provenance intent 를 모두 제거한다. Sidebar '회전 초기화' 가
+   * useStageStore.resetRotation()(실제 역회전)과 함께 호출해 표시/실제 상태를 일치시킨다.
+   * 결과 무효화는 resetRotation 이 담당하므로 여기서는 intent 만 정리한다.
+   */
+  clearRotateModelIntents: () => {
+    set(s => {
+      if (!s.intents.some(i => i.kind === 'rotateModel')) return s
+      const selRemoved = s.intents.some(i => i.id === s.selectedIntentId && i.kind === 'rotateModel')
+      return {
+        intents: s.intents.filter(i => i.kind !== 'rotateModel'),
+        selectedIntentId: selRemoved ? null : s.selectedIntentId,
+      }
+    })
+  },
+
+  /**
+   * 한 사용자 액션(batch) 단위로 마지막 편집을 되돌린다 (Ctrl+Z).
+   * - rotateModel(provenance)은 대상에서 제외 — '회전 초기화'로만 해제한다.
+   * - 마지막 되돌릴 intent 가 batchId 를 가지면 같은 batch 전체(일괄 삭제 N건)를 한 번에 제거.
+   * - batchId 가 없으면 그 1건만 제거.
+   * @returns {{ removed:number }}
+   */
+  undoLastIntent: () => {
+    const intents = get().intents
+    const undoable = intents.filter(i => i.kind !== 'rotateModel')
+    if (undoable.length === 0) return { removed: 0 }
+    const last = undoable[undoable.length - 1]
+    const batchId = last.batchId ?? null
+    const toRemove = batchId != null
+      ? new Set(intents.filter(i => i.batchId === batchId && i.kind !== 'rotateModel').map(i => i.id))
+      : new Set([last.id])
+    const removedKinds = intents.filter(i => toRemove.has(i.id)).map(i => i.kind)
+    set(s => ({
+      intents: s.intents.filter(i => !toRemove.has(i.id)),
+      selectedIntentId: toRemove.has(s.selectedIntentId) ? null : s.selectedIntentId,
+    }))
+    // 되돌린 각 편집 kind 에 맞춰 해석 결과 무효화 (removeIntent 와 동일 정책).
+    let stale = false
+    for (const kind of removedKinds) { if (invalidateForEdit(kind)) stale = true }
+    if (stale) set({ editStaleNotice: true })
+    return { removed: toRemove.size }
   },
 
   // 재평가/재해석을 시작하거나 사용자가 확인하면 stale 배너를 내린다.
@@ -1245,11 +1341,21 @@ function stateFromHoistImport(hoisting) {
     : null
   const max = getHoistMaxGroups(mode)
   const groups = { 1: [], 2: [], 3: [], 4: [] }
+  // addHoistNode/applyAutoHoistGroups 와 동일하게 "노드는 한 그룹에만" 을 강제한다 —
+  // import JSON 의 groups 를 무조건 신뢰하면 같은 nodeId 가 두 그룹에 중복될 수 있다(먼저 나온 그룹 유지).
+  const used = new Set()
   let groupCount = 1
   for (const g of hoisting.groups ?? []) {
     if (!ALL_HOIST_GROUP_IDS.includes(g.id)) continue
     if (g.id > max) continue
-    groups[g.id] = Array.isArray(g.nodeIds) ? g.nodeIds.slice(0, 4) : []
+    const ids = []
+    for (const nodeId of (Array.isArray(g.nodeIds) ? g.nodeIds : [])) {
+      if (nodeId == null || used.has(nodeId)) continue
+      ids.push(nodeId)
+      used.add(nodeId)
+      if (ids.length === 4) break
+    }
+    groups[g.id] = ids
     groupCount = Math.max(groupCount, g.id)
   }
   if (Number.isInteger(hoisting.groupCount)) {
@@ -1398,6 +1504,10 @@ export function buildPostureStabilityPayload(state, hoisting, stage, editedFileN
       // 'computed:beam+pointMass' / 'computed:pointMassOnly' / 'computed:beamOnly' / 'unavailable'
       massSource,
     },
+    // 자세안정성 평가 엄격도(Hoist 패널 'Strict 평가' 토글). false 면 엔진이 Stage 1·2 형상 위반을
+    // warn 으로 강등하고 옵티마이저 후보 게이트의 형상 검증을 우회한다. Stage 3(wireLengthM≤0)·
+    // Stage 6(전도)은 완화 대상이 아니다. 산출물에 남겨 "어떤 기준으로 평가했는지" 추적 가능하게 한다.
+    strictEvaluation: state.strictEvaluation === true,
   }
   if (state.hoistOptimization) {
     const opt = state.hoistOptimization

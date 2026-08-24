@@ -17,6 +17,10 @@ export const useStageStore = create((set) => ({
   pipeFluidOriginalRhoMap: null,
   // 모델 회전 적용 여부 (누적). 새 폴더 로드/reset 시 false. stale stageSummary 게이트에 사용.
   modelRotated: false,
+  // 적용된 회전 이력(누적) — { axis, angleDeg, pivot } 스택. "회전 초기화" 가 역순 역회전으로
+  // 원좌표를 복원하는 데 사용한다. 새 폴더 로드/reset 시 비운다. (rotateModel intent 는 provenance
+  // 전용이고, 실제 회전 상태의 단일 진실은 modelRotated + 이 스택이다.)
+  rotationStack: [],
   loading: false,
   error: null,
   loadSummary: emptyLoadSummary(),
@@ -29,7 +33,7 @@ export const useStageStore = create((set) => ({
 
   setSourceFolderRef: (ref) => set({ sourceFolderRef: ref ?? null }),
 
-  reset: () => set({ stages: [], inputAudit: null, stageSummary: null, loading: false, error: null, loadSummary: emptyLoadSummary(), sourceFolderRef: null, pipeFluidEmptied: false, pipeFluidOriginalRhoMap: null, modelRotated: false }),
+  reset: () => set({ stages: [], inputAudit: null, stageSummary: null, loading: false, error: null, loadSummary: emptyLoadSummary(), sourceFolderRef: null, pipeFluidEmptied: false, pipeFluidOriginalRhoMap: null, modelRotated: false, rotationStack: [] }),
 
   loadStages: async (fileList) => {
     set({ loading: true, error: null })
@@ -39,14 +43,26 @@ export const useStageStore = create((set) => ({
         set({ loading: false, loadSummary: summary, error: 'JSON 파일을 찾을 수 없습니다. .json 파일을 선택해 주세요.' })
         return
       }
-      set({ stages, inputAudit, stageSummary, loading: false, loadSummary: summary, pipeFluidEmptied: false, pipeFluidOriginalRhoMap: null, modelRotated: false })
+      set({ stages, inputAudit, stageSummary, loading: false, loadSummary: summary, pipeFluidEmptied: false, pipeFluidOriginalRhoMap: null, modelRotated: false, rotationStack: [] })
       // 모든 viewport를 마지막 단계(보통 Validation)로 시작 — 최종 모델을 먼저 보여준다
       useViewerStore.getState().resetViewportStages(stages.length - 1)
-      // 새 폴더로 노드 ID 체계가 바뀔 수 있으므로 권상 그룹 노드 선택을 모두 초기화한다
-      // (그룹별 도형 미리보기는 hoistGroups 에서 파생되므로 이걸로 함께 사라진다).
+      // 새 폴더로 노드/요소 ID 체계가 바뀌므로 편집 스토어를 완전히 초기화한다 — 옛 intents
+      // (노드/요소 ID 참조)·권상 그룹·회전 provenance 가 새 모델에 섞이지 않게 스토어 레벨에서
+      // 불변식을 보장한다. (Sidebar.guardLoad 가 이미 막지만, 다른 진입점 대비.)
       const { useEditStore } = await import('./useEditStore.js')
-      const editState = useEditStore.getState()
-      for (const id of [1, 2, 3, 4]) editState.clearHoistGroup(id)
+      useEditStore.getState().reset()
+
+      // 배관 내부 유체 비우기를 기본값으로 자동 적용한다.
+      // 권상/자세안정성은 유체를 비운 상태가 표준 시나리오라 사용자가 매번 수동으로 누르지
+      // 않도록 로드 직후 적용하고, 되돌리려면 "Pipe 내부 유체 채우기" 를 누르면 된다.
+      // ★ editStore.reset() 뒤에 호출해야 한다 — 먼저 하면 방금 추가한 intent 가 지워진다.
+      const { materialIds, changedCount } = useStageStore.getState().emptyPipeFluid()
+      if (changedCount > 0) {
+        useEditStore.getState().addIntent({
+          kind: 'emptyPipeFluid',
+          params: { materialIds, targetRho: PIPE_STEEL_RHO },
+        })
+      }
     } catch (err) {
       set({ loading: false, error: `로드 실패: ${err.message}` })
     }
@@ -169,7 +185,9 @@ export const useStageStore = create((set) => ({
       changedNodeCount += st.applyRotation(axis, angleDeg, p)
       return typeof st.shallowClone === 'function' ? st.shallowClone() : st
     })
-    set({ stages: rotated, modelRotated: true })
+    // 해석된 pivot(p)을 스택에 push — "회전 초기화" 가 이 동일 pivot 으로 역회전한다.
+    const prevStack = useStageStore.getState().rotationStack ?? []
+    set({ stages: rotated, modelRotated: true, rotationStack: [...prevStack, { axis, angleDeg, pivot: { x: p.x, y: p.y, z: p.z } }] })
 
     let invalidatedStability = false
     // 실제로 회전이 적용된 경우에만 stale 결과 무효화 (emptyPipeFluid 의 changedCount>0 가드와 동일)
@@ -184,5 +202,44 @@ export const useStageStore = create((set) => ({
     }
 
     return { axis, angleDeg, changedNodeCount, invalidatedStability }
+  },
+
+  /**
+   * 누적된 모든 회전을 역순으로 역회전(−angle, 동일 pivot)해 원래 좌표로 되돌린다.
+   * modelRotated=false + rotationStack=[] 로 리셋하고, 형상이 바뀌므로 기존 자세안정성/구조해석
+   * 결과를 무효화한다. (rotateModel provenance intent 제거는 호출자[Sidebar]가
+   * useEditStore.clearRotateModelIntents() 로 함께 수행한다 — 스토어 순환의존 회피 위해 동기 분리.)
+   * @returns {{ changedNodeCount:number, undoneCount:number, invalidatedStability:boolean }}
+   */
+  resetRotation: () => {
+    const { stages, rotationStack } = useStageStore.getState()
+    if (!Array.isArray(stages) || stages.length === 0 || !Array.isArray(rotationStack) || rotationStack.length === 0) {
+      return { changedNodeCount: 0, undoneCount: 0, invalidatedStability: false }
+    }
+    // 역순으로 각 회전의 역회전 적용 (Rn⁻¹ … R2⁻¹ R1⁻¹). 각 회전은 CoG(=자기 자신) 기준이라
+    // pivot 이 회전 불변이지만, 안전하게 push 당시의 pivot 을 그대로 재사용한다.
+    const reversed = [...rotationStack].reverse()
+    let changedNodeCount = 0
+    const rotated = stages.map((st) => {
+      if (typeof st.applyRotation !== 'function') return st
+      let nodeCount = 0
+      for (const rot of reversed) {
+        nodeCount = st.applyRotation(rot.axis, -rot.angleDeg, rot.pivot)
+      }
+      changedNodeCount += nodeCount
+      return typeof st.shallowClone === 'function' ? st.shallowClone() : st
+    })
+    set({ stages: rotated, modelRotated: false, rotationStack: [] })
+
+    let invalidatedStability = false
+    const stab = useStabilityStore.getState()
+    if (stab.report || stab.stabilityPath || stab.overallStatus) {
+      stab.reset()
+      invalidatedStability = true
+    }
+    const us = useUnitStructuralStore.getState()
+    if (us.status || us.result) us.reset()
+
+    return { changedNodeCount, undoneCount: reversed.length, invalidatedStability }
   },
 }))
