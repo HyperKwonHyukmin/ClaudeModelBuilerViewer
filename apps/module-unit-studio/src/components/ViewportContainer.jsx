@@ -9,6 +9,7 @@ import EditModeWatermark from './EditModeWatermark.jsx'
 import MassSummaryOverlay from './MassSummaryOverlay.jsx'
 import HoistInstructionOverlay from './HoistInstructionOverlay.jsx'
 import HoistGuideToast from './HoistGuideToast.jsx'
+import ViewportShortcutsHelp from './ViewportShortcutsHelp.jsx'
 import StabilityReportPanel from './StabilityReportPanel.jsx'
 import UnitStructuralPanel from './UnitStructuralPanel.jsx'
 import { getStabilityIssueElementIds } from '../three/StabilityIssueOverlay.js'
@@ -205,6 +206,9 @@ export default function ViewportContainer() {
       {/* 우측 정보 인스펙터 — 뷰포트 우상단 floating 창. 부재/노드 선택 시 자동으로 열린다.
           (이전엔 App.jsx 의 우측 dock 컬럼이었으나 뷰어 가로 폭 확보를 위해 floating 으로 이동.) */}
       <InspectorPanel />
+
+      {/* 단축키 발견성 — 뷰포트 우하단 고정 버튼/팝오버(순수 표시용). 전체 뷰포트 영역에 1개만 렌더. */}
+      <ViewportShortcutsHelp />
     </div>
   )
 }

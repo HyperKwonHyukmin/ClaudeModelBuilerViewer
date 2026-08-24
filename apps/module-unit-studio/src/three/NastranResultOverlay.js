@@ -59,6 +59,15 @@ export function buildNastranResultOverlay(result, stageData, opts = {}) {
   const deleted = opts.deletedElementIds ?? null
   const allow = (id) => !deleted || !deleted.has(id)
 
+  // elementId → element / wireElementId → wire 인덱스(1회 구성).
+  // 아래 bucket/chain/mid 에서 루프마다 stageData.elements.find() 하던 O(W×E) 선형탐색을 O(1) 조회로 대체.
+  const elemById = new Map()
+  for (const e of (stageData.elements ?? [])) elemById.set(e.id, e)
+  const wireById = new Map()
+  for (const w of (result.wires ?? [])) {
+    if (Number.isInteger(w?.wireElementId)) wireById.set(w.wireElementId, w)
+  }
+
   // 멤버 분류 (wireSet 우선 — wire 가 결과 schema 에 따로 빠져 있으므로 OK)
   const memberOk   = []
   const memberFail = []
@@ -82,11 +91,11 @@ export function buildNastranResultOverlay(result, stageData, opts = {}) {
   }
 
   // 부재 → 와이어 순서로 add (와이어가 위에 그려져야 가독성 ↑)
-  if (memberOk.length)        root.add(buildBucket(memberOk,        stageData, COLOR_MEMBER_OK,        MEMBER_R, 0.78, 70))
-  if (memberFail.length)      root.add(buildBucket(memberFail,      stageData, COLOR_MEMBER_FAIL,      MEMBER_R, 0.94, 71))
-  if (wireNoResult.length)    root.add(buildBucket(wireNoResult,    stageData, COLOR_WIRE_NO_RESULT,   WIRE_R,   0.70, 72))
-  if (wireTension.length)     root.add(buildBucket(wireTension,     stageData, COLOR_WIRE_TENSION,     WIRE_R,   0.88, 73))
-  if (wireCompression.length) root.add(buildBucket(wireCompression, stageData, COLOR_WIRE_COMPRESSION, WIRE_R,   0.95, 74))
+  if (memberOk.length)        root.add(buildBucket(memberOk,        elemById, stageData, COLOR_MEMBER_OK,        MEMBER_R, 0.78, 70))
+  if (memberFail.length)      root.add(buildBucket(memberFail,      elemById, stageData, COLOR_MEMBER_FAIL,      MEMBER_R, 0.94, 71))
+  if (wireNoResult.length)    root.add(buildBucket(wireNoResult,    elemById, stageData, COLOR_WIRE_NO_RESULT,   WIRE_R,   0.70, 72))
+  if (wireTension.length)     root.add(buildBucket(wireTension,     elemById, stageData, COLOR_WIRE_TENSION,     WIRE_R,   0.88, 73))
+  if (wireCompression.length) root.add(buildBucket(wireCompression, elemById, stageData, COLOR_WIRE_COMPRESSION, WIRE_R,   0.95, 74))
 
   // 와이어 라벨 — wire CROD 는 lifting BDF 단계에서 처음 생성되므로 사용자가 보고 있는
   // stage JSON 의 elements 에는 들어있지 않은 게 일반적이다. 따라서:
@@ -97,13 +106,13 @@ export function buildNastranResultOverlay(result, stageData, opts = {}) {
   const renderedWireEids = new Set()
   let chainCount = 0
   // (A) chain grouping
-  for (const compEids of groupWireChains(result.wires ?? [], stageData, allow)) {
+  for (const compEids of groupWireChains(result.wires ?? [], elemById, allow)) {
     if (compEids.length === 0) continue
     compEids.sort((a, b) => a - b)
     const repEid = compEids[0]
-    const repWire = (result.wires ?? []).find(w => w?.wireElementId === repEid)
+    const repWire = wireById.get(repEid)
     if (!repWire) continue
-    const mid = computeChainMid(compEids, stageData)
+    const mid = computeChainMid(compEids, elemById, stageData)
     if (!mid) continue
 
     chainCount++
@@ -149,13 +158,15 @@ export function buildNastranResultOverlay(result, stageData, opts = {}) {
     sprite.position.set(mid.x, mid.y, mid.z + 0.4)
     root.add(sprite)
   }
-  // 디버그 출력 — 사용자 PC 콘솔(F12)에서 라벨이 왜 안 나오는지 즉시 진단 가능.
-  console.log('[NastranResultOverlay] wire labels:', {
-    totalWires: (result.wires ?? []).length,
-    chainLabels: chainCount,
-    fallbackLabels: fallbackCount,
-    apexGroupsAvailable: Object.keys(apexCoordByGroup).length,
-  })
+  // 디버그 출력 — 개발 빌드에서만(프로덕션 콘솔 오염 방지). 라벨이 왜 안 나오는지 진단용.
+  if (import.meta.env?.DEV) {
+    console.log('[NastranResultOverlay] wire labels:', {
+      totalWires: (result.wires ?? []).length,
+      chainLabels: chainCount,
+      fallbackLabels: fallbackCount,
+      apexGroupsAvailable: Object.keys(apexCoordByGroup).length,
+    })
+  }
 
   return root
 }
@@ -209,17 +220,17 @@ function makeWireForceLabel(text, color) {
  * BDF 에서 하나의 권상 wire 가 여러 segment 로 쪼개져 있을 때 chain 별 라벨 1개로 줄이기 위함.
  *
  * @param {Array} wires - result.wires
- * @param {object} stageData
+ * @param {Map<number, object>} elemById - elementId → element 인덱스
  * @param {(id:number)=>boolean} allow - deletedElementIds 필터
  * @returns {number[][]}
  */
-function groupWireChains(wires, stageData, allow) {
+function groupWireChains(wires, elemById, allow) {
   // wireElementId → element
   const wireElems = new Map()
   for (const w of wires) {
     const id = w?.wireElementId
     if (!Number.isInteger(id) || !allow(id)) continue
-    const elem = stageData.elements.find(e => e.id === id)
+    const elem = elemById.get(id)
     if (elem) wireElems.set(id, elem)
   }
   if (wireElems.size === 0) return []
@@ -263,18 +274,19 @@ function groupWireChains(wires, stageData, allow) {
  * (loop / 분기) 모든 노드 좌표의 평균을 fallback 으로 사용.
  *
  * @param {number[]} compEids
+ * @param {Map<number, object>} elemById - elementId → element 인덱스
  * @param {object} stageData
  * @returns {THREE.Vector3|null}
  */
-function computeChainMid(compEids, stageData) {
+function computeChainMid(compEids, elemById, stageData) {
   const nodeDeg = new Map()
   for (const eid of compEids) {
-    const elem = stageData.elements.find(e => e.id === eid)
+    const elem = elemById.get(eid)
     if (!elem) continue
     nodeDeg.set(elem.startNode, (nodeDeg.get(elem.startNode) ?? 0) + 1)
     nodeDeg.set(elem.endNode, (nodeDeg.get(elem.endNode) ?? 0) + 1)
   }
-  const endpoints = [...nodeDeg.entries()].filter(([_, c]) => c === 1).map(([n]) => n)
+  const endpoints = [...nodeDeg.entries()].filter(([, c]) => c === 1).map(([n]) => n)
   if (endpoints.length === 2) {
     const a = stageData.getNodePos(endpoints[0])
     const b = stageData.getNodePos(endpoints[1])
@@ -305,9 +317,9 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.closePath()
 }
 
-function buildBucket(elementIds, stageData, color, radius, opacity, renderOrder) {
-  const idSet = new Set(elementIds)
-  const elems = stageData.elements.filter(e => idSet.has(e.id))
+function buildBucket(elementIds, elemById, stageData, color, radius, opacity, renderOrder) {
+  const elems = []
+  for (const id of elementIds) { const e = elemById.get(id); if (e) elems.push(e) }
   const geo = new THREE.CylinderGeometry(radius, radius, 1, 8, 1)
   const mat = makeMat(color, opacity)
   const mesh = new THREE.InstancedMesh(geo, mat, Math.max(elems.length, 1))

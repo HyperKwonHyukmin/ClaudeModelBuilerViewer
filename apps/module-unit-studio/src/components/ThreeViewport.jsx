@@ -13,6 +13,7 @@ import { buildCenterOfGravityMarker } from '../three/CenterOfGravityMarker.js'
 import { buildHoistGroupHighlight } from '../three/HoistGroupHighlight.js'
 import { buildHoistLevelPlate } from '../three/HoistLevelPlate.js'
 import { buildHoistCandidateNodes } from '../three/HoistCandidateNodes.js'
+import { buildHoistCircleCandidateNodes } from '../three/HoistCircleCandidateNodes.js'
 import { buildHoistGroupCog } from '../three/HoistGroupCog.js'
 import { buildPipeDiameterOverlay } from '../three/PipeDiameterOverlay.js'
 import { buildPolygonOverlay } from '../three/PolygonOverlay.js'
@@ -21,6 +22,8 @@ import { buildStabilityIssueOverlay } from '../three/StabilityIssueOverlay.js'
 import { buildSlingAngleOverlay, hasSlingAngleIssues } from '../three/SlingAngleOverlay.js'
 import { buildNastranResultOverlay } from '../three/NastranResultOverlay.js'
 import { computeOrthoPanSpeed } from '../three/orthoPan.js'
+import { computeFitFraming, sceneHalfExtentsAbout, STANDARD_VIEWS } from '../three/viewportFraming.js'
+import { useViewerStore } from '../store/useViewerStore.js'
 import { useUnitStructuralStore } from '../store/useUnitStructuralStore.js'
 import { useEditStore, computeMassFallback } from '../store/useEditStore.js'
 import { useStageStore } from '../store/useStageStore.js'
@@ -32,6 +35,23 @@ const DRAG_THRESHOLD = 3  // px — moves less than this are treated as a click
 const AXES_PX      = 108  // corner indicator size (CSS px)
 const AXES_MARGIN  = 10   // margin from corner
 const DAMPING_TAIL = 800  // ms to keep rendering after drag ends (for inertia)
+
+// 좌상단 뷰 툴바 — A/S/D 가 각각 어떤 뷰인지 라벨과 단축키를 함께 노출한다.
+// (키만 아는 사용자와 버튼만 쓰는 사용자 모두를 위해 라벨=의미, 위첨자=단축키로 묶어 둔다.)
+const VIEW_PRESETS = [
+  { view: 'top',   label: '평면', key: 'A', title: '평면도 (A) — 위에서 내려다봄 · 화면 위쪽 X(종방향), 왼쪽 Y(횡방향)' },
+  { view: 'front', label: '정면', key: 'S', title: '정면도 (S) — Y− 에서 봄 · X·Z 종단면, 화면 위쪽 Z(수직)' },
+  { view: 'side',  label: '측면', key: 'D', title: '측면도 (D) — X+ 에서 봄 · Y·Z 횡단면, 화면 위쪽 Z(수직)' },
+  { view: 'iso',   label: '등각', key: 'F', title: '등각 전체 보기 (F) — 정면 우측 상단에서 비스듬히 모델 전체를 봄' },
+]
+const VIEW_BTN_STYLE = {
+  background: 'transparent', border: '1px solid transparent', borderRadius: 5,
+  color: '#9fb4cc', cursor: 'pointer', padding: '3px 7px',
+  fontSize: 11, fontWeight: 700, lineHeight: 1.2, whiteSpace: 'nowrap',
+}
+const VIEW_KEY_STYLE = {
+  marginLeft: 3, fontSize: 8.5, fontWeight: 800, color: '#6b7d99', verticalAlign: 'super',
+}
 const RESULT_SELECTION_HIGHLIGHT = {
   color: 0xFFE600,
   opacity: 0.96,
@@ -81,14 +101,24 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
     return r
   })())
   const pointerDownRef = useRef(null)   // { x, y } at pointerdown
-  const fitStateRef    = useRef(null)   // { position, target, up, zoom } saved by fitCamera
+  // 키보드 핸들러(mount-once)는 최신 콜백을 직접 캡처할 수 없어(stale closure) ref 를 통해 읽는다.
+  // 과거엔 씬 빌드 시점의 카메라 스냅샷(fitStateRef)을 복원해 F/A/S/D 가 "그때의 배율" 로 돌아갔고,
+  // 확대 상태나 모델 교체 후에는 모델 전체가 화면에 담기지 않았다.
+  const viewActionsRef = useRef({ fitAll: () => {}, setStandardView: () => {} })
   const sceneRadiusRef = useRef(20)     // model scale in scene metres, used for adaptive clip planes
   const highlightRef   = useRef(null)   // current selection highlight Group
   const brokenRbeRef   = useRef(null)   // broken RBE 노란 overlay (편집 모드)
   const selectedElementIdsRef = useRef(new Set())
+  const cogSceneRef      = useRef(null)    // 최신 무게중심(scene 좌표) — 기본 회전 중심(pivot)
+  const pivotOverrideRef = useRef(false)   // 사용자가 노드 더블클릭으로 회전 중심을 직접 지정했는지
 
   useEffect(() => {
     stageDataRef.current = stageData
+  }, [stageData])
+
+  // 새 모델(stageData) 로드 시 회전 중심 override 해제 → 무게중심으로 재고정
+  useEffect(() => {
+    pivotOverrideRef.current = false
   }, [stageData])
 
   useEffect(() => {
@@ -113,6 +143,9 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
   const flashHoistGuide        = useEditStore(s => s.flashHoistGuide)
   const pipeDiameterThreshold  = useEditStore(s => s.pipeDiameterThreshold)
   const hoistToleranceMm       = useEditStore(s => s.hoistToleranceMm)
+  const circleGuideEnabled     = useEditStore(s => s.circleGuideEnabled)
+  const hoistCircleTolMm       = useEditStore(s => s.hoistCircleTolMm)
+  const showHoistPlate         = useEditStore(s => s.showHoistPlate)
   const supportPickActive      = useEditStore(s => s.supportPickActive)
   const supportPickNodes       = useEditStore(s => s.supportPickNodes)
   const pickSupportNode        = useEditStore(s => s.pickSupportNode)
@@ -222,11 +255,13 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
     renderer.clear()
     renderer.render(scene, camera)
 
-    // Axes indicator — top-right corner
+    // Axes indicator — bottom-left corner
+    // (WebGL 뷰포트 원점이 좌하단이라 (am, am) 이 곧 좌하단. 우상단은 편집 모드 워터마크와
+    //  겹쳐 축 글자가 가려졌다.)
     const ax = AXES_PX
     const am = AXES_MARGIN
-    renderer.setViewport(w - ax - am, h - ax - am, ax, ax)
-    renderer.setScissor(w - ax - am, h - ax - am, ax, ax)
+    renderer.setViewport(am, am, ax, ax)
+    renderer.setScissor(am, am, ax, ax)
     renderer.setClearColor(0x0d0d1a, 1)
     renderer.clear()
     const axesCam = axesCamRef.current
@@ -250,6 +285,23 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
       doRender()
     })
   }, [doRender])
+
+  // ── 회전 중심(pivot)을 무게중심으로 고정 ────────────────────────────────
+  // 사용자가 노드를 더블클릭해 직접 지정(pivotOverride)하기 전까지 회전 중심을 항상
+  // 모델 무게중심(cogSceneRef)에 둔다. 시선 방향·거리·zoom 은 유지하고 pivot 만 평행이동.
+  const applyCogPivot = useCallback(() => {
+    const camera   = cameraRef.current
+    const controls = controlsRef.current
+    const cog      = cogSceneRef.current
+    if (!camera || !controls || !cog || pivotOverrideRef.current) return
+    const delta = new THREE.Vector3().subVectors(cog, controls.target)
+    if (delta.lengthSq() < 1e-12) return
+    camera.position.add(delta)
+    controls.target.copy(cog)
+    updateClipPlanes(camera, controls, sceneRadiusRef.current)
+    controls.update()
+    requestRender()
+  }, [requestRender])
 
   // ── Init ──────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -402,58 +454,23 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
     }
     container.addEventListener('wheel', onWheelZoom, { capture: true, passive: false })
 
-    // ── F key: restore to last fitCamera view ────────────────────────
-    const restoreFitView = () => {
-      const s = fitStateRef.current
-      if (s) {
-        camera.position.copy(s.position)
-        camera.up.copy(s.up)
-        controls.target.copy(s.target)
-        camera.zoom = s.zoom ?? camera.zoom
-        updateClipPlanes(camera, controls, sceneRadiusRef.current)
-        camera.updateProjectionMatrix()
-        controls.update()
-      }
-      requestRender()
-    }
-
     // Keyboard shortcuts (only when pointer is inside this viewport)
+    // F/A/S/D 는 viewActionsRef 를 거쳐 최신 fitAll/setStandardView 를 호출한다 —
+    // 어느 쪽이든 매번 모델 bbox 를 다시 투영해 "전체가 담기는" 배율을 새로 계산한다.
     const onKeyDown = (e) => {
       if (!container.matches(':hover')) return
 
       const k = e.key.toLowerCase()
 
-      // F → fit view
-      if (k === 'f') { restoreFitView(); return }
+      // F → 등각(비스듬한) 전체 보기. 축정렬 뷰(A/S/D)에서 F 를 누르면 그 축 뷰를 유지한 채
+      // 배율만 맞아 "아무 일도 안 일어난 것처럼" 보였다 — F 는 항상 등각으로 빠져나오게 한다.
+      // (현재 시선을 유지한 채 배율만 맞추는 동작은 좌상단 "전체" 버튼이 담당)
+      if (k === 'f') { viewActionsRef.current.setStandardView('iso'); return }
 
-      // A / S / D → axis-aligned orthographic views
-      if (k === 'a' || k === 's' || k === 'd') {
-        const fitPos = fitStateRef.current?.position
-        const dist = fitPos ? fitPos.length() : 30
-
-        let pos, up
-        if (k === 'a') {
-          // X/Y 평면 (평면도) — +Z 방향에서 내려다봄, X 종방향, Y 횡방향
-          pos = new THREE.Vector3(0, 0, dist)
-          up  = new THREE.Vector3(1, 0, 0)
-        } else if (k === 's') {
-          // X/Z 평면 (종단면) — +Y 방향에서 봄, X 종방향, Z 수직
-          pos = new THREE.Vector3(0, -dist, 0)
-          up  = new THREE.Vector3(0, 0, 1)
-        } else {
-          // Y/Z 평면 (횡단면) — +X 방향에서 봄, Y 횡방향, Z 수직
-          pos = new THREE.Vector3(dist, 0, 0)
-          up  = new THREE.Vector3(0, 0, 1)
-        }
-
-        camera.position.copy(pos)
-        camera.up.copy(up)
-        controls.target.set(0, 0, 0)
-        camera.lookAt(controls.target)
-        updateClipPlanes(camera, controls, sceneRadiusRef.current)
-        controls.update()
-        requestRender()
-      }
+      // A / S / D → 축정렬 표준 뷰 (평면 / 정면(종단면) / 측면(횡단면))
+      if (k === 'a') { viewActionsRef.current.setStandardView('top');   return }
+      if (k === 's') { viewActionsRef.current.setStandardView('front'); return }
+      if (k === 'd') { viewActionsRef.current.setStandardView('side');  return }
     }
     window.addEventListener('keydown', onKeyDown)
 
@@ -476,6 +493,7 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
       }
       updateRes(polygonRef.current)
       updateRes(pipeDiamRef.current)
+      updateRes(resultWireRef.current)   // 자세안정성 wire(Line2/LineMaterial)도 resize 시 굵기 왜곡 방지
       requestRender()
     })
     ro.observe(container)
@@ -688,10 +706,64 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
       if (onHoverRef.current) onHoverRef.current(null, null)
     }
 
+    // ── 더블클릭 → 해당 Node 를 회전 중심(pivot)으로 초점 맞춤 ────────────
+    // 레이캐스트로 노드(없으면 첫 교차점)를 찾아, 카메라와 controls.target 을 같은 변위만큼
+    // 옮긴다. 시선 방향·거리는 유지되므로 그 노드가 화면 중앙에 오고, 이후 회전이 그 노드를
+    // 중심으로 돈다. (급격한 점프 대신 '초점 이동' 느낌.)
+    const onDoubleClick = (e) => {
+      const pickables = sceneDataRef.current?.pickables
+      if (!pickables) return
+      const rect = renderer.domElement.getBoundingClientRect()
+      const ndc = new THREE.Vector2(
+        ((e.clientX - rect.left) / rect.width)  * 2 - 1,
+        -((e.clientY - rect.top) / rect.height) * 2 + 1,
+      )
+      const raycaster = raycasterRef.current
+      raycaster.setFromCamera(ndc, camera)
+      const camDist = camera.position.distanceTo(controls.target)
+      raycaster.params.Line.threshold = Math.max(0.05, camDist * 0.01)
+
+      const isVisible = (t) => {
+        if (t.visible === false) return false
+        let p = t.parent
+        while (p) { if (p.visible === false) return false; p = p.parent }
+        return true
+      }
+      const targets = getPickTargets(pickables, pickFiltersRef.current, false).filter(isVisible)
+      const hits = raycaster.intersectObjects(targets)
+      if (hits.length === 0) {
+        // 빈 공간 더블클릭 → 회전 중심을 무게중심으로 리셋(override 해제)
+        pivotOverrideRef.current = false
+        applyCogPivot()
+        return
+      }
+
+      // 노드를 최우선으로 회전 중심 삼되(정확한 인스턴스 중심), 노드가 없으면 첫 교차점 사용.
+      const nodeHit = hits.find(h => h.object === pickables.nodes && h.instanceId != null)
+      const focus = new THREE.Vector3()
+      if (nodeHit) {
+        const m = new THREE.Matrix4()
+        pickables.nodes.getMatrixAt(nodeHit.instanceId, m)
+        focus.setFromMatrixPosition(m)
+        pickables.nodes.localToWorld(focus)
+      } else {
+        focus.copy(hits[0].point)
+      }
+
+      // 사용자가 회전 중심을 직접 지정 → 무게중심 자동 고정 해제
+      pivotOverrideRef.current = true
+      const delta = new THREE.Vector3().subVectors(focus, controls.target)
+      camera.position.add(delta)
+      controls.target.copy(focus)
+      controls.update()
+      requestRender()
+    }
+
     renderer.domElement.addEventListener('pointerdown', onPointerDown)
     renderer.domElement.addEventListener('pointerup',   onPointerUp)
     renderer.domElement.addEventListener('pointermove', onPointerMove)
     renderer.domElement.addEventListener('pointerleave', onPointerLeave)
+    renderer.domElement.addEventListener('dblclick',     onDoubleClick)
 
     requestRender()
     if (onReady) {
@@ -699,7 +771,9 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
         camera,
         controls,
         requestRender,
-        focusEntity: (entity) => focusEntity(entity, stageDataRef.current, camera, controls, requestRender),
+        // 회전 중심 고정 정책: 결과/감사 행 선택은 하이라이트만 하고 카메라·회전중심을 옮기지 않는다.
+        // (회전 중심은 무게중심에 고정 — 노드 더블클릭으로만 변경)
+        focusEntity: () => {},
       })
     }
 
@@ -715,8 +789,13 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
       renderer.domElement.removeEventListener('pointerup',   onPointerUp)
       renderer.domElement.removeEventListener('pointermove', onPointerMove)
       renderer.domElement.removeEventListener('pointerleave', onPointerLeave)
+      renderer.domElement.removeEventListener('dblclick',     onDoubleClick)
       if (hoverRafRef.current) cancelAnimationFrame(hoverRafRef.current)
       window.removeEventListener('keydown', onKeyDown)
+      // 언마운트 시 GPU 리소스 즉시 회수 — 씬 전체(대형 InstancedMesh·모든 오버레이)와
+      // 축 표시 씬(CanvasTexture 라벨 스프라이트)을 dispose (GC/context-loss 의존 제거).
+      if (sceneRef.current) disposeScene(sceneRef.current)
+      if (axesSceneRef.current) disposeScene(axesSceneRef.current)
       renderer.dispose()
       if (container.contains(renderer.domElement)) container.removeChild(renderer.domElement)
     }
@@ -837,13 +916,6 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
       applyFullVisibility(sceneData, layers, groupFilters, stageData, isolateSelection, selectedElementIdsRef.current, freeNodeFilters, deleteMask, hideNodeIds, displayStyle)
 
       sceneRadiusRef.current = fitCamera(stageData, cameraRef.current, controlsRef.current)
-      // Save state so double-click can restore this exact view
-      fitStateRef.current = {
-        position: cameraRef.current.position.clone(),
-        target:   controlsRef.current.target.clone(),
-        up:       cameraRef.current.up.clone(),
-        zoom:     cameraRef.current.zoom,
-      }
       setTimeout(() => setSceneError(null), 0)
       requestRender()
     } catch (err) {
@@ -1092,6 +1164,23 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
     // 같은 deps 를 본다 — 빠지면 3D 단면 등 다른 모드 전환 시 마커가 사라진다.
   }, [layers?.cog, stageData, stageSummary, stabilityReport, renderMode, colorMode, requestRender, pipeFluidEmptied, modelRotated])
 
+  // ── 회전 중심(pivot) = 무게중심 고정 ──────────────────────────────────
+  // getCogMm 으로 구한 무게중심을 scene 좌표로 변환해 cogSceneRef 에 저장하고,
+  // 사용자가 노드를 더블클릭(pivotOverride)하지 않았다면 회전 중심을 그 지점으로 고정한다.
+  // stageSummary/stabilityReport 는 분석 완료 후 채워지므로 값이 들어오는 시점에 재고정된다.
+  useEffect(() => {
+    if (!stageData) { cogSceneRef.current = null; return }
+    const cogMm = getCogMm(stageSummary, stabilityReport, stageData, pipeFluidEmptied, modelRotated)
+    if (!cogMm) { cogSceneRef.current = null; return }
+    const center = stageData.center
+    cogSceneRef.current = new THREE.Vector3(
+      (cogMm.x - center.x) / 1000,
+      (cogMm.y - center.y) / 1000,
+      (cogMm.z - center.z) / 1000,
+    )
+    applyCogPivot()
+  }, [stageData, stageSummary, stabilityReport, pipeFluidEmptied, modelRotated, applyCogPivot])
+
   // ── 권상 그룹 도형(직선/삼각형/사각형) 미리보기 ────────────────────────
   // hoistGroups 에서 직접 파생되므로 노드 추가/삭제·그룹 전환에 즉시 반응한다.
   // renderMode/colorMode 변경 시 씬 리빌드 useEffect 가 polygon ref 도 정리하므로 같은 dep 를 본다.
@@ -1269,7 +1358,8 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
       levelPlateRef.current = null
     }
     const activeNodes = hoistGroups?.[activeHoistGroupId] ?? []
-    if (!stageData || !isEditTargetStage || activeNodes.length === 0) {
+    // showHoistPlate=false 면 가상판을 그리지 않는다(위에서 기존 평판은 이미 제거됨).
+    if (!showHoistPlate || !stageData || !isEditTargetStage || activeNodes.length === 0) {
       requestRender()
       return
     }
@@ -1279,13 +1369,16 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
       levelPlateRef.current = plate
     }
     requestRender()
-  }, [hoistGroups, activeHoistGroupId, isEditTargetStage, stageData, renderMode, colorMode, requestRender])
+  }, [hoistGroups, activeHoistGroupId, isEditTargetStage, stageData, renderMode, colorMode, requestRender, showHoistPlate])
 
-  // ── 가상판 ±Tolerance 이내 같은 레벨의 후보 노드 강조 ──────────────────
-  // 평판(활성 그룹 첫 노드 Z)에서 |Δz| ≤ Tolerance 인 같은 레벨 노드를 후보로 강조해
-  // 사용자가 그 후보 중에서 권상점을 고르도록 돕는다. Tolerance 는 사용자 지정값(hoistToleranceMm)
-  // 우선, 없으면 모델 높이 기반 자동값. 평판과 같은 dep/조건 + Tolerance 변경 시 갱신된다.
-  // (X·Y 무관 Z 단면 — 과거 전역 위/아래 레벨 방식의 구역 의존 버그를 제거.)
+  // ── 활성 권상 그룹 첫 노드 기준 후보 노드 강조 ─────────────────────────
+  // 두 가지 모드로 후보를 강조해 사용자가 그 중에서 권상점을 고르도록 돕는다.
+  //  · 기본(Circle Guide OFF): 가상판(첫 노드 Z)에서 |Δz| ≤ Tolerance 인 "같은 레벨" 노드.
+  //    Tolerance 는 hoistToleranceMm 우선, 없으면 모델 높이 기반 자동값. (X·Y 무관 Z 단면)
+  //  · Circle Guide ON: 무게중심(COG) 중심 + COG→첫노드 수평거리 반지름의 "가상 링" 근처
+  //    (±hoistCircleTolMm) 노드. 이때 같은-높이 강조는 대체된다(상호 배타).
+  // 민트색 후보 노드 강조는 가상판(showHoistPlate)과 한 세트로 표시한다 — 가상판 토글을
+  // 끄면 같은 레벨 강조 노드도 함께 사라진다(사용자 요청 2026-07-06).
   useEffect(() => {
     const scene = sceneRef.current
     if (!scene) return
@@ -1295,17 +1388,23 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
       candidateNodesRef.current = null
     }
     const activeNodes = hoistGroups?.[activeHoistGroupId] ?? []
-    if (!stageData || !isEditTargetStage || activeNodes.length === 0) {
+    if (!showHoistPlate || !stageData || !isEditTargetStage || activeNodes.length === 0) {
       requestRender()
       return
     }
-    const candidates = buildHoistCandidateNodes(hoistGroups, stageData, activeHoistGroupId, hoistToleranceMm)
+    let candidates
+    if (circleGuideEnabled) {
+      const cogMm = getCogMm(stageSummary, stabilityReport, stageData, pipeFluidEmptied, modelRotated)
+      candidates = buildHoistCircleCandidateNodes(hoistGroups, stageData, activeHoistGroupId, cogMm, hoistCircleTolMm)
+    } else {
+      candidates = buildHoistCandidateNodes(hoistGroups, stageData, activeHoistGroupId, hoistToleranceMm)
+    }
     if (candidates.children.length > 0) {
       scene.add(candidates)
       candidateNodesRef.current = candidates
     }
     requestRender()
-  }, [hoistGroups, activeHoistGroupId, hoistToleranceMm, isEditTargetStage, stageData, renderMode, colorMode, requestRender])
+  }, [hoistGroups, activeHoistGroupId, hoistToleranceMm, circleGuideEnabled, hoistCircleTolMm, stageSummary, stabilityReport, pipeFluidEmptied, modelRotated, isEditTargetStage, stageData, renderMode, colorMode, requestRender, showHoistPlate])
 
   // ── 권상 그룹 도형의 무게중심 마커 (>=2 노드일 때 등장) ────────────────
   // 모델 전체 무게중심과 그룹별 무게중심의 배치를 비교할 수 있게 한다.
@@ -1431,8 +1530,84 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
     requestRender()
   }, [selectedEntity, stageData, layers, isolateSelection, displayStyle, requestRender]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── 카메라 뷰 컨트롤 (표준 뷰 프리셋 + 전체 보기) ─────────────────────────
+  // 프레이밍 기준점 = 현재 회전 중심. 이 스튜디오는 회전 중심을 무게중심에 고정하고
+  // 노드 더블클릭으로 사용자가 바꿀 수 있으므로, 뷰를 바꿔도 그 기준점을 유지한다.
+  const framingPivot = useCallback(() => {
+    if (pivotOverrideRef.current) return controlsRef.current?.target?.clone() ?? null
+    return cogSceneRef.current ?? null
+  }, [])
+
+  // 표준 뷰(평면/정면/측면/등각) — 방향만 바꾸는 게 아니라 그 방향에서 모델 전체가 담기도록
+  // 매번 다시 프레이밍한다(과거엔 최초 등각 배율을 재사용해 축정렬 뷰에서 잘리거나 과축소됐다).
+  const setStandardView = useCallback((view) => {
+    const camera = cameraRef.current
+    const controls = controlsRef.current
+    const stage = stageDataRef.current
+    if (!camera || !controls || !stage) return
+    const v = STANDARD_VIEWS[view] ?? STANDARD_VIEWS.iso
+    sceneRadiusRef.current = fitCameraToDirection(stage, camera, controls, v.dir, v.up, framingPivot())
+    requestRender()
+  }, [framingPivot, requestRender])
+
+  // 전체 보기(F) — 현재 보고 있는 방향은 유지한 채 배율만 풀어 모델 전체를 담는다(표준 CAD Zoom Fit).
+  const fitAll = useCallback(() => {
+    const camera = cameraRef.current
+    const controls = controlsRef.current
+    const stage = stageDataRef.current
+    if (!camera || !controls || !stage) return
+    const dir = new THREE.Vector3().subVectors(camera.position, controls.target)
+    if (dir.lengthSq() < 1e-9) dir.set(STANDARD_VIEWS.iso.dir.x, STANDARD_VIEWS.iso.dir.y, STANDARD_VIEWS.iso.dir.z)
+    sceneRadiusRef.current = fitCameraToDirection(stage, camera, controls, dir, camera.up, framingPivot())
+    requestRender()
+  }, [framingPivot, requestRender])
+
+  // 키보드 핸들러(mount-once)가 최신 콜백을 보게 매 렌더마다 ref 를 갱신.
+  viewActionsRef.current = { fitAll, setStandardView }
+
   return (
     <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden' }}>
+      {/* 카메라 뷰 컨트롤 — 표준 뷰 프리셋 + 전체 보기 + 3D 단면 (좌상단)
+          단축키 글자를 라벨 옆에 함께 적어 A/S/D/F 가 각각 어떤 뷰인지 항상 보이게 한다. */}
+      <div style={{
+        position: 'absolute', top: 10, left: 10, zIndex: 14,
+        display: 'flex', gap: 2, alignItems: 'center',
+        background: 'rgba(12,14,26,0.72)',
+        border: '1px solid #2a2a4a', borderRadius: 8, padding: 3,
+      }}>
+        {VIEW_PRESETS.map(({ view, label, key, title }) => (
+          <button key={view} onClick={() => setStandardView(view)} title={title} style={VIEW_BTN_STYLE}
+            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)' }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}>
+            {label}{key && <span style={VIEW_KEY_STYLE}>{key}</span>}
+          </button>
+        ))}
+        <span style={{ width: 1, height: 14, background: '#2a2a4a', margin: '0 2px' }} />
+        <button onClick={fitAll} title="전체 보기 — 지금 보고 있는 시선 방향을 그대로 유지한 채 모델 전체가 담기게 배율만 맞춥니다." style={VIEW_BTN_STYLE}
+          onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)' }}
+          onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}>
+          전체
+        </button>
+        <span style={{ width: 1, height: 14, background: '#2a2a4a', margin: '0 2px' }} />
+        {/* 3D 단면 — 원래 좌측 사이드바 "Display" 섹션에 있어 뷰를 보다가 켜려면 시선을 옮겨야 했다.
+            뷰 컨트롤과 같은 좌상단 툴바로 옮겨 뷰포트에서 바로 켜고 끈다.
+            renderMode 는 전역 상태라 모든 뷰포트에 함께 적용된다. */}
+        <button
+          onClick={() => useViewerStore.getState().setRenderMode(renderMode === 'section3d' ? 'cylinder' : 'section3d')}
+          title={renderMode === 'section3d'
+            ? '3D 단면 끄기 — BEAM 을 단순 실린더 표현으로 되돌립니다.'
+            : '3D 단면 켜기 — BEAM 을 실제 단면 형상(Bar/Rod/Tube/L/H)으로 표시합니다.'}
+          style={{
+            ...VIEW_BTN_STYLE,
+            color: renderMode === 'section3d' ? '#e0954a' : '#9fb4cc',
+            background: renderMode === 'section3d' ? 'rgba(176,104,40,0.22)' : 'transparent',
+            border: `1px solid ${renderMode === 'section3d' ? '#b06828' : 'transparent'}`,
+            fontWeight: renderMode === 'section3d' ? 800 : VIEW_BTN_STYLE.fontWeight,
+          }}>
+          3D 단면
+        </button>
+      </div>
+
       {sceneError && (
         <div style={{
           position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
@@ -1595,8 +1770,12 @@ function applyElementIsolation(object, isolateSelection, selectedElementIds) {
 function updateClipPlanes(camera, controls, sceneRadius) {
   const camDist = camera.position.distanceTo(controls.target)
   const r = sceneRadius > 0 ? sceneRadius : 20
-  const near = 0.01
   const far = Math.max(camDist + r * 20, r * 40, 100)
+  // Orthographic 카메라: 근평면을 카메라 뒤쪽(-far)까지 열어 둔다. 원근 왜곡이 없으므로
+  // 깊은 대칭 슬래브를 써도 depth 정밀도만 균일하게 나눠 쓸 뿐 손해가 없고, 카메라가 모델에
+  // 가까이 다가가거나 회전 중심이 모델 중심에서 벗어나도(부재 포커스 등) 카메라 앞쪽으로
+  // 넘어온 형상이 near=0.01 에 잘려 사라지던 문제를 원천 차단한다.
+  const near = -far
   if (camera.near !== near || camera.far !== far) {
     camera.near = near
     camera.far = far
@@ -1604,28 +1783,43 @@ function updateClipPlanes(camera, controls, sceneRadius) {
   }
 }
 
-function fitCamera(stageData, camera, controls) {
-  const bbox = stageData.bbox
-  const dx = (bbox.maxX - bbox.minX) / 1000
-  const dy = (bbox.maxY - bbox.minY) / 1000
-  const dz = (bbox.maxZ - bbox.minZ) / 1000
-  const size = Math.max(dx, dy, dz, 1)
+/**
+ * 주어진 시선 방향에서 모델 전체가 화면에 담기도록 카메라를 배치한다(= Zoom Fit).
+ * 표준 뷰(A/S/D · 좌상단 버튼), 전체보기(F), 최초 씬 빌드가 모두 이 한 곳을 쓴다.
+ *
+ * 과거 fitCamera 는 bbox 의 "최대 변" 하나로만 halfH 를 잡아, 종방향이 긴 모듈을 평면도로
+ * 보면 양 끝이 잘리고 측면도로 보면 과하게 축소됐다. 이제는 시선 기준 화면 평면에 bbox 를
+ * 투영해 필요한 반폭/반높이를 직접 구한다(viewportFraming.computeFitFraming).
+ *
+ * @param {{x,y,z}|null} pivot  프레이밍/회전 기준점(scene m). 이 스튜디오는 회전 중심을
+ *   무게중심에 고정하므로, bbox 중심이 아닌 지점을 기준으로도 전체가 남도록 반extent 를
+ *   그 지점에서 다시 잰다. null 이면 bbox 중심(원점).
+ * @returns {number} 모델 특성 스케일(scene m) — 적응형 near/far 용
+ */
+function fitCameraToDirection(stageData, camera, controls, dir, up, pivot = null) {
+  if (!stageData || !camera || !controls) return 20
 
-  // Target is always the model centre in scene space (0,0,0 after centring)
-  controls.target.set(0, 0, 0)
+  const h = sceneHalfExtentsAbout(stageData, pivot)
+  const size = Math.max(h.x * 2, h.y * 2, h.z * 2, 1)
+  const aspect = ((camera.right - camera.left) / (camera.top - camera.bottom)) || 1
 
-  // Z-up 좌표계: X 종방향, Y 횡방향, Z 수직
-  // 카메라를 X+ / Y- / Z+ 방향에서 바라봄 (정면 우측 상단 시점)
-  camera.up.set(0, 0, 1)
-  const dist = size * 3
-  camera.position.set(dist * 0.9, -dist * 0.7, dist * 0.6)
+  // 직교 전용 뷰포트 — fovDeg 는 거리 산출에만 쓰이고 배율은 orthoHalfHeight 가 정한다.
+  const f = computeFitFraming({ halfExtents: h, dir, up, fovDeg: 45, aspect })
 
-  // Explicitly orient the camera towards the rotation centre so TrackballControls
-  // initialises its internal _eye vector correctly.
+  const dl = Math.hypot(dir.x, dir.y, dir.z) || 1
+  const d = { x: dir.x / dl, y: dir.y / dl, z: dir.z / dl }
+  const t = pivot ?? { x: 0, y: 0, z: 0 }
+
+  controls.target.set(t.x, t.y, t.z)
+  camera.up.set(up.x, up.y, up.z)
+
+  // 직교는 거리가 배율에 영향을 주지 않으므로 클리핑 여유만 확보하고 frustum 으로 프레이밍한다.
+  const dist = Math.max(f.halfDepth * 4, size * 3)
+  camera.position.set(t.x + d.x * dist, t.y + d.y * dist, t.z + d.z * dist)
+  // TrackballControls 의 내부 _eye 가 올바로 초기화되도록 명시적으로 타깃을 향하게 한다.
   camera.lookAt(controls.target)
 
-  const aspect = ((camera.right - camera.left) / (camera.top - camera.bottom)) || 1
-  const halfH = (size / 2) * 1.2
+  const halfH = f.orthoHalfHeight
   camera.top = halfH
   camera.bottom = -halfH
   camera.left = -halfH * aspect
@@ -1640,6 +1834,14 @@ function fitCamera(stageData, camera, controls) {
   return size
 }
 
+/** 모델 bbox 에 맞춰 등각 시점으로 프레이밍하고, 모델 특성 스케일(scene m)을 반환한다. */
+function fitCamera(stageData, camera, controls, pivot = null) {
+  const v = STANDARD_VIEWS.iso
+  return fitCameraToDirection(stageData, camera, controls, v.dir, v.up, pivot)
+}
+
+// 회전 중심 고정 정책 도입 후 미사용(결과/감사 자동 포커스 제거). 향후 '부재로 확대' 재도입 대비 보존.
+// eslint-disable-next-line no-unused-vars
 function focusEntity(entity, stageData, camera, controls, requestRender) {
   if (!entity || !stageData || !camera || !controls) return
 

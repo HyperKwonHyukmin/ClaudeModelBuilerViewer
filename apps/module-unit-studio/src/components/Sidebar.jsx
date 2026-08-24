@@ -1,5 +1,5 @@
 import { useRef, useState, useCallback, useEffect } from 'react'
-import { Box, Droplet, FileJson, FolderOpen, RotateCcw } from 'lucide-react'
+import { Droplet, FileJson, FolderOpen, RotateCcw } from 'lucide-react'
 import { useViewerStore } from '../store/useViewerStore.js'
 import { useStageStore } from '../store/useStageStore.js'
 import { useEditStore, computeMassFallback } from '../store/useEditStore.js'
@@ -29,7 +29,6 @@ const DEFAULT_WIDTH = 301   // 좌측 패널 기본 폭 (228 → +20% → +10% �
 export default function Sidebar() {
   const { loading, error, loadStages, loadSummary, stages, reset: resetStages } = useStageStore()
   const {
-    renderMode, setRenderMode,
     layers, toggleLayer,
     reset: resetViewer,
   } = useViewerStore()
@@ -37,6 +36,9 @@ export default function Sidebar() {
   const resetEdit = useEditStore(s => s.reset)
   const resetStability = useStabilityStore(s => s.reset)
   const resetUnitStructural = useUnitStructuralStore(s => s.reset)
+  const clearRotateModelIntents = useEditStore(s => s.clearRotateModelIntents)
+  // 실제 회전 상태(단일 진실) — '회전 초기화' 버튼 노출 및 표시 정합에 사용.
+  const modelRotated = useStageStore(s => s.modelRotated)
 
   // Workbench(Electron) 호스트에서는 백엔드가 폴더를 자동 주입하므로
   // 사용자가 직접 파일/폴더를 여는 입력은 노출하지 않는다.
@@ -96,6 +98,22 @@ export default function Sidebar() {
   const [emptyResult, setEmptyResult] = useState(null) // { delta:number|null, count:number }
   const [showRotateDialog, setShowRotateDialog] = useState(false)
   const [rotateResult, setRotateResult] = useState(null) // { axis, angleDeg, changedNodeCount, invalidatedStability }
+  const [rotateReset, setRotateReset] = useState(null)   // { undoneCount, invalidatedStability } — '회전 초기화' 직후 안내
+
+  // 누적 회전 전체 해제 — 역순 역회전으로 원좌표 복원 + modelRotated=false + rotateModel provenance 제거 +
+  // 결과 무효화. (rotateModel intent 를 목록 X/Ctrl+Z 로 지워도 형상이 안 돌아오는 착시를 여기서만 해제.)
+  const handleResetRotation = useCallback(() => {
+    if (!useStageStore.getState().modelRotated) return
+    const ok = window.confirm(
+      '적용된 모델 회전을 모두 해제하고 원래 방향으로 되돌립니다.\n' +
+      '형상이 바뀌므로 기존 자세안정성/구조해석 결과는 초기화됩니다. 계속할까요?'
+    )
+    if (!ok) return
+    const r = useStageStore.getState().resetRotation()
+    clearRotateModelIntents()
+    setRotateResult(null)
+    setRotateReset({ undoneCount: r.undoneCount, invalidatedStability: r.invalidatedStability })
+  }, [clearRotateModelIntents])
 
   const lastStage = stages.length > 0 ? stages[stages.length - 1] : null
   const pipeMaterialCount = lastStage ? collectPipeMaterialIds(lastStage).size : 0
@@ -111,7 +129,7 @@ export default function Sidebar() {
 
     if (pipeFluidEmptied) {
       const ok = window.confirm(
-        '배관(Pipe) 내부 유체 중량을 원래대로 복원합니다.\n' +
+        '배관(Pipe) 내부에 유체를 다시 채웁니다 (원래 밀도로 복원).\n' +
         '무게중심이 원래대로 복구되므로 기존 해석 결과는 초기화됩니다. 계속할까요?'
       )
       if (!ok) return
@@ -266,22 +284,10 @@ export default function Sidebar() {
         </Section>
       )}
 
-      {/* ── 섹션 2: Display (3D 단면 렌더링 토글) ─────── */}
-      <Section label="Display">
-        <Tooltip placement="right" content={<><strong style={{ color: '#FFAA55' }}>3D 단면 렌더링</strong><br/>BEAM 을 단순 cylinder 가 아닌 실제 단면 모양(Bar/Rod/Tube/L/H)으로 렌더링합니다. 비주얼은 무거워지지만 단면 차이를 직관적으로 확인 가능.</>}>
-          <span style={{ display: 'flex', width: '100%' }}>
-            <ToggleBtn
-              active={renderMode === 'section3d'}
-              onClick={() => setRenderMode(renderMode === 'section3d' ? 'cylinder' : 'section3d')}
-              activeColor="#b06828"
-              label="3D 단면"
-              icon={<Box size={13} />}
-            />
-          </span>
-        </Tooltip>
-      </Section>
+      {/* "3D 단면" 토글은 뷰어 좌상단 뷰 툴바(ThreeViewport)로 옮겼다 —
+          단면 형상을 보려던 사용자가 사이드바까지 시선을 옮길 필요 없이 뷰포트에서 바로 켜고 끈다. */}
 
-      {/* ── 섹션 3: 레이어 ───────────────────────────── */}
+      {/* ── 섹션 2: 레이어 ───────────────────────────── */}
       <Section label="레이어">
         {LAYER_DEFS.map(({ key, label, color, desc }) => {
           const on = layers[key] ?? true
@@ -335,16 +341,15 @@ export default function Sidebar() {
         <Tooltip placement="right" content={
           pipeFluidEmptied ? (
             <>
-              <strong style={{ color: '#6ee7b7' }}>Pipe 내부 유체 복원</strong><br/>
-              비웠던 배관 내부 유체(물) 중량을 원래대로 복원합니다.
-              모델 중량·무게중심이 원래 값으로 재계산됩니다.
+              <strong style={{ color: '#6ee7b7' }}>Pipe 내부 유체 채우기</strong><br/>
+              모델 로드 시 <b>기본값으로 유체를 비운 상태</b>입니다. 이 버튼을 누르면 배관 내부
+              유체(물) 중량을 원래대로 다시 채웁니다. 모델 중량·무게중심이 재계산됩니다.
             </>
           ) : (
             <>
               <strong style={{ color: '#7ab2d4' }}>Pipe 내부 유체 비우기</strong><br/>
               모든 배관 material 의 밀도를 순수 강재(7.85e-9)로 되돌려 내부 물 중량을 제거합니다.
               모델 중량·무게중심이 즉시 재계산되고, 구조해석(Nastran) BDF 에도 반영됩니다.
-              비운 뒤 언제든 다시 채울 수 있습니다.
             </>
           )
         }>
@@ -364,9 +369,15 @@ export default function Sidebar() {
             }}
           >
             <Droplet size={14} />
-            {isEmptied ? (pipeFluidEmptied ? '유체 복원 (비움 완료 ✓)' : '유체 비움 완료 ✓') : 'Pipe 내부 유체 비우기'}
+            {isEmptied ? (pipeFluidEmptied ? 'Pipe 내부 유체 채우기' : '유체 비움 완료 ✓') : 'Pipe 내부 유체 비우기'}
           </button>
         </Tooltip>
+        {/* 로드 직후 자동 적용된 기본값임을 밝힌다 — 사용자가 누른 적 없는데 '비움' 상태인 이유. */}
+        {pipeFluidEmptied && !emptyResult && (
+          <div style={{ fontSize: 10, color: '#9fd0b6', marginTop: 4, lineHeight: 1.4 }}>
+            기본값으로 배관 내부 유체를 비운 상태입니다. 유체를 포함해 평가하려면 위 버튼으로 채우세요.
+          </div>
+        )}
         {pipeMaterialCount === 0 && !isEmptied && (
           <div style={{ fontSize: 10, color: '#7a8aaa', marginTop: 4 }}>배관 부재가 없습니다.</div>
         )}
@@ -410,6 +421,29 @@ export default function Sidebar() {
         {rotateResult?.invalidatedStability && (
           <div style={{ fontSize: 10, color: '#ffcc66', marginTop: 2, lineHeight: 1.4 }}>
             ⚠ 형상이 바뀌어 자세안정성/구조해석 결과를 초기화했습니다. 자세안정성 평가를 다시 실행하세요.
+          </div>
+        )}
+        {/* 회전 초기화 — 실제 회전 상태(modelRotated)일 때만 노출. 개별 회전 되돌리기는 불가하며 여기서만 전체 해제. */}
+        {modelRotated && (
+          <Tooltip placement="right" content="적용된 모델 회전을 모두 해제하고 원래 방향으로 되돌립니다. 회전은 개별 되돌리기가 불가하며, 이 버튼으로만 전체 해제됩니다.">
+            <button
+              onClick={handleResetRotation}
+              style={{
+                width: '100%', display: 'flex', alignItems: 'center', gap: 6,
+                padding: '7px 10px', marginTop: 6,
+                background: 'rgba(255,184,0,0.10)',
+                border: '1px solid rgba(255,184,0,0.45)', borderRadius: 6,
+                color: '#FFE6A8', fontSize: 11, fontWeight: 700, cursor: 'pointer',
+              }}
+            >
+              <RotateCcw size={13} /> 회전 초기화
+            </button>
+          </Tooltip>
+        )}
+        {rotateReset && (
+          <div style={{ fontSize: 10, color: '#9fd0b6', marginTop: 4, lineHeight: 1.4 }}>
+            ↺ 회전 {rotateReset.undoneCount}건 해제 — 원래 방향으로 복원됨
+            {rotateReset.invalidatedStability ? ' · 해석 결과 초기화됨' : ''}
           </div>
         )}
       </Section>
@@ -461,7 +495,7 @@ export default function Sidebar() {
       {showRotateDialog && (
         <RotateModelDialog
           onClose={() => setShowRotateDialog(false)}
-          onApplied={setRotateResult}
+          onApplied={(res) => { setRotateResult(res); setRotateReset(null) }}
         />
       )}
 
@@ -525,35 +559,6 @@ function SideBtn({ onClick, disabled, accent, children }) {
       }}
     >
       {children}
-    </button>
-  )
-}
-
-// ── ON/OFF 토글 버튼 ──────────────────────────────────────────────────────
-
-function ToggleBtn({ active, onClick, activeColor, label, icon }) {
-  return (
-    <button
-      onClick={onClick}
-      style={{
-        display: 'flex', alignItems: 'center', gap: 7,
-        background: active ? `${activeColor}28` : '#0f0f22',
-        color: active ? '#f0f0f0' : '#7070a0',
-        border: `1px solid ${active ? activeColor + 'aa' : '#2e2e50'}`,
-        borderRadius: 6,
-        padding: '7px 10px',
-        fontSize: 11, fontWeight: 600,
-        cursor: 'pointer',
-        transition: 'all 0.15s ease',
-        width: '100%', textAlign: 'left',
-        boxShadow: active ? `0 0 8px ${activeColor}30` : 'none',
-      }}
-    >
-      <span style={{ fontSize: 11, lineHeight: 1 }}>{icon}</span>
-      <span style={{ flex: 1 }}>{label}</span>
-      <span style={{ fontSize: 8, fontWeight: 800, color: active ? activeColor + 'ee' : '#505070' }}>
-        {active ? 'ON' : 'OFF'}
-      </span>
     </button>
   )
 }

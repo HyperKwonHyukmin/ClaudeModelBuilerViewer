@@ -39,7 +39,7 @@ export default function TopMenuBar() {
       <div style={{ width: 1, height: 18, background: '#1e1e38', flexShrink: 0 }} />
 
       {/* 모드 탭 */}
-      <nav style={{ display: 'flex', gap: 4 }}>
+      <nav role="tablist" aria-label="스튜디오 모드" style={{ display: 'flex', gap: 4 }}>
         {TABS.map(({ key, label, Icon }) => {
           const active = activeMode === key
           const hovered = !active && hoveredKey === key
@@ -47,6 +47,9 @@ export default function TopMenuBar() {
             <button
               key={key}
               type="button"
+              role="tab"
+              aria-selected={active}
+              aria-label={`${label} 모드`}
               onClick={() => setActiveMode(key)}
               onMouseEnter={() => setHoveredKey(key)}
               onMouseLeave={() => setHoveredKey(k => (k === key ? null : k))}

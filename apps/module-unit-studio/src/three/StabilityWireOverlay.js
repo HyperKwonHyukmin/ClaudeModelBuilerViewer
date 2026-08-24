@@ -77,7 +77,9 @@ function makeLine(start, end, color, linePx, resolution) {
   mat.worldUnits = false
   const line = new Line2(geo, mat)
   line.computeLineDistances()
-  line.renderOrder = 72
+  // renderOrder 76~78 대역 — HoistGroupCog(70~72)·NastranResult 버킷(70~74)과 겹치지 않게 분리해
+  // (동률 renderOrder 시 회전각에 따라 wire 가 가려졌다 보였다 하던 비결정 오버랩을 제거).
+  line.renderOrder = 76
   return line
 }
 
@@ -96,7 +98,7 @@ function makeApexMarker(pos, groupId, color) {
     }),
   )
   sphere.position.copy(pos)
-  sphere.renderOrder = 73
+  sphere.renderOrder = 77
   group.add(sphere)
 
   const label = makeLabel(`G${groupId} TOP`, color)
@@ -140,7 +142,7 @@ function makeLabel(text, color) {
     depthWrite: false,
   }))
   sprite.scale.set(0.9, 0.29, 1)
-  sprite.renderOrder = 74
+  sprite.renderOrder = 78
   return sprite
 }
 
