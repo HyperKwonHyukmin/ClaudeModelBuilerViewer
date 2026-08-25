@@ -59,6 +59,54 @@ function persistStrictEvaluation(value) {
   try { localStorage.setItem(STRICT_EVAL_STORAGE_KEY, String(!!value)) } catch { /* 저장 실패 무시 */ }
 }
 
+// ── 권상 리깅 검토 (Stage 7) ────────────────────────────────────────────────
+// enabled 일 때만 _posture.json 에 liftAnalysis 로 실려 엔진의 Stage 7(슬링 장력·SWL·DAF)이
+// 실행된다. 그전까지 Module Unit 은 이 값을 보내지 않아 Stage 7 이 항상 skip 됐고, 결과적으로
+// 슬링·샤클·러그가 견디는지는 한 번도 검토되지 않았다(모듈 부재 응력은 Nastran 단위 구조해석이
+// 잡지만 리깅 요소는 그 FE 모델에 없다).
+//
+// ⚠️ SWL 기본값을 두지 않는다 — 엔진도 임의 안전값을 가정하지 않는다. 비우면 그 검사만
+// 생략되고 장력은 계속 산출된다. daf·무게여유만 제안 기본값을 준다.
+export const DEFAULT_LIFT_ANALYSIS = {
+  enabled: false,
+  daf: 1.15,                 // 동하중계수 — 제안 기본값(Side Passage 와 동일)
+  weightContingencyPct: 10,  // 무게 여유(%) — 제안 기본값
+  wireSwlTon: null,          // 와이어로프 SWL (ton) — 사용자 입력
+  shackleSwlTon: null,       // 샤클 SWL (ton)
+  lugSwlTon: null,           // 러그 허용하중 (ton)
+}
+
+// ── 무게중심 포락선 (Stage 6) ───────────────────────────────────────────────
+// enabled 일 때만 _posture.json 의 model.cogToleranceMm 로 실린다. 엔진은 XY 네 코너 중
+// 최악을 채택하고 Z 는 여유가 줄어드는 방향으로 적용한다.
+//
+// 왜 필요한가: massSource 는 빔 단면×길이×밀도 + 모델링된 점질량이라, FE 모델에 없는
+// 의장품(배관·케이블트레이·보온·그레이팅·도장·용접·볼트)이 통째로 빠진다. 결정론적 COG
+// 한 점에서만 평가하면 "여유 20mm 로 PASS" 가 아무것도 보장하지 못한다.
+//
+// ⚠️ 기본 OFF — 켜면 기존에 PASS 였던 배치가 WARN/FAIL 로 내려갈 수 있다. 공차 크기는
+// 사내 중량 관리 관행(계량 여부, 의장품 모델링 수준)에 달렸으므로 사용자가 정한다.
+export const DEFAULT_COG_TOLERANCE = {
+  enabled: false,
+  x: null,
+  y: null,
+  z: null,
+}
+
+/** 모델 BBox 평면 치수의 비율로 COG 공차 제안값을 만든다 (기본 2%). Z 는 높이의 1%. */
+export function suggestCogToleranceMm(bbox, ratio = 0.02) {
+  if (!bbox) return null
+  const dx = Math.abs((bbox.maxX ?? 0) - (bbox.minX ?? 0))
+  const dy = Math.abs((bbox.maxY ?? 0) - (bbox.minY ?? 0))
+  const dz = Math.abs((bbox.maxZ ?? 0) - (bbox.minZ ?? 0))
+  if (!(dx > 0 || dy > 0)) return null
+  return {
+    x: Math.round(dx * ratio),
+    y: Math.round(dy * ratio),
+    z: Math.round(dz * ratio * 0.5),
+  }
+}
+
 // 편집(intent) 적용 시 자세안정성(posture) 결과를 그대로 유지하는 kind.
 // 가서포트(addSupportBeam)는 자세안정성 PASS 이후 Analysis 단계에서 추가하는 "구조 보강"이므로
 // 구조해석 결과만 무효화하고 자세안정성은 유지한다(기존 설계 의도). 그 외 모델 형상·질량을 바꾸는
@@ -137,6 +185,12 @@ export const useEditStore = create((set, get) => ({
   // Strict 평가 — 자세안정성 형상 판정의 엄격도. 기본 OFF(=완화). 세션 간 유지(localStorage).
   // 모델 로드/reset 으로 초기화되지 않는다(사용자 환경설정 성격, pipeDiameterThreshold 와 동일).
   strictEvaluation: loadStrictEvaluation(),
+
+  // 권상 리깅 검토 입력(Stage 7). enabled 일 때만 _posture.json 에 liftAnalysis 로 실린다.
+  liftAnalysis: { ...DEFAULT_LIFT_ANALYSIS },
+
+  // 무게중심 포락선(Stage 6). enabled 일 때만 model.cogToleranceMm 로 실린다.
+  cogTolerance: { ...DEFAULT_COG_TOLERANCE },
 
   // 활성 권상 그룹의 Z-레벨 가이드 평판(가상판) 3D 표시 여부. 사용자가 뷰가 가려질 때 끌 수 있다(기본 표시).
   showHoistPlate: true,
@@ -453,6 +507,26 @@ export const useEditStore = create((set, get) => ({
     persistStrictEvaluation(next)
     set({ strictEvaluation: next })
     // 저장된 리포트는 바뀐 기준과 맞지 않으므로 내린다(wire 오버레이 포함).
+    const ss = useStabilityStore.getState()
+    if (ss.report || ss.overallStatus) ss.reset()
+  },
+
+  /**
+   * 권상 리깅 검토 입력(Stage 7) 부분 갱신. enabled 를 켜야 _posture.json 에 실린다.
+   * 판정 기준이 달라지므로 strictEvaluation 과 같이 저장된 리포트를 무효화한다.
+   */
+  setLiftAnalysis: (patch) => {
+    set(s => ({ liftAnalysis: { ...s.liftAnalysis, ...patch } }))
+    const ss = useStabilityStore.getState()
+    if (ss.report || ss.overallStatus) ss.reset()
+  },
+
+  /**
+   * 무게중심 포락선(Stage 6) 부분 갱신. 공차를 켜거나 바꾸면 전도 판정이 달라지므로
+   * 저장된 리포트를 무효화한다.
+   */
+  setCogTolerance: (patch) => {
+    set(s => ({ cogTolerance: { ...s.cogTolerance, ...patch } }))
     const ss = useStabilityStore.getState()
     if (ss.report || ss.overallStatus) ss.reset()
   },
@@ -1503,11 +1577,16 @@ export function buildPostureStabilityPayload(state, hoisting, stage, editedFileN
       // 'stageSummary' (00_StageSummary.json 또는 _COG.json) 또는
       // 'computed:beam+pointMass' / 'computed:pointMassOnly' / 'computed:beamOnly' / 'unavailable'
       massSource,
+      // 무게중심 포락선(선택). 있으면 Stage 6 이 XY 네 코너 최악에서 전도를 판정한다.
+      // 없으면 후보가 COG 한 점뿐이라 기존 동작과 완전히 같다.
+      ...(serializeCogTolerance(state.cogTolerance) ?? {}),
     },
     // 자세안정성 평가 엄격도(Hoist 패널 'Strict 평가' 토글). false 면 엔진이 Stage 1·2 형상 위반을
     // warn 으로 강등하고 옵티마이저 후보 게이트의 형상 검증을 우회한다. Stage 3(wireLengthM≤0)·
     // Stage 6(전도)은 완화 대상이 아니다. 산출물에 남겨 "어떤 기준으로 평가했는지" 추적 가능하게 한다.
     strictEvaluation: state.strictEvaluation === true,
+    // 권상 리깅 검토(Stage 7). enabled 일 때만 싣는다 — 없으면 엔진이 skip 하고 화면에서도 숨긴다.
+    ...(state.liftAnalysis?.enabled ? { liftAnalysis: serializeLiftAnalysis(state.liftAnalysis) } : {}),
   }
   if (state.hoistOptimization) {
     const opt = state.hoistOptimization
@@ -1536,6 +1615,42 @@ export function buildPostureStabilityPayload(state, hoisting, stage, editedFileN
     }
   }
   return payload
+}
+
+/**
+ * 권상 리깅 검토 입력을 _posture.json 스키마로 정규화한다.
+ * 빈 문자열·NaN·0 이하는 null 로 떨어뜨려 "그 검사만 생략" 이 되게 한다
+ * (엔진이 임의 안전값을 가정하지 않으므로 null 과 0 을 구분해야 한다).
+ */
+function serializeLiftAnalysis(la) {
+  const num = (v) => (v == null || v === '' || !Number.isFinite(Number(v))) ? null : Number(v)
+  const pos = (v) => { const n = num(v); return n != null && n > 0 ? n : null }
+  return {
+    enabled: true,
+    daf: pos(la.daf) ?? 1.0,
+    weightContingencyPct: num(la.weightContingencyPct) ?? 0,
+    allowables: {
+      wireSwlTon: pos(la.wireSwlTon),
+      shackleSwlTon: pos(la.shackleSwlTon),
+      lugSwlTon: pos(la.lugSwlTon),
+    },
+  }
+}
+
+/**
+ * 무게중심 포락선을 model 에 얹을 형태로 정규화한다.
+ * 꺼져 있거나 세 축이 모두 0/빈값이면 null 을 돌려주고, 호출부는 아무것도 싣지 않는다
+ * → 엔진에서 후보가 COG 한 점 = 기존 동작 그대로.
+ */
+function serializeCogTolerance(ct) {
+  if (!ct?.enabled) return null
+  const abs = (v) => {
+    const n = (v == null || v === '') ? 0 : Number(v)
+    return Number.isFinite(n) ? Math.abs(n) : 0
+  }
+  const x = abs(ct.x), y = abs(ct.y), z = abs(ct.z)
+  if (x === 0 && y === 0 && z === 0) return null
+  return { cogToleranceMm: { x, y, z } }
 }
 
 /**

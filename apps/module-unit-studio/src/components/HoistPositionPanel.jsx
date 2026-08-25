@@ -1,10 +1,11 @@
 import { Fragment, useState } from 'react'
-import { AlertTriangle, ClipboardList, Eye, EyeOff, Loader2, Play, Plus, RotateCcw, ShieldAlert, ShieldCheck, Sparkles, Trash2, X } from 'lucide-react'
+import { AlertTriangle, ChevronDown, ChevronRight, ClipboardList, Eye, EyeOff, Loader2, Play, Plus, RotateCcw, ShieldAlert, ShieldCheck, Sparkles, Trash2, X } from 'lucide-react'
 import {
   useEditStore,
   getHoistMaxGroups,
   getHoistDefaultWireLengthM,
   getHoistMinNodesPerGroup,
+  suggestCogToleranceMm,
 } from '../store/useEditStore.js'
 import { useStabilityStore } from '../store/useStabilityStore.js'
 import { useStageStore } from '../store/useStageStore.js'
@@ -773,6 +774,8 @@ export default function HoistPositionPanel() {
         </div>
       </div>
 
+      <AdvancedEvaluationOptions />
+
       {/* ── STEP 4. 평가 실행 ── */}
       <StepHeader n={4} title="자세안정성 평가 실행" done={!!stabilityReport}
         desc={canRunEvaluation ? '준비 완료 — 아래 버튼으로 평가를 실행하세요.' : 'STEP 1·2를 완료하면 실행할 수 있습니다.'} />
@@ -1046,6 +1049,159 @@ function StepHeader({ n, title, desc, done = false, disabled = false }) {
         <span style={{ fontSize: 12, fontWeight: 900, color: done ? '#9fe6c2' : '#e6f1ff', letterSpacing: 0.2 }}>{title}</span>
         {desc && <span style={{ fontSize: 10, color: '#7a8aaa', lineHeight: 1.4 }}>{desc}</span>}
       </div>
+    </div>
+  )
+}
+
+// ── 정밀 검토 옵션 (선택) ───────────────────────────────────────────────────
+// 둘 다 기본 OFF 이고, 켜야만 _posture.json 에 실려 엔진 동작이 달라진다.
+//
+//  · 리깅 검토(Stage 7) — 켜기 전까지 Module Unit 은 liftAnalysis 를 보내지 않아 슬링·샤클·
+//    러그가 견디는지 한 번도 검토되지 않았다. 모듈 부재 응력은 Nastran 단위 구조해석이 잡지만
+//    리깅 요소는 그 FE 모델에 없다.
+//  · 무게중심 포락선(Stage 6) — massSource 가 빔+점질량이라 FE 모델에 없는 의장품이 통째로
+//    빠진다. 결정론적 COG 한 점 평가로는 "여유 20mm 로 PASS" 가 아무것도 보장하지 못한다.
+//
+// 패널이 이미 세로로 넘치므로 기본 접힘. 켜져 있으면 접혀 있어도 헤더에 배지를 남겨
+// "지금 어떤 기준으로 평가되는지"가 숨지 않게 한다.
+function AdvancedEvaluationOptions() {
+  const [open, setOpen] = useState(false)
+  const lift = useEditStore(s => s.liftAnalysis)
+  const setLift = useEditStore(s => s.setLiftAnalysis)
+  const cogTol = useEditStore(s => s.cogTolerance)
+  const setCogTol = useEditStore(s => s.setCogTolerance)
+  const bbox = useStageStore(s => s.stages?.[s.stages.length - 1]?.bbox ?? null)
+
+  const activeCount = (lift?.enabled ? 1 : 0) + (cogTol?.enabled ? 1 : 0)
+  const suggestion = suggestCogToleranceMm(bbox)
+
+  return (
+    <div style={{ marginTop: 6, borderTop: '1px solid #2a2a4a', paddingTop: 8 }}>
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        aria-expanded={open}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 6, width: '100%',
+          background: 'none', border: 'none', padding: '2px 0', cursor: 'pointer',
+          color: '#9fb4cc', fontSize: 11, fontWeight: 800, letterSpacing: 0.2,
+        }}>
+        {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+        <span>정밀 검토 옵션</span>
+        {activeCount > 0 && (
+          <span style={{
+            marginLeft: 'auto', fontSize: 9.5, fontWeight: 800,
+            padding: '1px 6px', borderRadius: 999,
+            background: 'rgba(0,209,255,0.16)', color: '#00D1FF',
+            border: '1px solid rgba(0,209,255,0.45)',
+          }}>{activeCount}개 사용 중</span>
+        )}
+      </button>
+
+      {open && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 8 }}>
+
+          {/* 권상 리깅 검토 (Stage 7) */}
+          <OptionBlock
+            label="권상 리깅 검토 (SWL·DAF)"
+            checked={!!lift?.enabled}
+            onToggle={v => setLift({ enabled: v })}
+            hint="슬링 장력을 계산해 허용하중(SWL) 대비 검토합니다. 허용값은 직접 입력하세요 — 비우면 그 검사만 생략되고 장력은 계속 산출됩니다."
+          >
+            {[
+              { key: 'daf', label: 'DAF (동하중계수)', step: '0.05', ph: '1.15' },
+              { key: 'weightContingencyPct', label: '무게 여유 (%)', step: '1', ph: '10' },
+              { key: 'wireSwlTon', label: '와이어 SWL (ton)', step: '0.5', ph: '예: 12' },
+              { key: 'shackleSwlTon', label: '샤클 SWL (ton)', step: '0.5', ph: '예: 17' },
+              { key: 'lugSwlTon', label: '러그 허용 (ton)', step: '0.5', ph: '예: 15' },
+            ].map(f => (
+              <NumField key={f.key} label={f.label} step={f.step} placeholder={f.ph}
+                value={lift?.[f.key] ?? ''} onChange={v => setLift({ [f.key]: v })} />
+            ))}
+          </OptionBlock>
+
+          {/* 무게중심 포락선 (Stage 6) */}
+          <OptionBlock
+            label="무게중심 불확도 반영"
+            checked={!!cogTol?.enabled}
+            onToggle={v => setCogTol({ enabled: v })}
+            hint="무게중심이 계산값에서 벗어날 수 있는 범위(±mm)입니다. 이 범위의 최악 지점에서 전도를 판정합니다. 모델에 없는 의장품(배관·트레이·보온·도장)이 많을수록 크게 잡으세요."
+          >
+            {[
+              { key: 'x', label: '± X (mm)', ph: suggestion ? String(suggestion.x) : '예: 300' },
+              { key: 'y', label: '± Y (mm)', ph: suggestion ? String(suggestion.y) : '예: 300' },
+              { key: 'z', label: '± Z (mm)', ph: suggestion ? String(suggestion.z) : '예: 150' },
+            ].map(f => (
+              <NumField key={f.key} label={f.label} step="10" placeholder={f.ph}
+                value={cogTol?.[f.key] ?? ''} onChange={v => setCogTol({ [f.key]: v })} />
+            ))}
+            {suggestion && (
+              <button
+                type="button"
+                onClick={() => setCogTol({ ...suggestion })}
+                style={{
+                  alignSelf: 'flex-start', marginTop: 2,
+                  padding: '3px 8px', borderRadius: 4, cursor: 'pointer',
+                  background: 'rgba(0,209,255,0.12)', border: '1px solid rgba(0,209,255,0.4)',
+                  color: '#8fe4ff', fontSize: 10, fontWeight: 700,
+                }}>
+                모델 치수의 2%로 채우기 ({suggestion.x} / {suggestion.y} / {suggestion.z})
+              </button>
+            )}
+          </OptionBlock>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function OptionBlock({ label, checked, onToggle, hint, children }) {
+  return (
+    <div style={{
+      border: `1px solid ${checked ? 'rgba(0,209,255,0.35)' : '#2a2a4a'}`,
+      borderRadius: 7, padding: '8px 10px',
+      background: checked ? 'rgba(0,209,255,0.05)' : 'transparent',
+      display: 'flex', flexDirection: 'column', gap: 6,
+    }}>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer' }}>
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={e => onToggle(e.target.checked)}
+          style={{ accentColor: '#00D1FF', width: 13, height: 13, cursor: 'pointer' }}
+        />
+        <span style={{ fontSize: 11, fontWeight: 800, color: checked ? '#8fe4ff' : '#cad8e8', letterSpacing: 0.2 }}>
+          {label}
+        </span>
+      </label>
+      {checked && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+          <div style={{ fontSize: 9.5, color: '#8aa0b8', lineHeight: 1.5 }}>{hint}</div>
+          {children}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function NumField({ label, value, onChange, step, placeholder }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+      <span style={{ fontSize: 10, color: '#cad8e8' }}>{label}</span>
+      <input
+        type="number"
+        min="0"
+        step={step}
+        value={value}
+        placeholder={placeholder}
+        onChange={e => onChange(e.target.value)}
+        aria-label={label}
+        style={{
+          width: 82, padding: '4px 6px', borderRadius: 4,
+          background: '#0c0c1c', border: '1px solid #2a2a4a',
+          color: '#e8f4ff', fontSize: 11, textAlign: 'right', outline: 'none',
+        }}
+      />
     </div>
   )
 }
