@@ -84,7 +84,7 @@ export default function EditModePanel() {
           위 <strong style={{ color: '#FFE6A8' }}>편집 모드</strong> 토글이 켜지면
           그룹 삭제 · 요소 삭제 · Rigid 만들기 같은 편집 도구가 여기에 표시됩니다.
           <br />
-          <span style={{ color: '#5a5a80' }}>
+          <span style={{ color: '#8aa0b8' }}>
             (권상 위치 지정·자세안정성 평가는 상단 <strong style={{ color: '#8fd0c0' }}>Hoist</strong> 탭에서 합니다.)
           </span>
         </div>

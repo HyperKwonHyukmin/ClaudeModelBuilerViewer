@@ -60,7 +60,7 @@ export default function RotateModelDialog({ onClose, onApplied }) {
             <RotateCcw size={13} /> 모델 회전
           </div>
           <button onClick={onClose} title="닫기"
-            style={{ background: 'transparent', border: 'none', color: '#7070a0', cursor: 'pointer', padding: 2 }}>
+            style={{ background: 'transparent', border: 'none', color: '#9a9ad0', cursor: 'pointer', padding: 2 }}>
             <X size={14} />
           </button>
         </div>
@@ -85,7 +85,7 @@ export default function RotateModelDialog({ onClose, onApplied }) {
         <Section title="회전 각도 (°)">
           <input type="number" value={angleText} onChange={e => setAngleText(e.target.value)} step="1" placeholder="180"
             style={inputStyle} />
-          <div style={{ fontSize: 9, color: '#7a8aaa' }}>
+          <div style={{ fontSize: 10, color: '#7a8aaa' }}>
             무게중심(CoG) 기준으로 회전합니다. 회전은 누적되며, 개별 되돌리기는 불가합니다 —
             해제하려면 좌측 '모델 조작'의 <strong style={{ color: '#FFE6A8' }}>회전 초기화</strong> 를 사용하세요.
           </div>
@@ -127,7 +127,7 @@ const inputStyle = {
   fontSize: 11, fontFamily: 'monospace',
 }
 const cancelBtnStyle = {
-  background: 'transparent', color: '#7070a0', border: '1px solid #2e2e50',
+  background: 'transparent', color: '#9a9ad0', border: '1px solid #2e2e50',
   borderRadius: 5, padding: '5px 12px', fontSize: 11, fontWeight: 600, cursor: 'pointer',
 }
 const applyBtnStyle = {
@@ -138,7 +138,7 @@ const applyBtnStyle = {
 function Section({ title, children }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-      <div style={{ fontSize: 9, color: '#7ab2d4', letterSpacing: 1.4, textTransform: 'uppercase', fontWeight: 800 }}>
+      <div style={{ fontSize: 10, color: '#7ab2d4', letterSpacing: 1.4, textTransform: 'uppercase', fontWeight: 800 }}>
         {title}
       </div>
       {children}

@@ -97,7 +97,7 @@ export default function AddRigidDialog({ onClose }) {
             새 RBE 만들기
           </div>
           <button onClick={onClose} title="닫기"
-            style={{ background: 'transparent', border: 'none', color: '#7070a0', cursor: 'pointer', padding: 2 }}>
+            style={{ background: 'transparent', border: 'none', color: '#9a9ad0', cursor: 'pointer', padding: 2 }}>
             <X size={14} />
           </button>
         </div>
@@ -117,13 +117,13 @@ export default function AddRigidDialog({ onClose }) {
               }}>
                 <input type="radio" name="indep" checked={id === effectiveIndep} onChange={() => setIndep(id)} />
                 <span style={{ flex: 1 }}>Node #{id}</span>
-                <span style={{ fontSize: 9, color: id === effectiveIndep ? '#FFB800' : '#5a5a80', fontWeight: 700 }}>
+                <span style={{ fontSize: 10, color: id === effectiveIndep ? '#FFB800' : '#8aa0b8', fontWeight: 700 }}>
                   {id === effectiveIndep ? '독립' : '종속'}
                 </span>
               </label>
             ))}
           </div>
-          <div style={{ fontSize: 9, color: '#7a8aaa' }}>
+          <div style={{ fontSize: 10, color: '#7a8aaa' }}>
             종속 노드 {dependentNodes.length}개: {dependentNodes.slice(0, 6).join(', ')}{dependentNodes.length > 6 ? ` 외 ${dependentNodes.length - 6}` : ''}
           </div>
         </Section>
@@ -137,7 +137,7 @@ export default function AddRigidDialog({ onClose }) {
           <Field label="DOF (cm)">
             <input type="text" value={cm} onChange={e => setCm(e.target.value)} placeholder="123456"
               maxLength={6} style={inputStyle} />
-            <div style={{ fontSize: 9, color: '#7a8aaa', marginTop: 2 }}>
+            <div style={{ fontSize: 10, color: '#7a8aaa', marginTop: 2 }}>
               1~6자리, 각 자리 1~6 (예: 123, 23, 123456)
             </div>
           </Field>
@@ -191,7 +191,7 @@ const inputStyle = {
 }
 
 const cancelBtnStyle = {
-  background: 'transparent', color: '#7070a0',
+  background: 'transparent', color: '#9a9ad0',
   border: '1px solid #2e2e50', borderRadius: 5,
   padding: '5px 12px', fontSize: 11, fontWeight: 600, cursor: 'pointer',
 }
@@ -205,7 +205,7 @@ const addBtnStyle = {
 function Section({ title, children }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-      <div style={{ fontSize: 9, color: '#7ab2d4', letterSpacing: 1.4, textTransform: 'uppercase', fontWeight: 800 }}>
+      <div style={{ fontSize: 10, color: '#7ab2d4', letterSpacing: 1.4, textTransform: 'uppercase', fontWeight: 800 }}>
         {title}
       </div>
       {children}

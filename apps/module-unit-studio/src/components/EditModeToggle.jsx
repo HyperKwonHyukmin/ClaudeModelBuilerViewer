@@ -53,7 +53,7 @@ export default function EditModeToggle() {
           style={{
             display: 'flex', alignItems: 'center', gap: 7,
             background: enabled ? `${activeColor}28` : '#0f0f22',
-            color: enabled ? '#f0f0f0' : '#7070a0',
+            color: enabled ? '#f0f0f0' : '#9a9ad0',
             border: `1px solid ${enabled ? activeColor + 'aa' : '#2e2e50'}`,
             borderRadius: 6,
             padding: '7px 10px',
@@ -68,7 +68,7 @@ export default function EditModeToggle() {
           <span style={{ flex: 1 }}>편집 모드</span>
           {intentCount > 0 && (
             <span style={{
-              fontSize: 9, fontWeight: 800,
+              fontSize: 10, fontWeight: 800,
               background: activeColor + '40',
               color: activeColor + 'ee',
               padding: '1px 5px', borderRadius: 8,
@@ -76,7 +76,7 @@ export default function EditModeToggle() {
               {intentCount}
             </span>
           )}
-          <span style={{ fontSize: 8, fontWeight: 800, color: enabled ? activeColor + 'ee' : '#505070' }}>
+          <span style={{ fontSize: 10, fontWeight: 800, color: enabled ? activeColor + 'ee' : '#8aa0b8' }}>
             {enabled ? 'ON' : 'OFF'}
           </span>
         </button>

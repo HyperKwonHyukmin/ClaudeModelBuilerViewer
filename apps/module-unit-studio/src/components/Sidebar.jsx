@@ -308,7 +308,7 @@ export default function Sidebar() {
                 style={{
                   display: 'flex', alignItems: 'center', gap: 7,
                   background: on ? `${color}20` : '#0f0f22',
-                  color: on ? '#f0f0f0' : '#7070a0',
+                  color: on ? '#f0f0f0' : '#9a9ad0',
                   border: `1px solid ${on ? color + 'aa' : '#2e2e50'}`,
                   borderRadius: 6,
                   padding: '7px 10px',
@@ -324,7 +324,7 @@ export default function Sidebar() {
                   transition: 'all 0.15s ease',
                 }} />
                 <span style={{ flex: 1 }}>{label}</span>
-                <span style={{ fontSize: 8, fontWeight: 800, color: on ? color + 'cc' : '#505070' }}>
+                <span style={{ fontSize: 10, fontWeight: 800, color: on ? color : '#8aa0b8' }}>
                   {on ? 'ON' : 'OFF'}
                 </span>
               </button>
@@ -378,8 +378,12 @@ export default function Sidebar() {
             기본값으로 배관 내부 유체를 비운 상태입니다. 유체를 포함해 평가하려면 위 버튼으로 채우세요.
           </div>
         )}
+        {/* 모델이 없을 때 "배관 부재가 없습니다"라고 단정하면 모델에 배관이 없다는 뜻으로
+            읽힌다. 실제로는 아직 아무것도 안 읽은 상태다 — 두 경우를 구분해 말한다. */}
         {pipeMaterialCount === 0 && !isEmptied && (
-          <div style={{ fontSize: 10, color: '#7a8aaa', marginTop: 4 }}>배관 부재가 없습니다.</div>
+          <div style={{ fontSize: 10, color: '#7a8aaa', marginTop: 4 }}>
+            {stages.length === 0 ? '모델을 먼저 열어 주세요.' : '이 모델에는 배관 부재가 없습니다.'}
+          </div>
         )}
         {/* 이미 비워진 채 로드된 모델 — 사용자가 비운 게 아님을 구분해 안내(혼란 방지) */}
         {pipeFluidAlreadyEmpty && !pipeFluidEmptied && (
@@ -468,7 +472,7 @@ export default function Sidebar() {
               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
               width: '100%', padding: '8px 10px',
               background: 'transparent',
-              color: '#7070a0',
+              color: '#9a9ad0',
               border: '1px solid #2e2e50',
               borderRadius: 6,
               fontSize: 11, fontWeight: 600,
@@ -482,7 +486,7 @@ export default function Sidebar() {
             }}
             onMouseLeave={e => {
               e.currentTarget.style.background = 'transparent'
-              e.currentTarget.style.color = '#7070a0'
+              e.currentTarget.style.color = '#9a9ad0'
               e.currentTarget.style.borderColor = '#2e2e50'
             }}
           >
@@ -565,7 +569,7 @@ function SideBtn({ onClick, disabled, accent, children }) {
 
 function StatusText({ color, children }) {
   return (
-    <div style={{ fontSize: 9, color, padding: '1px 2px', lineHeight: 1.4, wordBreak: 'break-all' }}>
+    <div style={{ fontSize: 10, color, padding: '1px 2px', lineHeight: 1.4, wordBreak: 'break-all' }}>
       {children}
     </div>
   )

@@ -316,7 +316,7 @@ export default function HoistAutoResultModal({ onClose }) {
                     <option value="square">정사각형도</option>
                   </select>
                 </div>
-                <span style={{ marginLeft: 'auto', fontSize: 11, color: '#6a7a92' }}>{displayed.length}개 표시</span>
+                <span style={{ marginLeft: 'auto', fontSize: 11, color: '#8aa0b8' }}>{displayed.length}개 표시</span>
               </div>
             </>
           )}
@@ -472,7 +472,7 @@ function Tab({ active, onClick, children }) {
     <button onClick={onClick} style={{
       padding: '7px 14px', borderRadius: '7px 7px 0 0', fontSize: 12, fontWeight: 800,
       background: active ? '#0f0f22' : 'transparent',
-      color: active ? '#90E8FF' : '#6a7a92',
+      color: active ? '#90E8FF' : '#8aa0b8',
       border: `1px solid ${active ? '#25254a' : 'transparent'}`, borderBottom: 'none', cursor: 'pointer',
     }}>{children}</button>
   )

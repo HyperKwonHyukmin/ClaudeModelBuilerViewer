@@ -76,10 +76,10 @@ export default function MassSummaryOverlay() {
         <span style={{ fontSize: 22, fontWeight: 800, color: '#f0e8c0', letterSpacing: 0.3 }}>
           {formatTon(massData.totalMassTon)}
         </span>
-        <span style={{ fontSize: 11, color: '#a89858', fontWeight: 700 }}>ton</span>
+        <span style={{ fontSize: 11, color: '#d7b96a', fontWeight: 700 }}>ton</span>
         {Number.isFinite(totalLoadKN) && (
           <span style={{ fontSize: 11, color: '#7ab2d4', fontWeight: 700, marginLeft: 'auto' }}>
-            {formatKN(totalLoadKN)} <span style={{ color: '#4a7494', fontSize: 9 }}>kN</span>
+            {formatKN(totalLoadKN)} <span style={{ color: '#8aa0b8', fontSize: 10 }}>kN</span>
           </span>
         )}
       </div>
@@ -105,7 +105,7 @@ export default function MassSummaryOverlay() {
 
       {massData.source !== 'stageSummary' && (
         <div style={{
-          marginTop: 6, fontSize: 8.5, color: '#7a8aaa', letterSpacing: 0.3, fontStyle: 'italic',
+          marginTop: 6, fontSize: 10, color: '#7a8aaa', letterSpacing: 0.3, fontStyle: 'italic',
         }}>
           ※ 자동 계산 (StageSummary 없음)
         </div>
@@ -166,14 +166,14 @@ function Row({ label, value, unit, axisColor }) {
         textShadow: axisColor ? `0 0 5px ${axisColor}66` : undefined,
       }}>{label}</span>
       <span style={{ color: '#cad8e8', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
-        {value} <span style={{ color: '#4a5a7a', fontSize: 9 }}>{unit}</span>
+        {value} <span style={{ color: '#8aa0b8', fontSize: 10 }}>{unit}</span>
       </span>
     </div>
   )
 }
 
 const sectionLabelStyle = {
-  fontSize: 9,
+  fontSize: 10,
   color: '#FFD700',
   letterSpacing: 1.4,
   textTransform: 'uppercase',

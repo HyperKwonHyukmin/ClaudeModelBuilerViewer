@@ -126,7 +126,7 @@ export default function EditPanel() {
         marginBottom: 2, paddingLeft: 2,
       }}>
         <span>편집 의도</span>
-        <span style={{ fontSize: 9, color: '#7070a0', letterSpacing: 0.5, textTransform: 'none' }}>
+        <span style={{ fontSize: 10, color: '#9a9ad0', letterSpacing: 0.5, textTransform: 'none' }}>
           {listIntents.length} 개
           {warnCount > 0 && <span style={{ color: '#FFAA55' }}> · 경고 {warnCount}</span>}
           {errCount  > 0 && <span style={{ color: '#FF8866' }}> · 오류 {errCount}</span>}
@@ -186,7 +186,7 @@ export default function EditPanel() {
             }}>
             <Link2 size={11} /> Rigid 로 묶기
           </button>
-          <div style={{ fontSize: 9, color: '#7a8aaa', lineHeight: 1.4 }}>
+          <div style={{ fontSize: 10, color: '#7a8aaa', lineHeight: 1.4 }}>
             3D 뷰포트에서 <strong>Shift + 클릭</strong>으로 노드 추가/제거
           </div>
         </div>
@@ -206,7 +206,7 @@ export default function EditPanel() {
       {/* derived 영향 요약 — 삭제/추가 의도가 있을 때만 */}
       {(deleteMask.deletedNodeIds.size > 0 || deleteMask.deletedElementIds.size > 0 || deleteMask.addedRigids.length > 0) && (
         <div style={{
-          fontSize: 9, color: '#cad8e8', lineHeight: 1.5,
+          fontSize: 10, color: '#cad8e8', lineHeight: 1.5,
           background: 'rgba(255, 184, 0, 0.08)',
           border: '1px solid rgba(255, 184, 0, 0.25)',
           borderRadius: 5, padding: '4px 7px',
@@ -264,7 +264,7 @@ export default function EditPanel() {
           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
           padding: '4px 9px',
           background: 'transparent',
-          color: listIntents.length === 0 ? '#3a3a50' : '#7070a0',
+          color: listIntents.length === 0 ? '#3a3a50' : '#9a9ad0',
           border: `1px solid ${listIntents.length === 0 ? '#1e1e30' : '#2e2e50'}`,
           borderRadius: 5, fontSize: 10, fontWeight: 600,
           cursor: listIntents.length === 0 ? 'not-allowed' : 'pointer',
@@ -280,7 +280,7 @@ export default function EditPanel() {
         onMouseLeave={e => {
           if (listIntents.length > 0) {
             e.currentTarget.style.background = 'transparent'
-            e.currentTarget.style.color = '#7070a0'
+            e.currentTarget.style.color = '#9a9ad0'
             e.currentTarget.style.borderColor = '#2e2e50'
           }
         }}
@@ -448,7 +448,7 @@ function BulkDeleteBox({ elements, intents, addIntent, removeIntent, clearMultiS
           ? (<><X size={11} /> {elements.length}개 삭제 의도 취소</>)
           : (<><Trash2 size={11} /> {elements.length}개 요소 일괄 삭제</>)}
       </button>
-      <div style={{ fontSize: 9, color: '#7a8aaa', lineHeight: 1.4 }}>
+      <div style={{ fontSize: 10, color: '#7a8aaa', lineHeight: 1.4 }}>
         3D 뷰포트에서 <strong>Ctrl + 클릭</strong>으로 요소 추가/제거
       </div>
     </div>
@@ -492,11 +492,11 @@ function OrphanCleanupBox({ orphanIds, intents, addIntent, removeIntent }) {
         <span style={{ fontSize: 10, color: '#E5BFFF', fontWeight: 700 }}>
           고립 노드 {orphanIds.length}개
         </span>
-        <span style={{ fontSize: 9, color: '#9a7abd' }} title="element / RBE / PointMass 어디에도 참조되지 않는 노드">
+        <span style={{ fontSize: 10, color: '#9a7abd' }} title="element / RBE / PointMass 어디에도 참조되지 않는 노드">
           참조 없음
         </span>
       </div>
-      <div style={{ fontSize: 9, color: '#b89cd0', lineHeight: 1.4, wordBreak: 'break-all' }}>
+      <div style={{ fontSize: 10, color: '#b89cd0', lineHeight: 1.4, wordBreak: 'break-all' }}>
         N: {preview}{tail}
       </div>
       <button
@@ -528,7 +528,7 @@ function EmptyStateGuide({ hasSelection }) {
       padding: '6px 4px',
       fontSize: 10, color: '#7a8aaa', lineHeight: 1.55,
     }}>
-      <div style={{ fontStyle: 'italic', textAlign: 'center', color: '#5a5a80' }}>
+      <div style={{ fontStyle: 'italic', textAlign: 'center', color: '#8aa0b8' }}>
         편집 의도가 없습니다
       </div>
       <ol style={{ margin: 0, paddingLeft: 16, display: 'flex', flexDirection: 'column', gap: 5 }}>
@@ -583,13 +583,13 @@ function IntentRow({ index, intent, selected, onSelect, onRemove }) {
       }}
     >
       <span style={{
-        fontSize: 9, fontWeight: 800,
-        color: '#5a5a80',
+        fontSize: 10, fontWeight: 800,
+        color: '#8aa0b8',
         minWidth: 14, textAlign: 'right',
       }}>{index}.</span>
 
       <span style={{
-        fontSize: 9, fontWeight: 800,
+        fontSize: 10, fontWeight: 800,
         background: badgeColor + '30',
         color: badgeColor,
         padding: '1px 4px', borderRadius: 3,
@@ -607,11 +607,11 @@ function IntentRow({ index, intent, selected, onSelect, onRemove }) {
         title="이 intent 제거"
         style={{
           background: 'transparent', border: 'none',
-          color: '#7070a0', cursor: 'pointer',
+          color: '#9a9ad0', cursor: 'pointer',
           padding: 2, lineHeight: 0,
         }}
         onMouseEnter={e => e.currentTarget.style.color = '#FF8866'}
-        onMouseLeave={e => e.currentTarget.style.color = '#7070a0'}
+        onMouseLeave={e => e.currentTarget.style.color = '#9a9ad0'}
       >
         <X size={12} />
       </button>

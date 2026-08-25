@@ -110,7 +110,7 @@ export default function HoistZoneConfig({ value, onChange, mode, maxGroups, part
       {/* 미니맵(구역 도식 + 구역별 포인트 편집) */}
       {view
         ? <ZonePartitionMap view={view} onCycle={cycleCell} includePipe={value.includePipe} />
-        : <div style={{ fontSize: 11, color: '#6a7a92', padding: '8px 2px' }}>모델이 로드되면 구역 도식이 표시됩니다.</div>}
+        : <div style={{ fontSize: 11, color: '#8aa0b8', padding: '8px 2px' }}>모델이 로드되면 구역 도식이 표시됩니다.</div>}
 
       {/* 배관 토글 */}
       <Row label="배관 포함">
@@ -138,7 +138,7 @@ export default function HoistZoneConfig({ value, onChange, mode, maxGroups, part
       {/* groupCount 표시 — 0점(제외) 셀을 뺀 실제 권상 그룹 수 */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: (over || noneActive) ? '#FF99A6' : '#9fe6c2' }}>
         <Layers size={13} />
-        권상 그룹 {groupCount}개 / 최대 {maxGroups}개 <span style={{ color: '#6a7a92' }}>(0점=제외 · 자동=점 수 엔진 추천)</span>
+        권상 그룹 {groupCount}개 / 최대 {maxGroups}개 <span style={{ color: '#8aa0b8' }}>(0점=제외 · 자동=점 수 엔진 추천)</span>
         {over && <span style={{ fontWeight: 800 }}> · 초과! 일부 구역을 0점(제외)으로</span>}
         {noneActive && <span style={{ fontWeight: 800 }}> · 활성 구역이 없습니다</span>}
       </div>

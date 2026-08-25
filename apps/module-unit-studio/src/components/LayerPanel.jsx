@@ -139,7 +139,7 @@ export default function LayerPanel({ viewportId, stageData, isEditTargetStage = 
             >
               <span style={{ fontSize: 13, color: active ? '#5BA8E5' : '#3a3a6a', width: 16, textAlign: 'center' }}>{icon}</span>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                <span style={{ fontSize: 12, fontWeight: 700, color: active ? '#e8e8f0' : '#555' }}>{label}</span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: active ? '#e8e8f0' : '#8aa0b8' }}>{label}</span>
                 <span style={{ fontSize: 10, color: active ? '#7a9ab8' : '#3a3a5a' }}>{desc}</span>
               </div>
               {active && <span style={{ marginLeft: 'auto', color: '#4682B4', fontSize: 10 }}>▶</span>}
@@ -374,7 +374,7 @@ function OrphanFilterRow({
           width: 28, flexShrink: 0,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           background: pending ? 'rgba(255,107,107,0.18)' : 'transparent',
-          color: disabled ? '#3a3a4a' : pending ? '#FFB3B3' : '#7070a0',
+          color: disabled ? '#3a3a4a' : pending ? '#FFB3B3' : '#9a9ad0',
           border: `1px solid ${pending ? 'rgba(255,107,107,0.55)' : '#252535'}`,
           borderRadius: 6,
           cursor: disabled ? 'not-allowed' : 'pointer',
@@ -389,7 +389,7 @@ function OrphanFilterRow({
         onMouseLeave={(e) => {
           if (disabled || pending) return
           e.currentTarget.style.background = 'transparent'
-          e.currentTarget.style.color = '#7070a0'
+          e.currentTarget.style.color = '#9a9ad0'
           e.currentTarget.style.borderColor = '#252535'
         }}
       >

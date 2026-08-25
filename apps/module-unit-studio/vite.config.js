@@ -1,6 +1,5 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-import tailwindcss from '@tailwindcss/vite'
 import path from 'path'
 import fs from 'node:fs'
 import { fileURLToPath } from 'url'
@@ -44,7 +43,7 @@ function workbenchManifestPlugin(manifest) {
 }
 
 export default defineConfig({
-  plugins: [react(), tailwindcss(), workbenchManifestPlugin(VIEWER_MANIFEST)],
+  plugins: [react(), workbenchManifestPlugin(VIEWER_MANIFEST)],
   // base: './'  — 빌드 산출물이 file:// (Electron) 와 http:// 양쪽에서 모두 동작하도록
   // 자산 경로를 상대로 만든다. http 호스팅에서도 이상 없음.
   base: './',

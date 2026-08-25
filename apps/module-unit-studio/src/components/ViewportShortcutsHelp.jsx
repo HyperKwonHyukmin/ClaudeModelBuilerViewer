@@ -51,7 +51,7 @@ export default function ViewportShortcutsHelp() {
                 <span style={{ display: 'flex', alignItems: 'center', gap: 3, flexShrink: 0 }}>
                   {s.keys.map((k, j) => (
                     <kbd key={j} style={{
-                      fontSize: 9.5, fontWeight: 700, color: '#cfe6ff',
+                      fontSize: 10, fontWeight: 700, color: '#cfe6ff',
                       background: '#181834', border: '1px solid #2e2e50', borderRadius: 4,
                       padding: '1px 5px', fontFamily: 'inherit', whiteSpace: 'nowrap',
                     }}>{k}</kbd>

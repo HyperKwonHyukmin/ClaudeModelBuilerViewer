@@ -50,7 +50,7 @@ const VIEW_BTN_STYLE = {
   fontSize: 11, fontWeight: 700, lineHeight: 1.2, whiteSpace: 'nowrap',
 }
 const VIEW_KEY_STYLE = {
-  marginLeft: 3, fontSize: 8.5, fontWeight: 800, color: '#6b7d99', verticalAlign: 'super',
+  marginLeft: 3, fontSize: 10, fontWeight: 800, color: '#6b7d99', verticalAlign: 'super',
 }
 const RESULT_SELECTION_HIGHLIGHT = {
   color: 0xFFE600,

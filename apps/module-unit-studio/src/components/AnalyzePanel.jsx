@@ -425,7 +425,7 @@ function ProgressLine({ progress, message }) {
           transition: 'width 0.3s ease',
         }} />
       </div>
-      {message && <div style={{ fontSize: 9.5, color: '#90A4B0', lineHeight: 1.4 }}>{message}</div>}
+      {message && <div style={{ fontSize: 10, color: '#90A4B0', lineHeight: 1.4 }}>{message}</div>}
     </div>
   )
 }
@@ -556,7 +556,7 @@ function EditableField({ label, value, onChange, onCommit, disabled, step, min }
           width: 64,
           padding: '3px 6px',
           fontSize: 12, fontWeight: 800,
-          color: disabled ? '#60708a' : '#e6f1ff',
+          color: disabled ? '#5a5a80' : '#e6f1ff',
           background: disabled ? '#0a0a18' : 'rgba(8,6,22,0.65)',
           border: '1px solid #2a2a4a',
           borderRadius: 4,
@@ -570,7 +570,7 @@ function EditableField({ label, value, onChange, onCommit, disabled, step, min }
 
 function Hint({ children }) {
   return (
-    <div style={{ fontSize: 9.5, color: '#60708a', lineHeight: 1.5, paddingLeft: 2 }}>
+    <div style={{ fontSize: 10, color: '#8aa0b8', lineHeight: 1.5, paddingLeft: 2 }}>
       {children}
     </div>
   )

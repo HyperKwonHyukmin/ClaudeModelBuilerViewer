@@ -175,7 +175,7 @@ function Header({ overall, ranAt, onClose, dragging, ...dragHandlers }) {
           {sc.label}
         </span>
       )}
-      {ranAt && <span style={{ fontSize: 9, color: '#60708a' }}>{formatRanAt(ranAt)}</span>}
+      {ranAt && <span style={{ fontSize: 10, color: '#8aa0b8' }}>{formatRanAt(ranAt)}</span>}
       <button
         onClick={onClose}
         title="결과 패널 닫기"
@@ -359,7 +359,7 @@ function MetricChip({ label, value, color }) {
       background: 'rgba(0,0,0,0.18)',
       border: `1px solid ${color}55`,
     }}>
-      <div style={{ fontSize: 9, color: '#7a8aaa', fontWeight: 700 }}>{label}</div>
+      <div style={{ fontSize: 10, color: '#7a8aaa', fontWeight: 700 }}>{label}</div>
       <div style={{ marginTop: 1, fontSize: 15, color, fontWeight: 900 }}>{value}</div>
     </div>
   )
@@ -445,7 +445,7 @@ function StagesBlock({ report }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
       {userStages.map((stage, i) => <StageCard key={stage.id ?? i} stage={stage} />)}
       {report?.meta?.schema && (
-        <div style={{ fontSize: 9, color: '#3a3a52', textAlign: 'center', marginTop: 4 }}>
+        <div style={{ fontSize: 10, color: '#3a3a52', textAlign: 'center', marginTop: 4 }}>
           schema: {report.meta.schema}
         </div>
       )}

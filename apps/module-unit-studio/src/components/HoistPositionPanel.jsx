@@ -298,7 +298,7 @@ export default function HoistPositionPanel() {
                 <span style={{ fontSize: 11, fontWeight: 800, whiteSpace: 'nowrap', transition: 'color 180ms ease' }}>
                   {m.label}
                 </span>
-                <span style={{ fontSize: 10, color: active ? '#90E8FF' : '#60708a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', transition: 'color 180ms ease' }}>
+                <span style={{ fontSize: 10, color: active ? '#90E8FF' : '#8aa0b8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', transition: 'color 180ms ease' }}>
                   {detailText}
                 </span>
               </button>
@@ -338,10 +338,10 @@ export default function HoistPositionPanel() {
       {/* 보조 경로 — 직접 지정(3D Shift+클릭). 접지 않고 노출하되 시각적으로 보조. */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '3px 0 0' }}>
         <span style={{ flex: 1, height: 1, background: '#2a2a4a' }} />
-        <span style={{ fontSize: 10, color: '#6a7a92', fontWeight: 700, whiteSpace: 'nowrap' }}>또는 직접 지정</span>
+        <span style={{ fontSize: 10, color: '#8aa0b8', fontWeight: 700, whiteSpace: 'nowrap' }}>또는 직접 지정</span>
         <span style={{ flex: 1, height: 1, background: '#2a2a4a' }} />
       </div>
-      <div style={{ fontSize: 10, color: '#60708a', marginTop: -2, lineHeight: 1.4 }}>
+      <div style={{ fontSize: 10, color: '#8aa0b8', marginTop: -2, lineHeight: 1.4 }}>
         그룹을 누른 뒤 3D 뷰에서 <b style={{ color: '#8aa0b8' }}>Shift+노드 클릭</b>으로 권상점을 직접 찍습니다. (민트색 = 후보 노드)
       </div>
 
@@ -385,14 +385,14 @@ export default function HoistPositionPanel() {
               <span style={{ width: 9, height: 9, borderRadius: '50%', background: circleGuideEnabled ? CANDIDATE_CSS : '#3a3a58', boxShadow: circleGuideEnabled ? `0 0 6px ${CANDIDATE_CSS}` : 'none' }} />
               Circle Guide
             </span>
-            <span style={{ fontSize: 9, fontWeight: 800, color: circleGuideEnabled ? CANDIDATE_CSS : '#505070' }}>
+            <span style={{ fontSize: 10, fontWeight: 800, color: circleGuideEnabled ? CANDIDATE_CSS : '#8aa0b8' }}>
               {circleGuideEnabled ? 'ON' : 'OFF'}
             </span>
           </button>
         </Tooltip>
         {circleGuideEnabled && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <div style={{ fontSize: 10, color: '#60708a', lineHeight: 1.4 }}>
+            <div style={{ fontSize: 10, color: '#8aa0b8', lineHeight: 1.4 }}>
 원 근처·같은 Z 레벨 판정 거리 <span style={{ color: CANDIDATE_CSS, fontWeight: 700 }}>Tolerance (mm)</span> — 비우면 자동(모델 크기 기반 ≈ {Math.round(autoCircleTolMm)}mm).
             </div>
             <div style={{ display: 'flex', gap: 4 }}>
@@ -421,7 +421,7 @@ export default function HoistPositionPanel() {
                     padding: '0 9px', borderRadius: 4,
                     background: hoistCircleTolMm == null ? '#0a0a18' : '#101024',
                     border: '1px solid #2a2a4a',
-                    color: hoistCircleTolMm == null ? '#3a3a52' : '#7070a0',
+                    color: hoistCircleTolMm == null ? '#3a3a52' : '#9a9ad0',
                     cursor: hoistCircleTolMm == null ? 'not-allowed' : 'pointer',
                     fontSize: 10, fontWeight: 700,
                   }}>
@@ -648,7 +648,7 @@ export default function HoistPositionPanel() {
             <label style={{ fontSize: 11, color: '#90E8FF', fontWeight: 800, letterSpacing: 0.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
               <span>Wire 길이 (m)</span>
               {isDefault && (
-                <span style={{ fontSize: 9, color: '#60708a', fontWeight: 600 }}>기본값</span>
+                <span style={{ fontSize: 10, color: '#8aa0b8', fontWeight: 600 }}>기본값</span>
               )}
             </label>
             <Tooltip placement="top" content={tip}>
@@ -687,7 +687,7 @@ export default function HoistPositionPanel() {
                         borderRadius: 4,
                         background: isDefault ? '#0a0a18' : '#101024',
                         border: '1px solid #2a2a4a',
-                        color: isDefault ? '#3a3a52' : '#7070a0',
+                        color: isDefault ? '#3a3a52' : '#9a9ad0',
                         cursor: isDefault ? 'not-allowed' : 'pointer',
                         fontSize: 10,
                         fontWeight: 700,
@@ -714,7 +714,7 @@ export default function HoistPositionPanel() {
         <label style={{ fontSize: 11, color: '#90E8FF', fontWeight: 800, letterSpacing: 0.5 }}>
           배관 외경 임계 (mm)
         </label>
-        <div style={{ fontSize: 10, color: '#60708a', lineHeight: 1.4 }}>
+        <div style={{ fontSize: 10, color: '#8aa0b8', lineHeight: 1.4 }}>
           입력 값 이상 배관은 <span style={{ color: '#37E08A', fontWeight: 700 }}>녹색</span>,
           미만은 <span style={{ color: '#C04A4A', fontWeight: 700 }}>적색</span>으로 표시됩니다.
         </div>
@@ -762,7 +762,7 @@ export default function HoistPositionPanel() {
                 borderRadius: 4,
                 background: pipeDiameter == null ? '#0a0a18' : '#101024',
                 border: '1px solid #2a2a4a',
-                color: pipeDiameter == null ? '#3a3a52' : '#7070a0',
+                color: pipeDiameter == null ? '#3a3a52' : '#9a9ad0',
                 cursor: pipeDiameter == null ? 'not-allowed' : 'pointer',
                 fontSize: 10,
                 fontWeight: 700,
@@ -777,11 +777,22 @@ export default function HoistPositionPanel() {
       <StepHeader n={4} title="자세안정성 평가 실행" done={!!stabilityReport}
         desc={canRunEvaluation ? '준비 완료 — 아래 버튼으로 평가를 실행하세요.' : 'STEP 1·2를 완료하면 실행할 수 있습니다.'} />
 
-      {/* 자세안정성 평가 실행 */}
+      {/* 자세안정성 평가 실행 — 도크 하단에 고정(sticky).
+          이 패널의 내용은 1366×768 에서 세로로 301px 넘치기 때문에, 예전에는 이 탭의
+          존재 이유인 실행 버튼이 fold 아래 181px 지점에 있어 스크롤해야 보였다.
+          sticky 로 바닥에 붙여 두면 STEP 1·2 를 채우는 동안에도 "다음에 누를 것"이
+          항상 눈에 남는다. 좌우 -8 은 패널 padding 을 상쇄해 푸터를 전폭으로 만든다. */}
       <div style={{
+        position: 'sticky',
+        bottom: -8,
+        zIndex: 2,
         marginTop: 4,
+        marginLeft: -8,
+        marginRight: -8,
+        padding: '8px 8px 10px',
+        background: '#0b0b1e',
         borderTop: '1px solid #2a2a4a',
-        paddingTop: 8,
+        boxShadow: '0 -10px 18px -10px rgba(0,0,0,0.75)',
       }}>
         <Tooltip
           placement="top"
@@ -1004,9 +1015,9 @@ function StepFlow({ mode, groupsValid, hasResult, optionsTouched = false }) {
               background: s.done ? '#1FA86A' : '#16233a',
               color: s.done ? '#06121e' : (isOptional && s.touched) ? '#7fd7ff' : '#90E8FF',
               border: `1px ${isOptional ? 'dashed' : 'solid'} ${borderColor}`,
-              fontSize: 9.5, fontWeight: 900,
+              fontSize: 10, fontWeight: 900,
             }}>{s.done ? '✓' : isOptional ? (s.touched ? '●' : '·') : s.n}</span>
-            <span style={{ fontSize: 9.5, fontWeight: 700, color: s.done ? '#9fe6c2' : '#8fa9bf', whiteSpace: 'nowrap' }}>
+            <span style={{ fontSize: 10, fontWeight: 700, color: s.done ? '#9fe6c2' : '#8fa9bf', whiteSpace: 'nowrap' }}>
               {s.label}{isOptional ? <span style={{ color: '#5a6a82', fontWeight: 600 }}> (선택)</span> : null}
             </span>
           </div>

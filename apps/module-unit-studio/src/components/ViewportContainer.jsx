@@ -10,6 +10,7 @@ import MassSummaryOverlay from './MassSummaryOverlay.jsx'
 import HoistInstructionOverlay from './HoistInstructionOverlay.jsx'
 import HoistGuideToast from './HoistGuideToast.jsx'
 import ViewportShortcutsHelp from './ViewportShortcutsHelp.jsx'
+import ViewportEmptyState from './ViewportEmptyState.jsx'
 import StabilityReportPanel from './StabilityReportPanel.jsx'
 import UnitStructuralPanel from './UnitStructuralPanel.jsx'
 import { getStabilityIssueElementIds } from '../three/StabilityIssueOverlay.js'
@@ -90,15 +91,7 @@ export default function ViewportContainer() {
     }), 0)
   }, [stabilityReport, stages, activeViewportId, setPickedEntity])
 
-  if (stages.length === 0) {
-    return (
-      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12, color: '#7a8aaa' }}>
-        <div style={{ fontSize: 48 }}>🏗️</div>
-        <p style={{ fontSize: 15 }}>파이프라인 JSON 파일을 선택하세요</p>
-        <p style={{ fontSize: 12, color: '#505070' }}>csv/01/20260424_172924/ 폴더의 JSON 파일들</p>
-      </div>
-    )
-  }
+  if (stages.length === 0) return <ViewportEmptyState />
 
   return (
     <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
@@ -160,7 +153,7 @@ export default function ViewportContainer() {
                   </select>
                 )}
                 {stage && (
-                  <span style={{ flex: stages.length > 1 ? '0 0 auto' : 1, fontSize: 10, color: '#555', whiteSpace: 'nowrap' }}>
+                  <span style={{ flex: stages.length > 1 ? '0 0 auto' : 1, fontSize: 10, color: '#8aa0b8', whiteSpace: 'nowrap' }}>
                     N:{stage.healthMetrics?.totals?.nodeCount?.toLocaleString()} E:{stage.healthMetrics?.totals?.elementCount?.toLocaleString()}
                   </span>
                 )}

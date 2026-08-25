@@ -9,6 +9,7 @@ import {
   Wrench,
 } from 'lucide-react'
 import { useUnitStructuralStore } from '../store/useUnitStructuralStore.js'
+import { legendTicks, utilizationCss } from '../utils/stressColorRamp.js'
 import { useUnitStructuralRunner } from '../hooks/useUnitStructuralRunner.js'
 
 /**
@@ -267,7 +268,7 @@ function Header({ status, ranAt, onClose, onDragStart }) {
           {sc.label}
         </span>
       )}
-      {ranAt && <span style={{ fontSize: 9, color: '#60708a' }}>{formatRanAt(ranAt)}</span>}
+      {ranAt && <span style={{ fontSize: 10, color: '#8aa0b8' }}>{formatRanAt(ranAt)}</span>}
       <button
         onClick={onClose}
         title="패널 닫기"
@@ -377,7 +378,7 @@ function Field({ label, hint, children }) {
     <label style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
       <span style={{ fontSize: 10, color: '#90E8FF', fontWeight: 700, letterSpacing: 0.4 }}>{label}</span>
       {children}
-      {hint && <span style={{ fontSize: 9, color: '#60708a' }}>{hint}</span>}
+      {hint && <span style={{ fontSize: 10, color: '#8aa0b8' }}>{hint}</span>}
     </label>
   )
 }
@@ -387,7 +388,7 @@ function inputStyle(disabled) {
     width: '100%',
     padding: '5px 8px',
     fontSize: 12,
-    color: disabled ? '#60708a' : '#e6f1ff',
+    color: disabled ? '#5a5a80' : '#e6f1ff',
     background: 'rgba(8, 6, 22, 0.65)',
     border: '1px solid #2a2a4a',
     borderRadius: 5,
@@ -449,7 +450,19 @@ function ErrorBlock({ error }) {
   )
 }
 
+/**
+ * 활용도 컬러바 범례.
+ *
+ * 이전에는 스와치 2개(σ ≤ 허용 / σ > 허용)뿐이라 "넘었나"만 읽혔다. 3D 오버레이가
+ * 활용도 연속 램프로 바뀌었으므로 범례도 축과 눈금을 가진 컬러바로 바꾼다 —
+ * 이제 "허용치의 몇 %인가"를 색에서 바로 읽을 수 있다.
+ *
+ * 색만으로 판정을 전달하지 않도록(PRODUCT.md) 눈금 %와 초과 항목 텍스트를 병기한다.
+ */
 function ColorLegend({ allowableMpa }) {
+  const ticks = legendTicks(5)
+  const gradient = `linear-gradient(90deg, ${ticks.map(t => `${t.css} ${t.pct}%`).join(', ')})`
+
   return (
     <div style={{
       padding: '7px 9px',
@@ -460,24 +473,27 @@ function ColorLegend({ allowableMpa }) {
       color: '#cad8e8',
       lineHeight: 1.55,
     }}>
-      <div style={{ fontSize: 10, color: '#90E8FF', fontWeight: 800, marginBottom: 4 }}>색 범례 (구조·배관)</div>
-      <Swatch color="#4488FF" label={`σ ≤ ${allowableMpa} MPa`} />
-      <Swatch color="#FF5566" label={`σ > ${allowableMpa} MPa (초과)`} />
-      <div style={{ marginTop: 4, fontSize: 9.5, color: '#7a8aaa' }}>
+      <div style={{ fontSize: 10, color: '#90E8FF', fontWeight: 800, marginBottom: 5 }}>
+        응력 활용도 (허용 {allowableMpa} MPa 기준)
+      </div>
+
+      <div style={{ height: 9, borderRadius: 2, background: gradient, border: '1px solid #2a2a4a' }} />
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 2, fontSize: 10, color: '#8aa0b8' }}>
+        {ticks.map(t => <span key={t.pct}>{t.pct}%</span>)}
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 5 }}>
+        <span style={{ display: 'inline-block', width: 12, height: 4, background: utilizationCss(1.2), borderRadius: 2, flexShrink: 0 }} />
+        <span>허용응력 초과 (&gt; {allowableMpa} MPa)</span>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
+        <span style={{ display: 'inline-block', width: 12, height: 4, background: utilizationCss(null), borderRadius: 2, flexShrink: 0 }} />
+        <span>결과 없음</span>
+      </div>
+
+      <div style={{ marginTop: 5, fontSize: 10, color: '#8aa0b8' }}>
         와이어는 각 와이어 위에 축력(N)을 직접 표시합니다. 모델을 클릭하면 해당 부재의 응력값이 보입니다.
       </div>
-    </div>
-  )
-}
-
-function Swatch({ color, label }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
-      <span style={{
-        display: 'inline-block', width: 12, height: 4, background: color,
-        borderRadius: 2, flexShrink: 0,
-      }} />
-      <span>{label}</span>
     </div>
   )
 }

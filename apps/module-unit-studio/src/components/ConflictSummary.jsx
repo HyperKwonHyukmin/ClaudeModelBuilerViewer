@@ -63,7 +63,7 @@ export default function ConflictSummary({ intents, deleteMask, stageData }) {
             }}>
               <div style={{ display: 'flex', gap: 5, alignItems: 'baseline' }}>
                 <span style={{
-                  fontSize: 9, fontWeight: 800,
+                  fontSize: 10, fontWeight: 800,
                   color: item.level === 'error' ? '#FF8866' : '#FFAA55',
                   minWidth: 32,
                 }}>
@@ -72,7 +72,7 @@ export default function ConflictSummary({ intents, deleteMask, stageData }) {
                 <span style={{ flex: 1, lineHeight: 1.45 }}>{item.message}</span>
               </div>
               {item.context && (
-                <div style={{ fontSize: 9, color: '#7a8aaa', paddingLeft: 37, lineHeight: 1.4 }}>
+                <div style={{ fontSize: 10, color: '#7a8aaa', paddingLeft: 37, lineHeight: 1.4 }}>
                   {item.context}
                 </div>
               )}

@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { utilizationColor, COLOR_EXCEEDED, COLOR_NO_RESULT } from '../utils/stressColorRamp.js'
 
 /**
  * NastranResultOverlay — Phase 5 색맵핑 viewer.
@@ -11,7 +12,10 @@ import * as THREE from 'three'
  *   result.evaluation = { structuralAllowableMPa, ... }
  *
  * 색 정책:
- *   부재: exceedsLimit ? 빨강(FF5566) : 파랑(4488FF)
+ *   부재: 활용도(utilization = σ/허용응력)를 BAND_COUNT 개 밴드로 나눠
+ *         utils/stressColorRamp.js 의 연속 램프로 칠한다
+ *         (파랑=여유 → 청록 → 초록 → 호박 → 주황=한계 근접 → 빨강=초과).
+ *         활용도가 없으면 회색, 엔진이 exceedsLimit 을 준 부재는 항상 빨강.
  *   와이어: !hasResult ? 회색(90A4B0)
  *           isCompression ? 노랑(FFC447 — 슬랙 가능 경고)
  *           else 녹색(37E08A — 정상 인장)
@@ -20,9 +24,10 @@ import * as THREE from 'three'
  * highlight 를 덮어쓰는 방식. depthTest:false 로 항상 위에 그려진다.
  */
 
-// 색
-const COLOR_MEMBER_OK         = 0x4488FF  // 파랑 (σ ≤ 허용응력)
-const COLOR_MEMBER_FAIL       = 0xFF5566  // 빨강 (σ > 허용응력)
+// 부재 색은 utils/stressColorRamp.js 의 활용도 램프가 정한다(연속 컨투어).
+// 밴드 수 — 늘리면 컨투어가 매끄러워지고 draw call 이 그만큼 늘어난다. 10이면
+// 활용도 10% 단위로 구분되어 실무 판독에 충분하다.
+const BAND_COUNT = 10
 const COLOR_WIRE_TENSION      = 0x37E08A  // 녹색 (정상 인장)
 const COLOR_WIRE_COMPRESSION  = 0xFFC447  // 노랑 (압축, 슬랙 가능)
 const COLOR_WIRE_NO_RESULT    = 0x90A4B0  // 회색 (F06 결과 누락)
@@ -68,14 +73,29 @@ export function buildNastranResultOverlay(result, stageData, opts = {}) {
     if (Number.isInteger(w?.wireElementId)) wireById.set(w.wireElementId, w)
   }
 
-  // 멤버 분류 (wireSet 우선 — wire 가 결과 schema 에 따로 빠져 있으므로 OK)
-  const memberOk   = []
-  const memberFail = []
+  // 멤버 분류 — 활용도(σ/허용응력) 밴드별로 나눈다.
+  //
+  // 예전에는 exceedsLimit 불리언 하나로 ok/fail 두 통에만 담았다. 그러면 허용치의
+  // 98% 인 부재와 30% 인 부재가 같은 파란색이 되어, 정작 설계 여유가 없는 구간을
+  // 3D 에서 찾을 수 없었다(utilization 은 이미 결과에 들어 있는데 버려지고 있었다).
+  //
+  // 밴드로 양자화하는 이유는 성능이다. 부재마다 색을 다르게 하려면 InstancedMesh 를
+  // 쪼개야 하는데, BAND_COUNT 개 통으로 묶으면 draw call 이 12개 안쪽으로 유지되면서도
+  // 눈으로는 연속 컨투어로 읽힌다(상용 FEA 의 banded contour 와 같은 방식).
+  const memberBands = new Map()   // bandIndex → elementId[]
+  const memberExceeded = []
+  const memberNoResult = []
   for (const m of (result.members ?? [])) {
     const id = m?.elementId
     if (!Number.isInteger(id) || !allow(id)) continue
-    if (m.exceedsLimit) memberFail.push(id)
-    else memberOk.push(id)
+    const u = Number(m?.utilization)
+    // 초과 판정의 최종 권한은 엔진(exceedsLimit)에 있다. 활용도가 없어도 엔진이
+    // 초과라고 하면 초과로 그린다.
+    if (m.exceedsLimit || u > 1) { memberExceeded.push(id); continue }
+    if (!Number.isFinite(u)) { memberNoResult.push(id); continue }
+    const band = Math.min(BAND_COUNT - 1, Math.max(0, Math.floor(u * BAND_COUNT)))
+    if (!memberBands.has(band)) memberBands.set(band, [])
+    memberBands.get(band).push(id)
   }
 
   // 와이어 분류
@@ -91,11 +111,19 @@ export function buildNastranResultOverlay(result, stageData, opts = {}) {
   }
 
   // 부재 → 와이어 순서로 add (와이어가 위에 그려져야 가독성 ↑)
-  if (memberOk.length)        root.add(buildBucket(memberOk,        elemById, stageData, COLOR_MEMBER_OK,        MEMBER_R, 0.78, 70))
-  if (memberFail.length)      root.add(buildBucket(memberFail,      elemById, stageData, COLOR_MEMBER_FAIL,      MEMBER_R, 0.94, 71))
-  if (wireNoResult.length)    root.add(buildBucket(wireNoResult,    elemById, stageData, COLOR_WIRE_NO_RESULT,   WIRE_R,   0.70, 72))
-  if (wireTension.length)     root.add(buildBucket(wireTension,     elemById, stageData, COLOR_WIRE_TENSION,     WIRE_R,   0.88, 73))
-  if (wireCompression.length) root.add(buildBucket(wireCompression, elemById, stageData, COLOR_WIRE_COMPRESSION, WIRE_R,   0.95, 74))
+  if (memberNoResult.length) root.add(buildBucket(memberNoResult, elemById, stageData, COLOR_NO_RESULT, MEMBER_R, 0.55, 69))
+  for (const [band, ids] of memberBands) {
+    if (!ids.length) continue
+    // 밴드 중앙값의 색으로 칠한다 — 경계값이 아니라 대표값이라야 밴드가 고르게 보인다.
+    const color = utilizationColor((band + 0.5) / BAND_COUNT)
+    // 활용도가 높을수록 불투명하게 — 여유 있는 부재는 뒤로 물러나고 한계 근접 부재가 드러난다.
+    const opacity = 0.62 + 0.30 * (band / (BAND_COUNT - 1))
+    root.add(buildBucket(ids, elemById, stageData, color, MEMBER_R, opacity, 70 + band))
+  }
+  if (memberExceeded.length) root.add(buildBucket(memberExceeded, elemById, stageData, COLOR_EXCEEDED, MEMBER_R, 0.96, 70 + BAND_COUNT))
+  if (wireNoResult.length)    root.add(buildBucket(wireNoResult,    elemById, stageData, COLOR_WIRE_NO_RESULT,   WIRE_R,   0.70, 90))
+  if (wireTension.length)     root.add(buildBucket(wireTension,     elemById, stageData, COLOR_WIRE_TENSION,     WIRE_R,   0.88, 91))
+  if (wireCompression.length) root.add(buildBucket(wireCompression, elemById, stageData, COLOR_WIRE_COMPRESSION, WIRE_R,   0.95, 92))
 
   // 와이어 라벨 — wire CROD 는 lifting BDF 단계에서 처음 생성되므로 사용자가 보고 있는
   // stage JSON 의 elements 에는 들어있지 않은 게 일반적이다. 따라서:

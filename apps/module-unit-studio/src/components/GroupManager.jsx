@@ -82,7 +82,7 @@ export default function GroupManager() {
       borderRadius: 6,
     }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span style={{ fontSize: 9, color: '#7ab2d4', letterSpacing: 1, textTransform: 'uppercase', fontWeight: 800, paddingLeft: 1 }}>
+        <span style={{ fontSize: 10, color: '#7ab2d4', letterSpacing: 1, textTransform: 'uppercase', fontWeight: 800, paddingLeft: 1 }}>
           그룹 관리
         </span>
         <button
@@ -92,7 +92,7 @@ export default function GroupManager() {
             else { setLayer('structure', true); setLayer('pipe', true) }
           }}
           title="모든 그룹 다시 표시"
-          style={{ background: 'transparent', border: 'none', color: '#5d6b86', cursor: 'pointer', fontSize: 9, fontWeight: 700, padding: '1px 2px' }}
+          style={{ background: 'transparent', border: 'none', color: '#5d6b86', cursor: 'pointer', fontSize: 10, fontWeight: 700, padding: '1px 2px' }}
         >전체 표시</button>
       </div>
 
@@ -134,7 +134,7 @@ export default function GroupManager() {
               style={{
                 flexShrink: 0, padding: '5px 8px', borderRadius: 5,
                 background: 'transparent', color: '#7a8aaa',
-                border: '1px solid #2a2a44', fontSize: 9.5, fontWeight: 700, cursor: 'pointer',
+                border: '1px solid #2a2a44', fontSize: 10, fontWeight: 700, cursor: 'pointer',
               }}
             >전체 보기</button>
           )}
@@ -220,7 +220,7 @@ function BasisBtn({ active, disabled, onClick, children }) {
         background: active ? 'rgba(70,130,180,0.22)' : 'transparent',
         color: disabled ? '#3a3a50' : active ? '#cfe4f5' : '#7a8aaa',
         border: `1px solid ${active ? '#2e5a7a' : '#2a2a44'}`,
-        borderRadius: 5, fontSize: 9.5, fontWeight: 700,
+        borderRadius: 5, fontSize: 10, fontWeight: 700,
         cursor: disabled ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap',
       }}
     >{children}</button>
@@ -246,7 +246,7 @@ function ManagerRow({ color, label, sub, visible, pending, onToggleVisible, onSo
           <div style={{ fontSize: 11, fontWeight: 700, color: pending ? '#FFB3B3' : '#cdd8e8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
             {label}{pending && <span style={{ fontWeight: 600 }}> · 삭제 예정</span>}
           </div>
-          <div style={{ fontSize: 9, color: '#60708a' }}>{sub}</div>
+          <div style={{ fontSize: 10, color: '#8aa0b8' }}>{sub}</div>
         </div>
       </div>
       <div style={{ display: 'flex', gap: 4 }}>

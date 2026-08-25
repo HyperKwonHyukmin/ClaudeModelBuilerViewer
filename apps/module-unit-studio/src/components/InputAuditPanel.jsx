@@ -191,7 +191,7 @@ export default function InputAuditPanel({ embedded = false, forceOpen = false })
               </thead>
               <tbody>
                 {slice.length === 0 && (
-                  <tr><td colSpan={6} style={{ textAlign: 'center', padding: '14px 0', color: '#555' }}>해당 행 없음</td></tr>
+                  <tr><td colSpan={6} style={{ textAlign: 'center', padding: '14px 0', color: '#8aa0b8' }}>해당 행 없음</td></tr>
                 )}
                 {slice.map((r, i) => {
                   const ambiguous = r.mappingConfidence === 'ambiguousDuplicateSourceName'
@@ -216,7 +216,7 @@ export default function InputAuditPanel({ embedded = false, forceOpen = false })
                     >
                       <Td>
                         <span style={{ color: '#888' }}>{r.kind?.[0] ?? '?'}</span>
-                        <span style={{ color: '#555', marginLeft: 4 }}>L{r.physicalLineNumber}</span>
+                        <span style={{ color: '#8aa0b8', marginLeft: 4 }}>L{r.physicalLineNumber}</span>
                       </Td>
                       <Td><span style={{ color: '#cad8e8', wordBreak: 'break-all' }}>{r.name ?? '-'}</span></Td>
                       <Td>
@@ -229,7 +229,7 @@ export default function InputAuditPanel({ embedded = false, forceOpen = false })
                         {matched == null ? (
                           <span style={{ color: '#444' }}>-</span>
                         ) : matched.total === 0 ? (
-                          <span style={{ color: '#664' }}>없음</span>
+                          <span style={{ color: '#8aa0b8' }}>없음</span>
                         ) : (
                           <span style={{ color: '#44cc88' }}>
                             {matched.elementCount > 0 ? `E×${matched.elementCount}` : ''}

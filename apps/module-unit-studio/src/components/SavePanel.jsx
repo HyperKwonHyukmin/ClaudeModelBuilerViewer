@@ -139,11 +139,11 @@ export default function SavePanel() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#37E08A', fontSize: 11, fontWeight: 800 }}>
               <CheckCircle2 size={13} /> 저장 완료
             </div>
-            <div style={{ fontSize: 9.5, color: '#9fc7b6', lineHeight: 1.5, wordBreak: 'break-all' }}>
+            <div style={{ fontSize: 10, color: '#9fc7b6', lineHeight: 1.5, wordBreak: 'break-all' }}>
               {status.message}
             </div>
             {status.stats && (
-              <div style={{ fontSize: 9.5, color: '#7a9a8c', lineHeight: 1.5 }}>
+              <div style={{ fontSize: 10, color: '#7a9a8c', lineHeight: 1.5 }}>
                 GRID {status.stats.gridCount ?? 0} · BEAM {status.stats.beamCount ?? 0} · RBE2 {status.stats.rbe2Count ?? 0} · CONM2 {status.stats.conm2Count ?? 0}
               </div>
             )}
@@ -170,7 +170,7 @@ export default function SavePanel() {
         </Hint>
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 5, paddingLeft: 2 }}>
           <Info size={11} color="#60708a" style={{ flexShrink: 0, marginTop: 1 }} />
-          <span style={{ fontSize: 9.5, color: '#60708a', lineHeight: 1.5 }}>
+          <span style={{ fontSize: 10, color: '#8aa0b8', lineHeight: 1.5 }}>
             BDF 출력은 WorkBench 앱 환경에서 동작합니다. 버튼이 "WorkBench 앱 업데이트" 안내를
             표시하면 앱을 최신 버전으로 갱신하세요.
           </span>
@@ -212,7 +212,7 @@ function SummaryRow({ label, value, on }) {
 
 function Hint({ children }) {
   return (
-    <div style={{ fontSize: 9.5, color: '#60708a', lineHeight: 1.5, paddingLeft: 2 }}>
+    <div style={{ fontSize: 10, color: '#8aa0b8', lineHeight: 1.5, paddingLeft: 2 }}>
       {children}
     </div>
   )

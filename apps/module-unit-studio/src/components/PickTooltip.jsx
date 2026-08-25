@@ -1,5 +1,8 @@
 import { useMemo } from 'react'
 import { useUnitStructuralStore } from '../store/useUnitStructuralStore.js'
+import { utilizationCss, COLOR_EXCEEDED } from '../utils/stressColorRamp.js'
+
+const COLOR_CSS_EXCEEDED = '#' + COLOR_EXCEEDED.toString(16).padStart(6, '0')
 
 /**
  * PickTooltip — floating tooltip shown after a node/element/mass click.
@@ -83,7 +86,7 @@ export default function PickTooltip({ pickInfo, position, editEnabled }) {
       {resultBadge}
       {editHint && (
         <span style={{
-          fontSize: 9, color: '#e88a8a',
+          fontSize: 10, color: '#e88a8a',
           borderTop: '1px dashed rgba(255,100,100,0.25)',
           paddingTop: 3,
         }}>
@@ -96,7 +99,9 @@ export default function PickTooltip({ pickInfo, position, editEnabled }) {
 
 function renderMemberBadge(member, allowable) {
   const exceeds = !!member.exceedsLimit
-  const color = exceeds ? '#FF5566' : '#4488FF'
+  // 툴팁 색을 3D 오버레이와 같은 활용도 램프에서 가져온다. 예전에는 여기만 파랑/빨강
+  // 2색이라, 화면에서 주황으로 칠해진 부재를 클릭하면 툴팁은 파란색으로 떴다.
+  const color = exceeds ? COLOR_CSS_EXCEEDED : utilizationCss(Number(member.utilization))
   const stress = Number(member.maxStressMPa)
   const util = Number(member.utilization)
   const utilPct = Number.isFinite(util) ? Math.round(util * 100) : null

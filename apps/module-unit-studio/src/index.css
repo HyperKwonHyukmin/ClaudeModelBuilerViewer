@@ -1,9 +1,13 @@
-@import "tailwindcss";
-@import "tw-animate-css";
-@import "shadcn/tailwind.css";
-@import "@fontsource-variable/geist";
-
-@custom-variant dark (&:is(.dark *));
+/**
+ * 전역 스타일.
+ *
+ * 이 앱의 UI 는 인라인 style + utils/tokens.js 로 그린다. 이전에는 여기에
+ * shadcn oklch 토큰 전체(:root / .dark / @theme inline, 약 130줄)가 선언돼
+ * 있었지만 `.dark` 는 어디에도 부착되지 않았고 토큰을 참조하는 컴포넌트도
+ * 없어서 전량 사문화 상태였다. 실제로 쓰는 것만 남긴다.
+ *
+ * 색·크기·모서리 값은 utils/tokens.js 를 볼 것.
+ */
 
 * {
   box-sizing: border-box;
@@ -16,144 +20,61 @@ html, body, #root {
   height: 100%;
   overflow: hidden;
   font-family: 'Pretendard', 'Noto Sans KR', system-ui, -apple-system, sans-serif;
-  background: #1a1a2e;
-  color: #e0e0e0;
+  background: #0d0d1a;   /* tokens.BG.viewport */
+  color: #cad8e8;        /* tokens.INK.body */
 }
 
-@theme inline {
-  --font-heading: var(--font-sans);
-  --font-sans: 'Geist Variable', sans-serif;
-  --color-sidebar-ring: var(--sidebar-ring);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar: var(--sidebar);
-  --color-chart-5: var(--chart-5);
-  --color-chart-4: var(--chart-4);
-  --color-chart-3: var(--chart-3);
-  --color-chart-2: var(--chart-2);
-  --color-chart-1: var(--chart-1);
-  --color-ring: var(--ring);
-  --color-input: var(--input);
-  --color-border: var(--border);
-  --color-destructive: var(--destructive);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-accent: var(--accent);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-muted: var(--muted);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-secondary: var(--secondary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-primary: var(--primary);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-popover: var(--popover);
-  --color-card-foreground: var(--card-foreground);
-  --color-card: var(--card);
-  --color-foreground: var(--foreground);
-  --color-background: var(--background);
-  --radius-sm: calc(var(--radius) * 0.6);
-  --radius-md: calc(var(--radius) * 0.8);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) * 1.4);
-  --radius-2xl: calc(var(--radius) * 1.8);
-  --radius-3xl: calc(var(--radius) * 2.2);
-  --radius-4xl: calc(var(--radius) * 2.6);
+/**
+ * 포커스 링.
+ *
+ * 이전에는 `@apply outline-ring/50` 이 outline 의 색과 폭만 지정하고 style 을
+ * 주지 않아 outline-style:none 으로 렌더됐다. 즉 키보드로 이동해도 지금 어디에
+ * 있는지 보이지 않았다. 마우스 클릭에는 링이 뜨지 않도록 :focus-visible 을 쓴다.
+ */
+:focus-visible {
+  outline: 2px solid #6ee7b7;   /* tokens.ACCENT.brand */
+  outline-offset: 2px;
+  border-radius: 4px;
 }
 
-:root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
-}
-
-.dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
-}
-
-@layer base {
-  * {
-    @apply border-border outline-ring/50;
-  }
-  body {
-    @apply bg-background text-foreground;
-  }
-  html {
-    @apply font-sans;
-  }
-}
-
-/* HoistGuideToast 진입 / 자세안정성 평가 버튼 spinner */
-@keyframes hoistGuideIn {
-  from { opacity: 0; transform: translate(-50%, -8px); }
-  to   { opacity: 1; transform: translate(-50%, 0); }
-}
+/* 스피너 — 컴포넌트마다 keyframe 을 따로 만들지 않도록 여기 하나로 통일. */
 @keyframes hoistSpin {
   from { transform: rotate(0deg); }
   to   { transform: rotate(360deg); }
 }
+.spin { animation: hoistSpin 900ms linear infinite; }
+
+/* HoistGuideToast 진입 */
+@keyframes hoistGuideIn {
+  from { opacity: 0; transform: translate(-50%, -8px); }
+  to   { opacity: 1; transform: translate(-50%, 0); }
+}
+
 @keyframes tooltipFadeIn {
   from { opacity: 0; }
   to   { opacity: 1; }
+}
+
+/**
+ * 모션 감소.
+ *
+ * PRODUCT.md 접근성 규범: "모든 애니메이션은 prefers-reduced-motion: reduce
+ * 대안(크로스페이드 또는 즉시 전환)을 제공한다". 인라인 style 로 걸린
+ * transition/animation 이 36곳이라 개별 대응 대신 전역에서 무력화한다.
+ *
+ * 스피너는 "작업이 진행 중"이라는 상태 정보를 옮기는 유일한 수단이라 끄지 않고
+ * 회전을 느리게만 한다(정지시키면 멈춘 것처럼 보인다).
+ */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .spin,
+  [style*="hoistSpin"] {
+    animation-duration: 2400ms !important;
+    animation-iteration-count: infinite !important;
+  }
 }

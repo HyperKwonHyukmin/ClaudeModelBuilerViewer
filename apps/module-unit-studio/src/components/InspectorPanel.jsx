@@ -55,7 +55,7 @@ export default function InspectorPanel() {
       </div>
 
       <div style={{ padding: '8px 10px' }}>
-        <div style={{ fontSize: 9, color: '#7a8aaa', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 5 }}>
+        <div style={{ fontSize: 10, color: '#7a8aaa', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 5 }}>
           연결된 Node ID {info.nodeIds.length > 0 ? `(${info.nodeIds.length})` : ''}
         </div>
         {info.nodeIds.length === 0 ? (
