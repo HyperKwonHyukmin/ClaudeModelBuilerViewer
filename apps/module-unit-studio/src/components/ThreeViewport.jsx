@@ -1,6 +1,8 @@
 import { useRef, useEffect, useCallback, useState, useMemo } from 'react'
 import * as THREE from 'three'
 import { TrackballControls } from 'three/addons/controls/TrackballControls.js'
+import { MousePointer2, Rotate3D, Move, Focus } from 'lucide-react'
+import { pickViewport, worldUnitsPerPixel } from '../three/screenPicking.js'
 import { buildScene, disposeScene } from '../three/SceneBuilder.js'
 import { applyFreeNodeFilters, applyHoistModeHighlight } from '../three/NodePoints.js'
 import { applyGroupVisibility } from '../three/GroupVisibility.js'
@@ -81,6 +83,12 @@ const RESULT_SELECTION_NODE_HIGHLIGHT = {
  */
 export default function ThreeViewport({ stageData, layers, onReady, onPick, onHover, colorMode = 'category', freeNodeFilters, groupFilters, selectedEntity, isolateSelection = false, renderMode = 'cylinder', displayStyle = 'shaded', pickFilters, isEditTargetStage = true, hoistPickEnabled = false, supportPickEnabled = false }) {
   const [sceneError, setSceneError] = useState(null)
+  const [navigationMode, setNavigationMode] = useState('rotate')
+  const navigationModeRef = useRef('rotate')
+  const [nodeSize, setNodeSize] = useState(5)
+  const nodeSizeRef = useRef(5)
+  const hoverHighlightRef = useRef(null)
+  const hoverEntityRef = useRef(null)
   const containerRef = useRef(null)
   const rendererRef  = useRef(null)
   const cameraRef    = useRef(null)
@@ -253,6 +261,10 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
     renderer.setScissor(0, 0, w, h)
     renderer.setClearColor(0x1a1a2e, 1)
     renderer.clear()
+    const nodeMesh = sceneDataRef.current?.pickables?.nodes
+    if (nodeMesh?.userData.screenScale) {
+      nodeMesh.userData.screenScale.value = worldUnitsPerPixel(camera, h) * nodeSizeRef.current / 0.0448
+    }
     renderer.render(scene, camera)
 
     // Axes indicator — bottom-left corner
@@ -361,10 +373,11 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
 
     // ── TrackballControls — unlimited 3D rotation ─────────────────────
     const controls = new TrackballControls(camera, renderer.domElement)
+    controls.keys = [] // A/S/D belong exclusively to the standard-view shortcuts.
     controls.rotateSpeed = 1.5             // was 4.0 — finer control
     controls.zoomSpeed   = 1.2             // middle-button drag / pinch zoom; wheel is handled below
     controls.panSpeed    = 0.72
-    controls.staticMoving   = false        // keep inertia
+    controls.staticMoving   = true         // stop precisely when the pointer stops
     controls.dynamicDampingFactor = 0.2   // slightly more damping for crispness
     controls.mouseButtons = {
       LEFT:   THREE.MOUSE.ROTATE,
@@ -372,6 +385,31 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
       RIGHT:  THREE.MOUSE.PAN,
     }
     controlsRef.current = controls
+
+    const clearHover = () => {
+      if (hoverHighlightRef.current) {
+        scene.remove(hoverHighlightRef.current)
+        disposeScene(hoverHighlightRef.current)
+        hoverHighlightRef.current = null
+      }
+      hoverEntityRef.current = null
+      onHover?.(null, null)
+      renderer.domElement.style.cursor = navigationModeRef.current === 'pan' ? 'grab' : 'default'
+      requestRender()
+    }
+    const pickAt = (event, nodeOnly = false) => {
+      const pickables = sceneDataRef.current?.pickables
+      if (!pickables) return []
+      return pickViewport({ pickables, targets: getPickTargets(pickables, pickFiltersRef.current, nodeOnly),
+        camera, rect: renderer.domElement.getBoundingClientRect(), pointer: event,
+        raycaster: raycasterRef.current, mask: editStateRef.current.mask, nodeOnly, stageData: stageDataRef.current })
+    }
+    const isNodePick = (event) => {
+      const s = editStateRef.current
+      return s.isTarget && ((s.hoistPickEnabled && s.hoistMode && event.shiftKey) ||
+        (s.supportPickEnabled && s.supportPickActive && event.shiftKey) ||
+        (s.enabled && (event.shiftKey || s.hasPendingNodes)))
+    }
 
     // ── Animation loop for interaction + inertia ─────────────────────
     let active  = false
@@ -389,6 +427,7 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
     }
 
     const onStart = () => {
+      clearHover()
       active = true
       const dist = camera.position.distanceTo(controls.target)
       controls.panSpeed = computeOrthoPanSpeed(dist, renderer.domElement.clientWidth, 0.72)
@@ -401,6 +440,7 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
 
     controls.addEventListener('start', onStart)
     controls.addEventListener('end',   onEnd)
+    controls.addEventListener('change', clearHover)
 
     // ── Wheel: orthographic zoom-to-cursor ───────────────────────────
     // TrackballControls' default wheel zoom is centered on controls.target. In
@@ -408,6 +448,7 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
     // point fixed on screen while changing camera.zoom.
     const onWheelZoom = (e) => {
       if (e.target !== renderer.domElement) return
+      clearHover()
       e.preventDefault()
       e.stopPropagation()
 
@@ -459,8 +500,11 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
     // 어느 쪽이든 매번 모델 bbox 를 다시 투영해 "전체가 담기는" 배율을 새로 계산한다.
     const onKeyDown = (e) => {
       if (!container.matches(':hover')) return
+      if (e.target?.closest?.('input, textarea, select, [contenteditable="true"]') || e.ctrlKey || e.metaKey || e.altKey) return
 
       const k = e.key.toLowerCase()
+      if (k === 'z') { e.preventDefault(); viewActionsRef.current.focusSelection(); return }
+      if (k === 'home') { e.preventDefault(); viewActionsRef.current.fitAll(); return }
 
       // F → 등각(비스듬한) 전체 보기. 축정렬 뷰(A/S/D)에서 F 를 누르면 그 축 뷰를 유지한 채
       // 배율만 맞아 "아무 일도 안 일어난 것처럼" 보였다 — F 는 항상 등각으로 빠져나오게 한다.
@@ -500,6 +544,7 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
 
     // ── Picking: pointerdown/up to distinguish click from drag ───────
     const onPointerDown = (e) => {
+      clearHover()
       pointerDownRef.current = { x: e.clientX, y: e.clientY }
     }
     const onPointerUp = (e) => {
@@ -507,21 +552,10 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
       const dx = e.clientX - pointerDownRef.current.x
       const dy = e.clientY - pointerDownRef.current.y
       pointerDownRef.current = null
+      if (e.button !== 0 || navigationModeRef.current === 'pan') return
       if (Math.sqrt(dx*dx + dy*dy) > DRAG_THRESHOLD) return  // was a drag
 
       if (!onPick || !sceneDataRef.current?.pickables) { if (onPick) onPick(null, e); return }
-
-      const rect = renderer.domElement.getBoundingClientRect()
-      const ndc = new THREE.Vector2(
-        ((e.clientX - rect.left)  / rect.width)  * 2 - 1,
-        -((e.clientY - rect.top) / rect.height) * 2 + 1,
-      )
-      const raycaster = raycasterRef.current
-      raycaster.setFromCamera(ndc, camera)
-      // Line threshold 는 카메라 거리에 비례 — 픽셀 기준 ~6px 반경의 일관된 클릭 영역을 제공.
-      // 거리 30m 이면 약 0.3m, 가까이 다가가면 자연스럽게 줄어든다.
-      const camDist = camera.position.distanceTo(controlsRef.current?.target ?? new THREE.Vector3())
-      raycaster.params.Line.threshold = Math.max(0.05, camDist * 0.01)
 
       const pickables = sceneDataRef.current.pickables
       const editState = editStateRef.current
@@ -529,17 +563,7 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
       const supportPickMode = !hoistPickMode && editState.isTarget && editState.supportPickEnabled && editState.supportPickActive && e.shiftKey
       const rigidPickMode = !hoistPickMode && !supportPickMode && editState.enabled && editState.isTarget && (e.shiftKey || editState.hasPendingNodes)
       const nodeOnlyPickMode = hoistPickMode || supportPickMode || rigidPickMode
-      const targets = getPickTargets(pickables, pickFiltersRef.current, nodeOnlyPickMode)
-      // 레이어가 꺼진 객체는 picking 대상에서도 제외 — 화면에 안 보이는 객체를 잘못 집지 않도록.
-      // RBE LineSegments 는 'rigids' 그룹 자식이라 그룹의 visible 을 거슬러 올라가 확인.
-      const isVisible = (t) => {
-        if (t.visible === false) return false
-        let p = t.parent
-        while (p) { if (p.visible === false) return false; p = p.parent }
-        return true
-      }
-      const visibleTargets = targets.filter(isVisible)
-      const hits = raycaster.intersectObjects(visibleTargets)
+      const hits = pickAt(e, nodeOnlyPickMode)
 
       if (hits.length === 0) {
         if (nodeOnlyPickMode) return
@@ -639,25 +663,8 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
     const computeHoverPick = (ev) => {
       if (!sceneDataRef.current?.pickables) return null
       const pickables = sceneDataRef.current.pickables
-      if (ev.shiftKey || ev.altKey) return null  // 편집 모드 modifier 충돌 회피
-      const rect = renderer.domElement.getBoundingClientRect()
-      const ndc = new THREE.Vector2(
-        ((ev.clientX - rect.left) / rect.width)  * 2 - 1,
-        -((ev.clientY - rect.top) / rect.height) * 2 + 1,
-      )
-      const raycaster = raycasterRef.current
-      raycaster.setFromCamera(ndc, camera)
-      const camDist = camera.position.distanceTo(controlsRef.current?.target ?? new THREE.Vector3())
-      raycaster.params.Line.threshold = Math.max(0.05, camDist * 0.01)
-
-      const targets = getPickTargets(pickables, pickFiltersRef.current, false)
-      const isVisible = (t) => {
-        if (t.visible === false) return false
-        let p = t.parent
-        while (p) { if (p.visible === false) return false; p = p.parent }
-        return true
-      }
-      const hits = raycaster.intersectObjects(targets.filter(isVisible))
+      if (ev.altKey) return null
+      const hits = pickAt(ev, isNodePick(ev))
       if (hits.length === 0) return null
 
       const hit = hits[0]
@@ -696,6 +703,18 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
         const lastEv = lastMoveEventRef.current
         if (!lastEv || !onHoverRef.current) return
         const pickInfo = computeHoverPick(lastEv)
+        const key = pickInfo ? `${pickInfo.type}:${pickInfo.nodeId ?? pickInfo.id}` : null
+        if (key !== hoverEntityRef.current) {
+          clearHover()
+          hoverEntityRef.current = key
+          const stage = stageDataRef.current
+          const radius = worldUnitsPerPixel(camera, renderer.domElement.clientHeight) * 5
+          const opts = { color: 0xffffff, opacity: 0.9, radius, renderOrder: 125 }
+          const group = pickInfo?.type === 'node' ? buildNodesHighlight([pickInfo.nodeId], stage, opts)
+            : pickInfo?.type === 'element' ? buildElementsHighlight([pickInfo.id], stage, { ...opts, radius: radius * 0.5 }) : null
+          if (group) { scene.add(group); hoverHighlightRef.current = group; requestRender() }
+        }
+        renderer.domElement.style.cursor = pickInfo ? 'crosshair' : navigationModeRef.current === 'pan' ? 'grab' : 'default'
         onHoverRef.current(pickInfo, pickInfo ? { x: lastEv.clientX, y: lastEv.clientY } : null)
       })
     }
@@ -703,6 +722,8 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
     const onPointerLeave = () => {
       if (hoverRafRef.current) { cancelAnimationFrame(hoverRafRef.current); hoverRafRef.current = 0 }
       lastMoveEventRef.current = null
+      pointerDownRef.current = null
+      clearHover()
       if (onHoverRef.current) onHoverRef.current(null, null)
     }
 
@@ -711,26 +732,10 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
     // 옮긴다. 시선 방향·거리는 유지되므로 그 노드가 화면 중앙에 오고, 이후 회전이 그 노드를
     // 중심으로 돈다. (급격한 점프 대신 '초점 이동' 느낌.)
     const onDoubleClick = (e) => {
+      if (e.button !== 0 || e.shiftKey || e.ctrlKey || e.altKey || navigationModeRef.current === 'pan') return
       const pickables = sceneDataRef.current?.pickables
       if (!pickables) return
-      const rect = renderer.domElement.getBoundingClientRect()
-      const ndc = new THREE.Vector2(
-        ((e.clientX - rect.left) / rect.width)  * 2 - 1,
-        -((e.clientY - rect.top) / rect.height) * 2 + 1,
-      )
-      const raycaster = raycasterRef.current
-      raycaster.setFromCamera(ndc, camera)
-      const camDist = camera.position.distanceTo(controls.target)
-      raycaster.params.Line.threshold = Math.max(0.05, camDist * 0.01)
-
-      const isVisible = (t) => {
-        if (t.visible === false) return false
-        let p = t.parent
-        while (p) { if (p.visible === false) return false; p = p.parent }
-        return true
-      }
-      const targets = getPickTargets(pickables, pickFiltersRef.current, false).filter(isVisible)
-      const hits = raycaster.intersectObjects(targets)
+      const hits = pickAt(e)
       if (hits.length === 0) {
         // 빈 공간 더블클릭 → 회전 중심을 무게중심으로 리셋(override 해제)
         pivotOverrideRef.current = false
@@ -782,6 +787,7 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
       ro.disconnect()
       controls.removeEventListener('start', onStart)
       controls.removeEventListener('end',   onEnd)
+      controls.removeEventListener('change', clearHover)
       controls.dispose()
 
       container.removeEventListener('wheel', onWheelZoom, { capture: true })
@@ -805,6 +811,12 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
   useEffect(() => {
     const scene = sceneRef.current
     if (!scene) return
+    if (hoverHighlightRef.current) {
+      scene.remove(hoverHighlightRef.current)
+      disposeScene(hoverHighlightRef.current)
+      hoverHighlightRef.current = null
+    }
+    hoverEntityRef.current = null
 
     if (highlightRef.current) {
       scene.remove(highlightRef.current)
@@ -1117,7 +1129,7 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
     if (!sceneDataRef.current || !stageData) return
     applyFullVisibility(sceneDataRef.current, layers, groupFilters, stageData, isolateSelection, selectedElementIdsRef.current, freeNodeFilters, deleteMask, hideNodeIds, displayStyle)
     requestRender()
-  }, [groupFilters, stageData, layers, isolateSelection, selectedEntity, freeNodeFilters, deleteMask, hideNodeIds, requestRender])
+  }, [groupFilters, stageData, layers, isolateSelection, selectedEntity, freeNodeFilters, deleteMask, hideNodeIds, displayStyle, requestRender])
 
   // ── 무게중심 마커 (00_StageSummary.json 의 massProperties.centerOfGravityMm) ─
   // layer 토글 / stageData / stageSummary 변동 시 추가·제거.
@@ -1545,6 +1557,7 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
     const controls = controlsRef.current
     const stage = stageDataRef.current
     if (!camera || !controls || !stage) return
+    pivotOverrideRef.current = false
     const v = STANDARD_VIEWS[view] ?? STANDARD_VIEWS.iso
     sceneRadiusRef.current = fitCameraToDirection(stage, camera, controls, v.dir, v.up, framingPivot())
     requestRender()
@@ -1556,14 +1569,49 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
     const controls = controlsRef.current
     const stage = stageDataRef.current
     if (!camera || !controls || !stage) return
+    pivotOverrideRef.current = false
     const dir = new THREE.Vector3().subVectors(camera.position, controls.target)
     if (dir.lengthSq() < 1e-9) dir.set(STANDARD_VIEWS.iso.dir.x, STANDARD_VIEWS.iso.dir.y, STANDARD_VIEWS.iso.dir.z)
     sceneRadiusRef.current = fitCameraToDirection(stage, camera, controls, dir, camera.up, framingPivot())
     requestRender()
   }, [framingPivot, requestRender])
 
-  // 키보드 핸들러(mount-once)가 최신 콜백을 보게 매 렌더마다 ref 를 갱신.
-  viewActionsRef.current = { fitAll, setStandardView }
+  const focusSelection = useCallback(() => {
+    const camera = cameraRef.current
+    const controls = controlsRef.current
+    if (!camera || !controls || !stageData || !selectedEntity) return
+    const ids = selectedEntity.type === 'node' ? [selectedEntity.nodeId]
+      : selectedEntity.type === 'element' ? [selectedEntity.startNode, selectedEntity.endNode]
+      : selectedEntity.type === 'rigid' ? [selectedEntity.independentNode, ...(selectedEntity.dependentNodes ?? [])]
+      : [selectedEntity.nodeId]
+    const points = ids.map(id => stageData.getNodePos(id)).filter(Boolean)
+    if (!points.length) return
+    const box = new THREE.Box3().setFromPoints(points)
+    const center = box.getCenter(new THREE.Vector3())
+    camera.position.add(center.clone().sub(controls.target))
+    controls.target.copy(center)
+    const size = box.getSize(new THREE.Vector3()).length()
+    const span = Math.max(size * 1.5, sceneRadiusRef.current * 0.3, 2)
+    camera.zoom = THREE.MathUtils.clamp(Math.min(camera.right - camera.left, camera.top - camera.bottom) / span, 0.02, 1000)
+    camera.updateProjectionMatrix()
+    pivotOverrideRef.current = true
+    updateClipPlanes(camera, controls, sceneRadiusRef.current)
+    controls.update()
+    requestRender()
+  }, [selectedEntity, stageData, requestRender])
+
+  const changeNavigation = useCallback(mode => {
+    navigationModeRef.current = mode
+    setNavigationMode(mode)
+    const controls = controlsRef.current
+    if (!controls) return
+    controls.noRotate = mode === 'select'
+    controls.mouseButtons.LEFT = mode === 'pan' ? THREE.MOUSE.PAN : THREE.MOUSE.ROTATE
+    rendererRef.current.domElement.style.cursor = mode === 'pan' ? 'grab' : 'default'
+  }, [])
+
+  // Mount-once keyboard listeners use the latest selection and camera actions.
+  viewActionsRef.current = { fitAll, setStandardView, focusSelection }
 
   return (
     <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden' }}>
@@ -1606,6 +1654,51 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
           }}>
           3D 단면
         </button>
+      </div>
+
+      <div role="toolbar" aria-label="모델 조작" style={{ position: 'absolute', top: 50, left: 10, zIndex: 14,
+        display: 'flex', flexWrap: 'wrap', maxWidth: 'calc(100% - 20px)', alignItems: 'center', gap: 3,
+        background: 'rgba(12,14,26,0.92)', border: '1px solid #35455d', borderRadius: 8, padding: 4 }}>
+        {[['select', '선택', MousePointer2], ['rotate', '회전', Rotate3D], ['pan', '이동', Move]].map(([mode, label, Icon]) => (
+          <button key={mode} aria-pressed={navigationMode === mode} onClick={() => changeNavigation(mode)}
+            title={mode === 'select' ? '선택 — 왼쪽 드래그로 모델이 회전하지 않습니다. 오른쪽 드래그로 이동합니다.'
+              : mode === 'pan' ? '이동 — 왼쪽 드래그로 화면을 이동합니다.' : '회전 — 왼쪽 드래그로 자유 회전합니다. 클릭으로 선택할 수 있습니다.'}
+            style={{ ...VIEW_BTN_STYLE, minHeight: 30, display: 'flex', alignItems: 'center', gap: 5,
+              color: navigationMode === mode ? '#b4f2ff' : '#bac9dc',
+              background: navigationMode === mode ? '#193c51' : 'transparent' }}>
+            <Icon size={14} />{label}
+          </button>
+        ))}
+        <button onClick={focusSelection} disabled={!selectedEntity} title="선택 확대 (Z) — 선택한 노드나 부재를 중심으로 확대하고 회전합니다."
+          style={{ ...VIEW_BTN_STYLE, minHeight: 30, display: 'flex', alignItems: 'center', gap: 5,
+            opacity: selectedEntity ? 1 : 0.4, cursor: selectedEntity ? 'pointer' : 'default' }}>
+          <Focus size={14} />선택 확대<span style={VIEW_KEY_STYLE}>Z</span>
+        </button>
+        <select aria-label="선택 대상" title="선택할 대상만 지정하면 겹친 부재 사이에서도 노드를 쉽게 집을 수 있습니다."
+          value={['node', 'element', 'rigid', 'mass'].every(k => pickFilters?.[k] !== false) ? 'all'
+            : ['node', 'element', 'rigid', 'mass'].find(k => pickFilters?.[k] && ['node', 'element', 'rigid', 'mass'].every(other => other === k || pickFilters?.[other] === false)) ?? 'custom'}
+          onChange={e => useViewerStore.getState().setPickTarget(e.target.value)}
+          style={{ ...VIEW_BTN_STYLE, background: '#152337', color: '#d8e4f3', minHeight: 30 }}>
+          <option value="all">선택: 전체</option><option value="node">선택: Node</option>
+          <option value="element">선택: 요소</option><option value="rigid">선택: RBE</option>
+          <option value="mass">선택: 질량</option><option value="custom" disabled>선택: 사용자 지정</option>
+        </select>
+        <select aria-label="모델 표시 방식" value={displayStyle} onChange={e => useViewerStore.getState().setDisplayStyle(e.target.value)}
+          style={{ ...VIEW_BTN_STYLE, background: '#152337', color: '#d8e4f3', minHeight: 30 }}>
+          <option value="shaded">음영</option><option value="xray">반투명</option>
+          <option value="wire">와이어프레임</option><option value="nodeOnly">노드만</option>
+        </select>
+        <select aria-label="노드 표시 크기" title="화면상 노드의 최소 표시 크기. 선택 허용 범위는 동일합니다."
+          value={nodeSize} onChange={e => { nodeSizeRef.current = Number(e.target.value); setNodeSize(Number(e.target.value)); requestRender() }}
+          style={{ ...VIEW_BTN_STYLE, background: '#152337', color: '#d8e4f3', minHeight: 30 }}>
+          <option value={3}>노드: 작게</option><option value={5}>노드: 표준</option><option value={7}>노드: 크게</option>
+        </select>
+      </div>
+      <div style={{ position: 'absolute', left: 130, bottom: 14, right: 95, pointerEvents: 'none',
+        color: '#bccbdf', fontSize: 11, lineHeight: 1.5, textShadow: '0 1px 3px #000' }}>
+        {hoistPickEnabled && hoistMode ? '권상점: Shift + 노드 클릭 · ' : ''}
+        {navigationMode === 'pan' ? '왼쪽 드래그: 이동' : navigationMode === 'select' ? '클릭: 선택 · 오른쪽 드래그: 이동' : '왼쪽 드래그: 회전 · 오른쪽: 이동'}
+        {' · 휠: 커서 중심 확대 · 더블클릭: 회전 중심'}
       </div>
 
       {sceneError && (
@@ -1700,6 +1793,16 @@ function applyDisplayStyle(threeLayerMap, style) {
 
 function applyMaterialDisplayStyle(mat, style) {
   if (!mat) return
+  // Display modes affect physical members; node markers must stay visible on top.
+  if (mat.userData.nodeMarker) {
+    mat.wireframe = false
+    mat.transparent = true
+    mat.opacity = 1
+    mat.depthTest = false
+    mat.depthWrite = false
+    mat.needsUpdate = true
+    return
+  }
   if (!mat.userData.viewerOriginalDisplay) {
     mat.userData.viewerOriginalDisplay = {
       wireframe: !!mat.wireframe,

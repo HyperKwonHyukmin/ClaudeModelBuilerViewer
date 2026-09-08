@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { sizeScreenMarker } from './screenMarker.js'
 
 const SEL_COLOR = 0x00E5FF   // cyan glow
 const NODE_HL_R = 0.065      // slightly larger than NODE_RADIUS (0.056)
@@ -35,6 +36,7 @@ export function buildElementsHighlight(elementIds, stageData, opts = {}) {
   const radius = opts.radius ?? ELEM_HL_R
   const geo = new THREE.CylinderGeometry(radius, radius, 1, 10, 1)
   const mesh = new THREE.InstancedMesh(geo, _hlMat(opts), elems.length)
+  sizeScreenMarker(mesh, radius, 2.5, true)
   mesh.count = 0
   mesh.renderOrder = opts.renderOrder ?? 90
 
@@ -121,6 +123,7 @@ export function buildMultiSelectionHighlight(nodeIds, stageData) {
     depthTest: false,
   })
   const mesh = new THREE.InstancedMesh(geo, mat, valid.length)
+  sizeScreenMarker(mesh, NODE_HL_R * 1.15, 6)
   mesh.count = 0
   for (const { pos } of valid) {
     _mat4.setPosition(pos)
@@ -154,6 +157,7 @@ export function buildNodesHighlight(nodeIds, stageData, opts = {}) {
   const radius = opts.radius ?? NODE_HL_R
   const geo  = new THREE.SphereGeometry(radius, 14, 9)
   const mesh = new THREE.InstancedMesh(geo, _hlMat(opts), valid.length)
+  sizeScreenMarker(mesh, radius, 6)
   mesh.count = 0
   mesh.renderOrder = opts.renderOrder ?? 90
 

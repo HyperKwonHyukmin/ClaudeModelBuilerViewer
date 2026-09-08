@@ -8,6 +8,11 @@ import { Keyboard, X } from 'lucide-react'
  * 코드 주석에만 두지 않고 사용자에게 노출한다. 순수 표시용 — 전역 스토어/뷰포트 로직에 영향을 주지 않는다.
  */
 const SHORTCUTS = [
+  { keys: ['선택 / 회전 / 이동'], desc: '뷰어 상단에서 왼쪽 버튼 동작 변경' },
+  { keys: ['휠'], desc: '커서 위치 중심 확대·축소' },
+  { keys: ['오른쪽 드래그'], desc: '화면 이동' },
+  { keys: ['Z'], desc: '선택한 노드·요소 확대' },
+  { keys: ['Home'], desc: '현재 방향 전체 보기' },
   { keys: ['F'], desc: '등각 전체 보기 (비스듬히)' },
   { keys: ['A'], desc: '평면도 (↑X ←Y)' },
   { keys: ['S'], desc: '정면도 (X·Z 종단면)' },

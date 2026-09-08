@@ -137,6 +137,9 @@ export const useViewerStore = create((set) => ({
   setDisplayStyle: (style) => set({ displayStyle: style }),
 
   pickFilters: { ...DEFAULT_PICK_FILTERS },
+  setPickTarget: (target) => set({ pickFilters: Object.fromEntries(
+    Object.keys(DEFAULT_PICK_FILTERS).map(key => [key, target === 'all' || target === key]),
+  ) }),
   togglePickFilter: (key) => {
     set(s => ({ pickFilters: { ...s.pickFilters, [key]: !s.pickFilters[key] } }))
   },

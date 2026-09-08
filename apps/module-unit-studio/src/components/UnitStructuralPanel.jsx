@@ -11,6 +11,7 @@ import {
 import { useUnitStructuralStore } from '../store/useUnitStructuralStore.js'
 import { legendTicks, utilizationCss } from '../utils/stressColorRamp.js'
 import { useUnitStructuralRunner } from '../hooks/useUnitStructuralRunner.js'
+import UnitStructuralReportButton from './UnitStructuralReportButton.jsx'
 
 /**
  * UnitStructuralPanel — 자세안정성 PASS 후 Wire 포함 BDF + Nastran SOL 101 실행 패널.
@@ -213,7 +214,10 @@ export default function UnitStructuralPanel() {
         {isRunning && <ProgressBlock progress={progress} message={message} />}
         {!isRunning && error && <ErrorBlock error={error} />}
         {!isRunning && status === 'Success' && (
-          <SuccessBlock summary={summary} warnings={warnings} result={result} />
+          <>
+            <SuccessBlock summary={summary} warnings={warnings} result={result} />
+            <UnitStructuralReportButton />
+          </>
         )}
         {!isRunning && !error && status === null && (
           <div style={{ fontSize: 11, color: '#7a8aaa', lineHeight: 1.55 }}>

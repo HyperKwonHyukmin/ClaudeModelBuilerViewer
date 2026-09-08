@@ -14,6 +14,7 @@ import { useStabilityStore } from '../store/useStabilityStore.js'
 import { useUnitStructuralStore } from '../store/useUnitStructuralStore.js'
 import { useUnitStructuralRunner } from '../hooks/useUnitStructuralRunner.js'
 import { useEditStore } from '../store/useEditStore.js'
+import UnitStructuralReportButton from './UnitStructuralReportButton.jsx'
 
 /**
  * AnalyzePanel — 상단 메뉴바 'Analyze' 모드의 좌측 도크 본문.
@@ -257,6 +258,9 @@ export default function AnalyzePanel() {
         {us.status === 'Success' && us.summary && (
           <StructuralSummary summary={us.summary} />
         )}
+
+        {/* 해석 완료 후 Studio 주 화면에서 즉시 보고서를 생성한다. */}
+        {us.status === 'Success' && <UnitStructuralReportButton />}
 
         {/* 상세 결과 패널 열기 — 해석(Success) 전까지 비활성 */}
         <ActionButton

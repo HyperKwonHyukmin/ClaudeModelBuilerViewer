@@ -56,6 +56,7 @@ export default function ViewportContainer() {
   // 호버 tooltip — 마우스를 element/node 등에 올려두는 동안 실시간 표시.
   // 큰 모델 성능을 위해 ThreeViewport 가 RAF throttle 로 frame 당 최대 1회만 알려준다.
   const handleHover = useCallback((pickInfo, position) => {
+    if (!pickInfo) setTooltip({ pickInfo: null, position: null })
     setHoverTooltip(pickInfo ? { pickInfo, position } : { pickInfo: null, position: null })
   }, [])
 

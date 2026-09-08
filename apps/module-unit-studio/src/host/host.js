@@ -26,6 +26,10 @@
  *   optimizeHoistPositions(posturePath) : Promise<{ ok, report?, error?, optimizationPath? }>
  *     ModuleAnalysis.Cli --optimize 로 자세안정성 기반 권상 위치 후보를 평가하고 best 그룹을 돌려준다.
  *
+ *   generateUnitLiftingReport({ analysisId, options })
+ *     저장된 Unit 구조 해석 결과로 표준 검토 보고서(xlsx)를 생성해 사용자 PC 에 저장한다.
+ *     그림은 백엔드가 결과 JSON 으로 직접 렌더하므로 Studio 캡처를 보내지 않는다.
+ *
  * folderRef 는 host 별 불투명 객체. 호출자는 보존만 하고 다시 host 에 넘긴다.
  */
 
@@ -180,6 +184,16 @@ class ElectronHost {
     if (typeof api?.onUnitStructuralProgress === 'function') {
       // 콜백 등록 → unsubscribe 함수 반환
       this.onUnitStructuralProgress = (callback) => api.onUnitStructuralProgress(callback)
+    }
+    if (typeof api?.generateUnitLiftingReport === 'function') {
+      this.generateUnitLiftingReport = async (payload = {}) => {
+        try {
+          const r = await api.generateUnitLiftingReport(payload)
+          return r ?? { ok: false, error: '응답이 없습니다 (preload 미응답).' }
+        } catch (e) {
+          return { ok: false, error: e?.message ?? String(e) }
+        }
+      }
     }
 
     // ModuleUnitStudio "Save" → 편집 반영 최종 BDF 출력. preload 노출 시에만 활성.

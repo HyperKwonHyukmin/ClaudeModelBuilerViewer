@@ -65,8 +65,8 @@ export default function PickTooltip({ pickInfo, position, editEnabled }) {
   return (
     <div style={{
       position: 'fixed',
-      left: position.x + 12,
-      top:  position.y - 10,
+      left: Math.max(8, Math.min(position.x + 16, window.innerWidth - 396)),
+      top: Math.max(8, Math.min(position.y + 16, window.innerHeight - 110)),
       background: 'rgba(10,10,30,0.92)',
       color: '#e0e0e0',
       border: '1px solid #4682B4',
@@ -75,12 +75,13 @@ export default function PickTooltip({ pickInfo, position, editEnabled }) {
       fontSize: 11,
       pointerEvents: 'none',
       zIndex: 9999,
-      whiteSpace: 'nowrap',
+      whiteSpace: 'normal',
+      overflowWrap: 'anywhere',
       boxShadow: '0 2px 8px rgba(0,0,0,0.5)',
       display: 'flex',
       flexDirection: 'column',
       gap: 3,
-      maxWidth: 380,
+      maxWidth: 'min(380px, calc(100vw - 32px))',
     }}>
       <span>{label}</span>
       {resultBadge}
