@@ -10,6 +10,7 @@
 import { candidateFootprint } from './hoistCandidateShape.js'
 
 function numOrNull(v) {
+  if (v == null || v === '') return null
   const n = Number(v)
   return Number.isFinite(n) ? n : null
 }
@@ -47,6 +48,11 @@ export function normalizeCandidate(c) {
     groups,
     footprint: candidateFootprint({ groups }),
     metrics: {
+      fieldReviewPriority: numOrNull(pick(m, 'fieldReviewPriority')),
+      tiltAngleDeg: numOrNull(pick(m, 'tiltAngleDeg')),
+      cogInsideHull: pick(m, 'cogInsideHull') ?? null,
+      cogEnvelopeApplied: pick(m, 'cogEnvelopeApplied') === true,
+      interiorMarginMm: numOrNull(pick(m, 'interiorMarginMm')),
       stage6Status: pick(m, 'stage6Status') ?? null,
       evaluationMode: pick(m, 'evaluationMode') ?? null,
       stage6MarginMm: numOrNull(pick(m, 'stage6MarginMm')),
@@ -143,6 +149,10 @@ function statusRank(s) { return s === 'pass' ? 0 : s === 'warn' ? 1 : 2 }
 export function compareCandidates(a, b) {
   const sr = statusRank(a.overallStatus) - statusRank(b.overallStatus)
   if (sr !== 0) return sr
+  // Advisory only: keep PASS/WARN tiers and all existing relaxed-shape warnings.
+  // Older engines without this metric retain their previous score order.
+  const ap = a.metrics?.fieldReviewPriority, bp = b.metrics?.fieldReviewPriority
+  if (ap != null && bp != null && ap !== bp) return ap - bp
   // 엔진 score 큰 순 (최우선) — 지지폭·면적·반듯함(축평행 직사각형/긴 축평행 직선)·축정렬 합산치.
   const as = a.score ?? 0, bs = b.score ?? 0
   if (bs !== as) return bs - as

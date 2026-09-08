@@ -14,7 +14,7 @@ function pick(obj, ...keys) {
   return undefined
 }
 
-function numOrNull(v) { const n = Number(v); return Number.isFinite(n) ? n : null }
+function numOrNull(v) { if (v == null || v === '') return null; const n = Number(v); return Number.isFinite(n) ? n : null }
 function statusRank(s) { return s === 'fail' ? 2 : s === 'warn' ? 1 : 0 }
 
 /**
@@ -26,7 +26,7 @@ export function adaptStabilityReportToCandidate(report, ctx) {
   const stages = pick(report, 'stages') ?? []
   const byId = new Map()
   for (const st of stages) {
-    const idNum = Number(pick(st, 'id'))
+    const idNum = Number(pick(st, 'id') ?? pick(st, 'stage'))
     // id 누락/비정상이면 Number(undefined)=NaN 이라 여러 stage 가 같은 NaN 키로 덮어써진다.
     // 유효 정수 id 가 아닌 stage 는 byId 에 넣지 않는다(어차피 id 4/5/6 조회 대상이 아님).
     if (!Number.isInteger(idNum)) continue
@@ -47,7 +47,7 @@ export function adaptStabilityReportToCandidate(report, ctx) {
 
   const failedStages = []
   for (const st of stages) {
-    if (pick(st, 'status') === 'fail') failedStages.push(Number(pick(st, 'id')))
+    if (pick(st, 'status') === 'fail') failedStages.push(Number(pick(st, 'id') ?? pick(st, 'stage')))
   }
 
   return {
@@ -57,6 +57,11 @@ export function adaptStabilityReportToCandidate(report, ctx) {
     groupCount: ctx?.groups?.length ?? 0,
     groups: (ctx?.groups ?? []).map(ids => ({ nodeIds: [...ids] })),
     metrics: {
+      fieldReviewPriority: s6 ? ((pick(sum(s6), 'cogInsideHull') === false || (numOrNull(pick(sum(s6), 'tiltAngleDeg')) ?? 0) >= 1 || (numOrNull(pick(sum(s6), 'apexToCogHeightMm')) ?? 1) <= 0) ? 1 : 0) : null,
+      tiltAngleDeg: numOrNull(pick(sum(s6), 'tiltAngleDeg')),
+      cogInsideHull: pick(sum(s6), 'cogInsideHull') ?? null,
+      cogEnvelopeApplied: pick(sum(s6), 'cogEnvelopeApplied') === true,
+      interiorMarginMm: numOrNull(pick(sum(s6), 'interiorMarginMm')),
       stage6Status: pick(s6, 'status') ?? null,
       evaluationMode: pick(sum(s6), 'evaluationMode') ?? null,
       stage6MarginMm: numOrNull(pick(sum(s6), 'marginMm')),

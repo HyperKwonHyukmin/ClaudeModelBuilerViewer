@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useMemo } from 'react'
 import { Loader2, X, CheckCircle2, AlertTriangle, XCircle, Play, Info, ChevronDown, ChevronRight } from 'lucide-react'
 import { useEditStore, getHoistMaxGroups } from '../store/useEditStore.js'
-import { toNodeGroups } from '../data/hoistCandidateRank.js'
+import { toNodeGroups, compareCandidates } from '../data/hoistCandidateRank.js'
 import { explainCandidate, rankingCriteria } from '../data/hoistCandidateExplain.js'
 import { countActiveZones } from '../data/hoistZonePartition.js'
 import HoistZoneConfig from './HoistZoneConfig.jsx'
@@ -195,7 +195,7 @@ export default function HoistAutoResultModal({ onClose }) {
     const key = sortKey[sortBy] ?? sortKey.span
     let list = passOnly ? candidates.filter(c => c.overallStatus === 'pass') : candidates.slice()
     if (hideNarrow) list = list.filter(c => !c.metrics?.supportSpanNarrow && !c.metrics?.groupSpanNarrow)
-    list.sort((a, b) => statusOrder(a.overallStatus) - statusOrder(b.overallStatus) || (key(b) - key(a)))
+    list.sort(sortBy === 'score' ? compareCandidates : (a, b) => statusOrder(a.overallStatus) - statusOrder(b.overallStatus) || (key(b) - key(a)))
     return list
   }, [candidates, passOnly, hideNarrow, sortBy])
 

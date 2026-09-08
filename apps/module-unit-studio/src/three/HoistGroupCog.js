@@ -55,7 +55,7 @@ export function buildHoistGroupCog(hoistGroups, stageData) {
     root.add(makeCross(centroid, colorHex))
 
     // 라벨
-    const label = makeLabel(`G${groupId} 무게중심`, colorHex)
+    const label = makeLabel(`G${groupId} 기하 중심`, colorHex)
     label.position.set(centroid.x, centroid.y, centroid.z + COG_R * 2.6)
     root.add(label)
   }

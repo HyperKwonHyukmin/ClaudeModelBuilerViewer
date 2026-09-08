@@ -82,21 +82,24 @@ function buildFactors(c) {
 
   // ① 자세안정성 계층 — 순위의 최상위 기준.
   if (c?.overallStatus === 'pass') {
-    strengths.push(m.stage6MarginMm != null
-      ? `자세안정성 PASS — 무게중심이 권상점 다각형 안에 있고, 경계까지 여유 ${fmtMm(m.stage6MarginMm)}.`
-      : '자세안정성 PASS — 무게중심이 권상점이 이루는 다각형 안에 있습니다.')
+    strengths.push('자세안정성 PASS — 현재 엔진의 초기 배치 기준을 만족합니다. 실제 권상 안전 승인은 아닙니다.')
+    if (m.cogInsideHull === true && m.interiorMarginMm != null) strengths.push(`권상 정점 영역 내부 · 실제 경계 여유 ${fmtMm(m.interiorMarginMm)}.`)
   } else if (c?.overallStatus === 'warn') {
     cautions.push('자세안정성 WARN — 통과하지만 여유가 작거나 참고 경고가 있어 PASS 후보보다 아래입니다.')
   } else {
-    cautions.push('자세안정성 FAIL — 무게중심이 권상점 다각형을 벗어나 추천 대상이 아닙니다.')
+    cautions.push('자세안정성 FAIL — 실패 단계의 사유를 확인하고 배치를 재검토하세요.')
   }
+
+  if (m.fieldReviewPriority === 1) cautions.push('배치 확인 우선 — 영역 밖 COG 또는 간이 경사 등을 확인하세요. 같은 판정 안에서 확인 사항이 없는 후보를 먼저 추천합니다. Strict OFF 경고는 유지됩니다.')
+  if (m.tiltAngleDeg != null && m.tiltAngleDeg >= 1) cautions.push(`간이 경사 지표 ${m.tiltAngleDeg.toFixed(1)}° — 권상 중심을 COG 쪽으로 이동하는 안을 뷰어에서 비교하세요.`)
+  if (m.cogEnvelopeApplied) strengths.push('사용자가 지정한 무게중심 오차 범위를 포함해 비교했습니다.')
 
   // ② 권상폭(넓이) — 모델 대비 지지 기반 폭.
   if (m.supportSpanFraction != null) {
     if (m.supportSpanNarrow || m.groupSpanNarrow) {
       cautions.push(`권상폭 ${pct(m.supportSpanFraction)} — 모델 대비 좁게 몰려 있어 순위가 낮아졌습니다.`)
     } else {
-      strengths.push(`권상폭 ${pct(m.supportSpanFraction)} — 권상점이 모델 전반에 넓게 퍼져 자세가 안정적입니다.`)
+      strengths.push(`권상폭 ${pct(m.supportSpanFraction)} — 권상점이 모델 전반에 분산되어 있습니다. 슬링각·편심도 함께 확인하세요.`)
     }
   }
 
@@ -149,6 +152,7 @@ function compareDims(a, ref) {
 
   const ds = statusScore(a?.overallStatus) - statusScore(ref?.overallStatus)
   if (ds !== 0) out.push({ better: ds > 0, nounBetter: '더 높은 자세안정성 계층', nounWorse: '더 낮은 자세안정성 계층' })
+  if (ma.fieldReviewPriority != null && mr.fieldReviewPriority != null && ma.fieldReviewPriority !== mr.fieldReviewPriority) out.push({ better: ma.fieldReviewPriority < mr.fieldReviewPriority, nounBetter: '편심·간이 경사 확인 사항이 적은 배치', nounWorse: '편심·간이 경사 추가 확인이 필요한 배치' })
 
   const spa = ma.supportSpanFraction ?? 0
   const spr = mr.supportSpanFraction ?? 0
@@ -212,10 +216,10 @@ export function explainCandidate(candidate, ranked = [], index = 0) {
 /** 목록 상단에 한 번 보여줄 '추천 기준' 안내(정적). */
 export function rankingCriteria() {
   return [
-    '① 자세안정성 우선 — 무게중심이 권상점 다각형 안에 있고(PASS) 경계까지 여유가 클수록 상위.',
+    '① 자세안정성 PASS > WARN > FAIL 유지. 같은 판정에서는 영역 밖 COG·간이 경사 1° 이상 등 확인 사항이 없는 배치를 우선합니다(새 엔진). 1°는 추천 참고값이며 합격 기준이 아닙니다.',
     '② plan 뷰 반듯함 — X/Y축에 평행·직각인 사각형, 마주보는 변 길이가 같은(대변비↑) 사각형, 길고 축평행한 직선을 우대.',
     '③ 넓은 권상폭 — 권상점이 모델 전반에 퍼질수록 상위, 한쪽에 몰리면 후순위.',
-    '제외 — 극단적 마름모·평행사변형·매우 납작한 사각형, 점에 가까운 직선은 후보에서 아예 걸러집니다.',
+    '제외 정책 유지 — Strict OFF에서 허용한 형상 경고는 유지하며, 이번 개선으로 경고 후보를 추가 탈락시키지 않습니다.',
     '간섭(와이어) — 경고로만 표시하며 순위 점수에는 넣지 않습니다.',
   ]
 }

@@ -31,6 +31,9 @@ import { useEditStore, computeMassFallback } from '../store/useEditStore.js'
 import { useStageStore } from '../store/useStageStore.js'
 import { useStabilityStore } from '../store/useStabilityStore.js'
 import { computeDeleteMask } from '../data/applyEditIntents.js'
+import { buildFieldGuide, hasPendingGuideMassEdits } from '../data/hoistFieldGuide.js'
+import { buildHoistFieldOverlay } from '../three/HoistFieldOverlay.js'
+import HoistFieldGuidePanel from './HoistFieldGuidePanel.jsx'
 
 const LAYER_KEYS = ['structure', 'pipe', 'nodes', 'rigids', 'masses', 'boundaries', 'uboltMarkers', 'uboltDof']
 const DRAG_THRESHOLD = 3  // px — moves less than this are treated as a click
@@ -86,6 +89,7 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
   const [navigationMode, setNavigationMode] = useState('rotate')
   const navigationModeRef = useRef('rotate')
   const [nodeSize, setNodeSize] = useState(5)
+  const [fieldVisible, setFieldVisible] = useState(true)
   const nodeSizeRef = useRef(5)
   const hoverHighlightRef = useRef(null)
   const hoverEntityRef = useRef(null)
@@ -154,6 +158,9 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
   const circleGuideEnabled     = useEditStore(s => s.circleGuideEnabled)
   const hoistCircleTolMm       = useEditStore(s => s.hoistCircleTolMm)
   const showHoistPlate         = useEditStore(s => s.showHoistPlate)
+  const wireLengthM            = useEditStore(s => s.wireLengthM)
+  const cogTolerance          = useEditStore(s => s.cogTolerance)
+  const strictEvaluation      = useEditStore(s => s.strictEvaluation)
   const supportPickActive      = useEditStore(s => s.supportPickActive)
   const supportPickNodes       = useEditStore(s => s.supportPickNodes)
   const pickSupportNode        = useEditStore(s => s.pickSupportNode)
@@ -209,6 +216,17 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
   const pipeFluidEmptied = useStageStore(s => s.pipeFluidEmptied)
   const modelRotated = useStageStore(s => s.modelRotated)
   const stabilityReport = useStabilityStore(s => s.report)
+  const fieldGuide = useMemo(() => {
+    if (!hoistPickEnabled || !isEditTargetStage) return null
+    // Pending mass-changing edits must be saved/reloaded before trusting the old COG.
+    const massEditsPending = hasPendingGuideMassEdits(editIntents)
+    const authoritativeCog = stageSummary?.massProperties?.centerOfGravityMm ?? stabilityReport?.input?.centerOfGravityMm
+    const cog = massEditsPending ? null : ((pipeFluidEmptied || modelRotated || !isCog(authoritativeCog))
+      ? computeMassFallback(stageData)?.centerOfGravityMm : authoritativeCog)
+    const guide = buildFieldGuide({ stageData, groups: hoistGroups, cog, wireLengthM, tolerance: cogTolerance, mode: hoistMode, report: stabilityReport, deleteMask })
+    if (massEditsPending) guide.message = '모델 편집 후 무게중심 갱신이 필요합니다. 편집 반영/재로드 후 배치를 확인하세요.'
+    return guide
+  }, [hoistPickEnabled, isEditTargetStage, editIntents, stageSummary, stabilityReport, stageData, pipeFluidEmptied, modelRotated, hoistGroups, wireLengthM, cogTolerance, hoistMode, deleteMask])
 
   // 배관/구조 토글이 OFF 면 그 카테고리 전용 노드를 자동 숨김.
   // 단, 사용자가 Node 토글을 OFF→ON 으로 다시 켜면 그 후로는 모든 노드를 보여 준다 (auto-filter override).
@@ -1542,6 +1560,15 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
     requestRender()
   }, [selectedEntity, stageData, layers, isolateSelection, displayStyle, requestRender]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    const scene = sceneRef.current
+    if (!scene || !stageData || !fieldVisible || !fieldGuide?.available) return
+    const overlay = buildHoistFieldOverlay(fieldGuide, stageData.center)
+    scene.add(overlay)
+    requestRender()
+    return () => { scene.remove(overlay); disposeScene(overlay); requestRender() }
+  }, [fieldGuide, fieldVisible, stageData, renderMode, colorMode, requestRender])
+
   // ── 카메라 뷰 컨트롤 (표준 뷰 프리셋 + 전체 보기) ─────────────────────────
   // 프레이밍 기준점 = 현재 회전 중심. 이 스튜디오는 회전 중심을 무게중심에 고정하고
   // 노드 더블클릭으로 사용자가 바꿀 수 있으므로, 뷰를 바꿔도 그 기준점을 유지한다.
@@ -1615,6 +1642,16 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
 
   return (
     <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden' }}>
+      {hoistPickEnabled && isEditTargetStage && stageData && <HoistFieldGuidePanel
+        guide={fieldGuide} visible={fieldVisible} onToggle={() => setFieldVisible(v => !v)}
+        strict={strictEvaluation} onTop={() => setStandardView('top')}
+        onFocus={(groupId, nodeId) => {
+          useEditStore.getState().setActiveHoistGroup(groupId)
+          const ids = hoistGroups[groupId] ?? []
+          const entity = nodeId ? { type: 'node', nodeId } : { type: 'rigid', independentNode: ids[0], dependentNodes: ids.slice(1) }
+          focusEntity(entity, stageData, cameraRef.current, controlsRef.current, requestRender)
+          pivotOverrideRef.current = true
+        }} />}
       {/* 카메라 뷰 컨트롤 — 표준 뷰 프리셋 + 전체 보기 + 3D 단면 (좌상단)
           단축키 글자를 라벨 옆에 함께 적어 A/S/D/F 가 각각 어떤 뷰인지 항상 보이게 한다. */}
       <div style={{
@@ -1943,8 +1980,7 @@ function fitCamera(stageData, camera, controls, pivot = null) {
   return fitCameraToDirection(stageData, camera, controls, v.dir, v.up, pivot)
 }
 
-// 회전 중심 고정 정책 도입 후 미사용(결과/감사 자동 포커스 제거). 향후 '부재로 확대' 재도입 대비 보존.
-// eslint-disable-next-line no-unused-vars
+// Explicit field-guide location action; never auto-focus on report updates.
 function focusEntity(entity, stageData, camera, controls, requestRender) {
   if (!entity || !stageData || !camera || !controls) return
 
