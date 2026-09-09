@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import TopMenuBar from './components/TopMenuBar.jsx'
 import LeftDock from './components/LeftDock.jsx'
 import ViewportContainer from './components/ViewportContainer.jsx'
@@ -10,6 +10,21 @@ import { useEditStore } from './store/useEditStore.js'
 import { getHost } from './host/host.js'
 
 export default function App() {
+  const leftDockRef = useRef(null)
+  const setSidebarWidth = useViewerStore(s => s.setSidebarWidth)
+
+  // CSS media query가 실제로 줄인 좌측 도크 폭을 overlay 배치에도 동일하게 전파한다.
+  // 고정값(301)을 store에 남기면 작은 화면에서 결과 도크가 3D 위로 잘못 밀려난다.
+  useEffect(() => {
+    const dock = leftDockRef.current
+    if (!dock) return undefined
+    const publishActualWidth = () => setSidebarWidth(Math.round(dock.getBoundingClientRect().width))
+    publishActualWidth()
+    const observer = new ResizeObserver(publishActualWidth)
+    observer.observe(dock)
+    return () => observer.disconnect()
+  }, [setSidebarWidth])
+
   // Workbench(Electron) 호스트가 부팅 시점에 폴더를 자동 주입하면 즉시 로드한다.
   // Web 단독 모드에서는 host.getInitialFolder() 가 항상 null 이므로 no-op.
   useEffect(() => {
@@ -55,11 +70,13 @@ export default function App() {
   }, [activeMode])
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', width: '100%', height: '100%', background: '#0d0d1a', color: '#e0e0e0', overflow: 'hidden' }}>
+    <div className="module-studio-shell" style={{ display: 'flex', flexDirection: 'column', width: '100%', height: '100%', background: '#0d0d1a', color: '#e0e0e0', overflow: 'hidden' }}>
       <TopMenuBar />
-      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-        <LeftDock />
-        <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
+      <div className="module-studio-body" style={{ display: 'flex', flex: 1, minWidth: 0, minHeight: 0, overflow: 'hidden' }}>
+        <aside ref={leftDockRef} className="module-studio-left-dock" aria-label="Studio 작업 패널">
+          <LeftDock />
+        </aside>
+        <div className="module-studio-workspace" style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, minHeight: 0, overflow: 'hidden' }}>
           {/* 우측 인스펙터(InspectorPanel)는 dock 컬럼에서 빠지고 ViewportContainer 내부의
               뷰포트 위 floating 정보 창으로 이동했다 — 뷰어가 가로 전폭을 사용한다. */}
           <ViewportContainer />

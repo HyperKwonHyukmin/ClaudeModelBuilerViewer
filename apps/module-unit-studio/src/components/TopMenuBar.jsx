@@ -23,13 +23,13 @@ export default function TopMenuBar() {
   const [hoveredKey, setHoveredKey] = useState(null)
 
   return (
-    <div style={{
+    <div className="module-studio-topbar" style={{
       display: 'flex', alignItems: 'center', gap: 12, height: 42, flexShrink: 0,
       padding: '0 12px', background: '#0b0b1e', borderBottom: '1px solid #1e1e38',
       userSelect: 'none',
     }}>
       {/* 브랜드 */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+      <div className="module-studio-brand" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <Box size={15} color="#6ee7b7" />
         <span style={{ fontSize: 13, fontWeight: 900, color: '#e6f1ff', letterSpacing: 0.4 }}>ModuleUnit</span>
         <span style={{ fontSize: 11, color: '#6ee7b7', fontWeight: 700 }}>Studio</span>
@@ -39,7 +39,7 @@ export default function TopMenuBar() {
       <div style={{ width: 1, height: 18, background: '#1e1e38', flexShrink: 0 }} />
 
       {/* 모드 탭 */}
-      <nav role="tablist" aria-label="스튜디오 모드" style={{ display: 'flex', gap: 4 }}>
+      <nav className="module-studio-tabs" role="tablist" aria-label="스튜디오 모드" style={{ display: 'flex', gap: 4, minWidth: 0 }}>
         {TABS.map(({ key, label, Icon }) => {
           const active = activeMode === key
           const hovered = !active && hoveredKey === key
@@ -64,7 +64,7 @@ export default function TopMenuBar() {
                 transition: 'all 0.15s ease',
               }}
             >
-              <Icon size={15} /> {label}
+              <Icon size={15} /> <span className="module-studio-tab-label">{label}</span>
             </button>
           )
         })}

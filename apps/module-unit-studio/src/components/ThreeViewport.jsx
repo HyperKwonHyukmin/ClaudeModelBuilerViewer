@@ -340,8 +340,11 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
 
     // Renderer
     const renderer = new THREE.WebGLRenderer({ antialias: true })
-    renderer.setPixelRatio(window.devicePixelRatio)
-    renderer.setSize(container.clientWidth, container.clientHeight)
+    // Windows 디스플레이 배율이 큰 환경에서 devicePixelRatio 를 그대로 쓰면 렌더 타깃이
+    // 과도하게 커져 뷰가 버벅이거나 브라우저가 캔버스를 비정상 복원하는 경우가 있다.
+    // CSS 크기는 유지하고 내부 렌더 해상도만 2배로 제한한다.
+    renderer.setPixelRatio(Math.min(Math.max(window.devicePixelRatio || 1, 1), 2))
+    renderer.setSize(Math.max(1, container.clientWidth), Math.max(1, container.clientHeight))
     renderer.autoClear = false
     renderer.toneMapping = THREE.NoToneMapping
     renderer.outputColorSpace = THREE.SRGBColorSpace
@@ -349,7 +352,7 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
     rendererRef.current = renderer
 
     // Camera — orthographic only. ModuleUnitStudio no longer exposes perspective projection.
-    const aspect0 = container.clientWidth / container.clientHeight
+    const aspect0 = Math.max(1, container.clientWidth) / Math.max(1, container.clientHeight)
     const camera = new THREE.OrthographicCamera(-aspect0, aspect0, 1, -1, 0.01, 20000)
     camera.position.set(20, 15, 30)
     cameraRef.current = camera
@@ -540,6 +543,10 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
     const ro = new ResizeObserver(() => {
       const w = container.clientWidth
       const h = container.clientHeight
+      // 탭 전환/도크 재배치 중 관찰되는 일시적 0×0 크기를 카메라에 적용하면
+      // aspect=Infinity/NaN이 남아 다음 정상 프레임도 왜곡될 수 있다.
+      if (w < 1 || h < 1) return
+      renderer.setPixelRatio(Math.min(Math.max(window.devicePixelRatio || 1, 1), 2))
       renderer.setSize(w, h)
       const halfH = (camera.top - camera.bottom) / 2
       const halfW = halfH * (w / h)

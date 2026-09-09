@@ -24,6 +24,75 @@ html, body, #root {
   color: #cad8e8;        /* tokens.INK.body */
 }
 
+/*
+ * 해상도·Windows 배율 대응 Studio 프레임.
+ * 고정 301px 도크와 6개 텍스트 탭이 작은 CSS viewport에서 3D 영역을 압박하지 않도록
+ * 가용 폭에 따라 작업 패널과 상단 리본을 단계적으로 압축한다.
+ */
+.module-studio-shell,
+.module-studio-body,
+.module-studio-workspace {
+  min-width: 0;
+  min-height: 0;
+}
+
+.module-studio-left-dock {
+  display: flex;
+  flex: 0 0 auto;
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+@media (max-width: 1100px) {
+  .module-studio-left-dock > * {
+    width: clamp(232px, 26vw, 268px) !important;
+    max-width: clamp(232px, 26vw, 268px) !important;
+  }
+
+  .module-studio-topbar {
+    gap: 8px !important;
+    padding-inline: 8px !important;
+  }
+
+  .module-studio-tabs {
+    gap: 2px !important;
+  }
+
+  .module-studio-tabs > button {
+    gap: 5px !important;
+    padding-inline: 9px !important;
+  }
+}
+
+@media (max-width: 820px) {
+  .module-studio-left-dock > * {
+    width: clamp(200px, 28vw, 232px) !important;
+    max-width: clamp(200px, 28vw, 232px) !important;
+  }
+
+  .module-studio-brand > span:last-child,
+  .module-studio-tab-label {
+    display: none;
+  }
+
+  .module-studio-tabs > button {
+    justify-content: center !important;
+    width: 34px !important;
+    padding-inline: 0 !important;
+  }
+}
+
+@media (max-height: 680px) {
+  .module-studio-topbar {
+    height: 36px !important;
+  }
+
+  .module-studio-tabs > button {
+    padding-block: 4px !important;
+  }
+}
+
 /**
  * 포커스 링.
  *

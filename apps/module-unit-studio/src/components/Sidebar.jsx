@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback, useEffect } from 'react'
+import { useRef, useState, useCallback } from 'react'
 import { Droplet, FileJson, FolderOpen, RotateCcw } from 'lucide-react'
 import { useViewerStore } from '../store/useViewerStore.js'
 import { useStageStore } from '../store/useStageStore.js'
@@ -164,18 +164,6 @@ export default function Sidebar() {
 
   const [width, setWidth] = useState(DEFAULT_WIDTH)
   const dragRef = useRef(null)  // { startX, startWidth }
-
-  // dock 가 좌측 영역을 비우도록 useViewerStore 에 폭 publish (mount + width 변경 시)
-  const publishSidebarWidth = useViewerStore(s => s.setSidebarWidth)
-  useEffect(() => {
-    publishSidebarWidth(width)
-  }, [width, publishSidebarWidth])
-  // 모드 전환으로 이 Sidebar(Model 도크)가 언마운트되면 publish 폭을 기본(301)으로 되돌린다.
-  // 다른 모드의 좌측 도크는 모두 고정 301 인데 publish 를 안 하므로, Sidebar 를 리사이즈한 뒤
-  // 모드를 바꾸면 결과 dock(left=sidebarWidth)이 stale 값으로 어긋나던 것을 막는다.
-  useEffect(() => {
-    return () => publishSidebarWidth(DEFAULT_WIDTH)
-  }, [publishSidebarWidth])
 
   const fileInputRef = useRef(null)
 
