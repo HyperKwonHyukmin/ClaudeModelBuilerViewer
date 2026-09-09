@@ -107,6 +107,16 @@ describe('buildRigidMesh', () => {
     group.traverse(o => { o.geometry?.dispose?.(); o.material?.dispose?.() })
   })
 
+  it('uses the Side Passage bright-red color for standard nodes', () => {
+    const stage = new StageData(makeJson())
+    const mesh = buildNodePoints(stage)
+    const color = new THREE.Color()
+    mesh.getColorAt(0, color)
+    expect(color.getHex()).toBe(0xFF4455)
+    mesh.geometry.dispose()
+    mesh.material.dispose()
+  })
+
   it('treats cm-only rigids as U-bolt data when remark is missing', () => {
     const json = makeJson({
       rigids: [{ id: 10, independentNode: 1, dependentNodes: [2], remark: null, cm: '23' }]

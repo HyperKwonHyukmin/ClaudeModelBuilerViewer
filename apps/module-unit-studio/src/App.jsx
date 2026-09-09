@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import TopMenuBar from './components/TopMenuBar.jsx'
 import LeftDock from './components/LeftDock.jsx'
 import ViewportContainer from './components/ViewportContainer.jsx'
@@ -8,10 +8,27 @@ import { useStageStore } from './store/useStageStore.js'
 import { useViewerStore } from './store/useViewerStore.js'
 import { useEditStore } from './store/useEditStore.js'
 import { getHost } from './host/host.js'
+import { computeResolutionFrame } from './utils/resolutionFrame.js'
 
 export default function App() {
   const leftDockRef = useRef(null)
   const setSidebarWidth = useViewerStore(s => s.setSidebarWidth)
+  const [resolutionFrame, setResolutionFrame] = useState(() =>
+    computeResolutionFrame(window.innerWidth, window.innerHeight))
+
+  useEffect(() => {
+    let raf = 0
+    const onResize = () => {
+      cancelAnimationFrame(raf)
+      raf = requestAnimationFrame(() => setResolutionFrame(
+        computeResolutionFrame(window.innerWidth, window.innerHeight)))
+    }
+    window.addEventListener('resize', onResize)
+    return () => {
+      cancelAnimationFrame(raf)
+      window.removeEventListener('resize', onResize)
+    }
+  }, [])
 
   // CSS media query가 실제로 줄인 좌측 도크 폭을 overlay 배치에도 동일하게 전파한다.
   // 고정값(301)을 store에 남기면 작은 화면에서 결과 도크가 3D 위로 잘못 밀려난다.
@@ -69,8 +86,20 @@ export default function App() {
     setEnabled(activeMode === 'edit')
   }, [activeMode])
 
+  const presentation = resolutionFrame.mode === 'presentation'
   return (
-    <div className="module-studio-shell" style={{ display: 'flex', flexDirection: 'column', width: '100%', height: '100%', background: '#0d0d1a', color: '#e0e0e0', overflow: 'hidden' }}>
+    <main className="module-studio-resolution-stage" aria-label="Module Unit Studio 작업 화면">
+    <div className="module-studio-shell" data-studio-scale={resolutionFrame.scale} data-resolution-mode={resolutionFrame.mode} style={{
+      display: 'flex', flexDirection: 'column',
+      width: presentation ? resolutionFrame.width : '100%',
+      height: presentation ? resolutionFrame.height : '100%',
+      position: presentation ? 'absolute' : 'relative',
+      left: presentation ? resolutionFrame.left : 0,
+      top: presentation ? resolutionFrame.top : 0,
+      transform: presentation ? `scale(${resolutionFrame.scale})` : 'none',
+      transformOrigin: 'top left',
+      background: '#0d0d1a', color: '#e0e0e0', overflow: 'hidden',
+    }}>
       <TopMenuBar />
       <div className="module-studio-body" style={{ display: 'flex', flex: 1, minWidth: 0, minHeight: 0, overflow: 'hidden' }}>
         <aside ref={leftDockRef} className="module-studio-left-dock" aria-label="Studio 작업 패널">
@@ -85,5 +114,6 @@ export default function App() {
         </div>
       </div>
     </div>
+    </main>
   )
 }

@@ -1,7 +1,7 @@
 export const COLORS = {
   structure:   0x7FB3D5,  // Muted engineering blue
   pipe:        0xD7A04A,  // Warm amber, less saturated than warning orange
-  node:        0xE65F6A,  // Soft red for default node markers
+  node:        0xFF4455,  // Side Passage와 동일한 고가시성 Bright Red
   rigid:       0xC77DFF,  // Controlled violet for non-U-bolt RBE
   uboltRigid:  0x4DDDE0,  // Cyan — U-bolt RBE line
   mass:        0xE59AB3,  // Rose for concentrated mass

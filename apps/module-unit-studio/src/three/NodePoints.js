@@ -7,7 +7,7 @@ export const DEFAULT_NODE_PX = 6
 const _dummy = new THREE.Object3D()
 
 // freeNode 모드 색상
-const COLOR_STANDARD = new THREE.Color(0x8FA9BC)       // 일반 검토 — 부재보다 조용한 청회색
+const COLOR_STANDARD = new THREE.Color(COLORS.node)    // 일반 검토 — Side Passage와 동일한 Bright Red
 const COLOR_NORMAL   = new THREE.Color(COLORS.node)   // Free Node 검토의 Shared Node (2+) — 빨강
 const COLOR_FREE_END = new THREE.Color(0xF2C94C)       // Free Node (1 연결) — amber
 const COLOR_ORPHAN   = new THREE.Color(0xB46DFF)       // Orphan Node (0 연결) — violet

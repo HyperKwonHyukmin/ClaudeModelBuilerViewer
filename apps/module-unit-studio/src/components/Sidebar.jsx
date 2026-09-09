@@ -9,7 +9,7 @@ import { getHost } from '../host/host.js'
 import Tooltip from './Tooltip.jsx'
 
 const LAYER_DEFS = [
-  { key: 'nodes',        label: 'Node',         color: '#8FA9BC', desc: '전체 보기에서는 작고 은은하게, 확대·Node 선택·편집·권상 작업에서는 자동으로 강조. 배관 토글이 OFF면 배관 전용 Node도 숨깁니다.' },
+  { key: 'nodes',        label: 'Node',         color: '#FF4455', desc: '전체 보기에서도 6px 밝은 적색으로 선명하게 표시하고, 확대·Node 선택·편집·권상 작업에서는 7~8px로 자동 강조. 배관 토글이 OFF면 배관 전용 Node도 숨깁니다.' },
   { key: 'structure',    label: '구조',         color: '#7FB3D5', desc: 'Structure 카테고리 BEAM 표시 (보·형강 등 구조 부재).' },
   { key: 'pipe',         label: '배관',         color: '#D7A04A', desc: 'Pipe 카테고리 BEAM 표시. OFF 시 배관 전용 노드도 함께 숨겨집니다.' },
   { key: 'rigids',       label: 'RBE',          color: '#C77DFF', desc: 'RBE2 강체 연결 표시 (independent ↔ dependent 라인).' },

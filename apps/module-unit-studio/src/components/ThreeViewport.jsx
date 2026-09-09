@@ -26,6 +26,7 @@ import { buildSlingAngleOverlay, hasSlingAngleIssues } from '../three/SlingAngle
 import { buildNastranResultOverlay } from '../three/NastranResultOverlay.js'
 import { computeOrthoPanSpeed } from '../three/orthoPan.js'
 import { computeFitFraming, sceneHalfExtentsAbout, STANDARD_VIEWS } from '../three/viewportFraming.js'
+import { studioRenderPixelRatio } from '../utils/resolutionFrame.js'
 import { useViewerStore } from '../store/useViewerStore.js'
 import { useUnitStructuralStore } from '../store/useUnitStructuralStore.js'
 import { useEditStore, computeMassFallback } from '../store/useEditStore.js'
@@ -359,7 +360,7 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
     // Windows 디스플레이 배율이 큰 환경에서 devicePixelRatio 를 그대로 쓰면 렌더 타깃이
     // 과도하게 커져 뷰가 버벅이거나 브라우저가 캔버스를 비정상 복원하는 경우가 있다.
     // CSS 크기는 유지하고 내부 렌더 해상도만 2배로 제한한다.
-    renderer.setPixelRatio(Math.min(Math.max(window.devicePixelRatio || 1, 1), 2))
+    renderer.setPixelRatio(studioRenderPixelRatio(container, window.devicePixelRatio))
     renderer.setSize(Math.max(1, container.clientWidth), Math.max(1, container.clientHeight))
     renderer.autoClear = false
     renderer.toneMapping = THREE.NoToneMapping
@@ -556,13 +557,13 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
     window.addEventListener('keydown', onKeyDown)
 
     // ── ResizeObserver ────────────────────────────────────────────────
-    const ro = new ResizeObserver(() => {
+    const syncViewportSize = () => {
       const w = container.clientWidth
       const h = container.clientHeight
       // 탭 전환/도크 재배치 중 관찰되는 일시적 0×0 크기를 카메라에 적용하면
       // aspect=Infinity/NaN이 남아 다음 정상 프레임도 왜곡될 수 있다.
       if (w < 1 || h < 1) return
-      renderer.setPixelRatio(Math.min(Math.max(window.devicePixelRatio || 1, 1), 2))
+      renderer.setPixelRatio(studioRenderPixelRatio(container, window.devicePixelRatio))
       renderer.setSize(w, h)
       const halfH = (camera.top - camera.bottom) / 2
       const halfW = halfH * (w / h)
@@ -580,8 +581,17 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
       updateRes(pipeDiamRef.current)
       updateRes(resultWireRef.current)   // 자세안정성 wire(Line2/LineMaterial)도 resize 시 굵기 왜곡 방지
       requestRender()
-    })
+    }
+    let resizeRaf = 0
+    const scheduleViewportSync = () => {
+      cancelAnimationFrame(resizeRaf)
+      resizeRaf = requestAnimationFrame(syncViewportSize)
+    }
+    const ro = new ResizeObserver(scheduleViewportSync)
     ro.observe(container)
+    // 발표 모드는 논리 크기 1920×1080을 유지하므로 CSS transform만 바뀐다. 이 경우
+    // ResizeObserver가 울리지 않아도 내부 WebGL 해상도(DPR)는 새 배율로 다시 맞춰야 한다.
+    window.addEventListener('resize', scheduleViewportSync)
 
     // ── Picking: pointerdown/up to distinguish click from drag ───────
     const onPointerDown = (e) => {
@@ -825,7 +835,9 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
 
     return () => {
       if (animRafRef.current) { cancelAnimationFrame(animRafRef.current); animRafRef.current = null }
+      cancelAnimationFrame(resizeRaf)
       ro.disconnect()
+      window.removeEventListener('resize', scheduleViewportSync)
       controls.removeEventListener('start', onStart)
       controls.removeEventListener('end',   onEnd)
       controls.removeEventListener('change', clearHover)
