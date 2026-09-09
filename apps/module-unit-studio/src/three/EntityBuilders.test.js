@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import * as THREE from 'three'
 import { buildNodePoints, updateNodePresentation } from './NodePoints.js'
+import { pxToWorldFactor, updateScreenSpaceUniforms } from './screenSpaceMaterial.js'
 import { buildRigidMesh } from './RigidMesh.js'
 import { buildMassMarkers } from './MassMarkers.js'
 import { buildBoundaryMarkers } from './BoundaryMarkers.js'
@@ -128,13 +129,27 @@ describe('buildRigidMesh', () => {
     dofGroup.traverse(o => { o.geometry?.dispose?.(); o.material?.dispose?.() })
   })
 
-  it('uses a quiet overview marker and promotes nodes during node work', () => {
+  it('keeps Side Passage-class visibility in overview and promotes nodes during node work', () => {
     const stage = new StageData(makeJson())
     const mesh = buildNodePoints(stage)
     const overview = updateNodePresentation(mesh, { worldPerPixel: 0.01, zoom: 1, mode: 'auto' })
-    expect(overview).toMatchObject({ pixels: 1.35, opacity: 0.24, depthTest: true })
+    expect(overview).toMatchObject({ pixels: 6, opacity: 1, depthTest: true })
     const working = updateNodePresentation(mesh, { worldPerPixel: 0.01, zoom: 1, mode: 'auto', interactive: true })
-    expect(working).toMatchObject({ pixels: 4.5, opacity: 0.9, depthTest: false })
+    expect(working).toMatchObject({ pixels: 8, opacity: 1, depthTest: true })
+    mesh.geometry.dispose()
+    mesh.material.dispose()
+  })
+
+  it('converts pixels with the orthographic viewport and zoom used by Module Unit', () => {
+    const camera = new THREE.OrthographicCamera(-4, 4, 3, -3, 0.1, 100)
+    camera.zoom = 2
+    const stage = new StageData(makeJson())
+    const mesh = buildNodePoints(stage)
+    const root = new THREE.Group()
+    root.add(mesh)
+    expect(pxToWorldFactor(camera, 600)).toBeCloseTo(0.005)
+    expect(updateScreenSpaceUniforms(root, camera, 600)).toBe(1)
+    expect(mesh.material.userData.ss.uniforms.uOrthographic.value).toBe(1)
     mesh.geometry.dispose()
     mesh.material.dispose()
   })

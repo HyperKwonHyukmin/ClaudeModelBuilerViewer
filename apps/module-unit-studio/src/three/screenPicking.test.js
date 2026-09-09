@@ -16,22 +16,22 @@ function fixture(positions = [[0, 0, 0]]) {
 }
 
 describe('screen-space node picking', () => {
-  it.each(['cylinder', 'section3d'])('keeps overview quiet but promotes nodes for explicit node work in %s', mode => {
+  it.each(['cylinder', 'section3d'])('keeps nodes visible and gives them pick priority during explicit node work in %s', mode => {
     const { camera } = fixture()
     const mesh = buildNodePoints({ nodeMap: new Map([[1, {}]]), getNodePos: () => new THREE.Vector3(), rigids: [] }, 'category', mode)
     const beam = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2), new THREE.MeshBasicMaterial())
     beam.updateMatrixWorld()
     updateNodePresentation(mesh, { worldPerPixel: 0.01, zoom: 1 })
     expect(mesh.material.depthTest).toBe(true)
-    expect(mesh.material.opacity).toBe(0.24)
+    expect(mesh.material.opacity).toBe(1)
     let hits = pickViewport({ pickables: { nodes: mesh }, targets: [mesh, beam], camera, rect,
       pointer: pointer(), raycaster: new THREE.Raycaster() })
     expect(hits[0].object).toBe(beam)
 
     updateNodePresentation(mesh, { worldPerPixel: 0.01, zoom: 1, interactive: true })
-    expect(mesh.material.depthTest).toBe(false)
-    expect(mesh.material.opacity).toBe(0.9)
-    expect(mesh.renderOrder).toBeGreaterThan(beam.renderOrder)
+    expect(mesh.material.depthTest).toBe(true)
+    expect(mesh.material.opacity).toBe(1)
+    expect(mesh.userData.presentation.prominent).toBe(true)
     hits = pickViewport({ pickables: { nodes: mesh }, targets: [mesh, beam], camera, rect,
       pointer: pointer(), raycaster: new THREE.Raycaster() })
     expect(hits[0].object).toBe(mesh)

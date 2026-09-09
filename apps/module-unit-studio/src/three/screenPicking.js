@@ -100,7 +100,8 @@ export function pickViewport({ pickables, targets, camera, rect, pointer, raycas
     const nodeDistance = raycaster.ray.direction.dot(node.point.clone().sub(raycaster.ray.origin))
     const clearance = Math.max(0.06, worldUnitsPerPixel(camera, rect.height) * 4)
     // Opaque geometry occludes nodes; explicit node-only / section views can inspect through it.
-    if (!hits.length || pickables.nodes.material.depthTest === false ||
+    if (!hits.length || pickables.nodes.userData.presentation?.prominent ||
+      pickables.nodes.material.depthTest === false ||
       (hits[0].object.material.transparent && hits[0].object.material.opacity <= 0.4) ||
       nodeDistance <= hits[0].distance + clearance) {
       return [node, ...hits]

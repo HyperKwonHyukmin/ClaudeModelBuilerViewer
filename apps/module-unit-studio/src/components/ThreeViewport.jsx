@@ -3,6 +3,7 @@ import * as THREE from 'three'
 import { TrackballControls } from 'three/addons/controls/TrackballControls.js'
 import { MousePointer2, Rotate3D, Move, Focus } from 'lucide-react'
 import { pickViewport, worldUnitsPerPixel } from '../three/screenPicking.js'
+import { updateScreenSpaceUniforms } from '../three/screenSpaceMaterial.js'
 import { buildScene, disposeScene } from '../three/SceneBuilder.js'
 import { applyFreeNodeFilters, applyHoistModeHighlight, updateNodePresentation } from '../three/NodePoints.js'
 import { applyGroupVisibility } from '../three/GroupVisibility.js'
@@ -281,6 +282,7 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
     renderer.setClearColor(0x1a1a2e, 1)
     renderer.clear()
     const nodeMesh = sceneDataRef.current?.pickables?.nodes
+    updateScreenSpaceUniforms(scene, camera, h)
     updateNodePresentation(nodeMesh, {
       worldPerPixel: worldUnitsPerPixel(camera, h),
       zoom: camera.zoom,
@@ -1751,11 +1753,11 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
           <option value="shaded">음영</option><option value="xray">반투명</option>
           <option value="wire">와이어프레임</option><option value="nodeOnly">노드만</option>
         </select>
-        <select aria-label="노드 표시 방식" title="자동은 전체 보기에서 Node를 작고 은은하게 표시하고, 확대·선택·편집·권상 시 자동으로 강조합니다. 클릭 반경은 표시 크기와 무관하게 유지됩니다."
+        <select aria-label="노드 표시 방식" title="자동은 Side Passage 기준 6px로 항상 표시하고, 확대·선택·편집·권상 시 7~8px로 강조합니다. 클릭 반경은 표시 크기와 무관하게 유지됩니다."
           value={nodeSize} onChange={e => { nodeSizeRef.current = e.target.value; setNodeSize(e.target.value); requestRender() }}
           style={{ ...VIEW_BTN_STYLE, background: '#152337', color: '#d8e4f3', minHeight: 30 }}>
-          <option value="auto">Node: 자동</option><option value="1.5">Node: 미세</option>
-          <option value="3">Node: 표준</option><option value="5">Node: 강조</option>
+          <option value="auto">Node: 자동 (6~8px)</option><option value="4">Node: 작게 (4px)</option>
+          <option value="6">Node: 보통 (6px)</option><option value="8">Node: 크게 (8px)</option>
         </select>
       </div>
       <div style={{ position: 'absolute', left: 130, bottom: 14, right: 95, pointerEvents: 'none',

@@ -1,7 +1,9 @@
 import * as THREE from 'three'
 import { COLORS } from '../utils/colors.js'
+import { makeScreenSpaceMaterial, setScreenSpacePx } from './screenSpaceMaterial.js'
 
 const NODE_RADIUS = 0.0448  // 44.8 mm (80 % of 56 mm)
+export const DEFAULT_NODE_PX = 6
 const _dummy = new THREE.Object3D()
 
 // freeNode 모드 색상
@@ -14,6 +16,13 @@ const COLOR_ORPHAN   = new THREE.Color(0xB46DFF)       // Orphan Node (0 연결)
 // Wire CROD 는 RBE2 independent/dependent 노드 모두에 연결 가능하므로 선택을 막지 않는다.
 // 이 색은 선택 제한이 아니라 기존 강체 연결을 통해 하중이 전달된다는 정보 표시다.
 const COLOR_RBE_HOIST = new THREE.Color(0xE9A8B8)      // 연한 분홍 (light pink)
+
+// 노드 중심이 부재 축과 겹쳐도 표면 위로 보이도록 Side Passage와 같은 깊이 바이어스를 쓴다.
+const BIAS = {
+  cylinder:  { bias: 0.03, biasK: 0.012 },
+  section3d: { bias: 0.12, biasK: 0.03 },
+}
+export function nodeBiasFor(renderMode) { return BIAS[renderMode] ?? BIAS.cylinder }
 
 /**
  * Builds an InstancedMesh of shaded spheres, one per node.
@@ -32,29 +41,19 @@ const COLOR_RBE_HOIST = new THREE.Color(0xE9A8B8)      // 연한 분홍 (light p
  * @param {'category'|'freeNode'} [colorMode='category']
  * @returns {THREE.InstancedMesh}
  */
-export function buildNodePoints(stageData, colorMode = 'category') {
+export function buildNodePoints(stageData, colorMode = 'category', renderMode = 'cylinder') {
   const ids = [...stageData.nodeMap.keys()]
-  // 가까이서 강조될 때도 각진 점으로 보이지 않도록 매끈한 구를 사용한다.
-  // 실제 화면 크기·투명도·깊이 판정은 updateNodePresentation이 작업 맥락/zoom에 맞춰 조절한다.
-  const geo = new THREE.SphereGeometry(NODE_RADIUS, 16, 12)
-  // Node는 형상보다 선택 핸들에 가깝다. 기본은 부재 뒤에 자연스럽게 가려지고,
-  // Node 작업 모드에서는 depthTest를 꺼 전면 표시한다.
-  const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.28, depthTest: true, depthWrite: false })
+  const geo = new THREE.SphereGeometry(NODE_RADIUS, 12, 9)
+  const mat = makeScreenSpaceMaterial(
+    new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.5, metalness: 0 }),
+    { mode: 'sphere', px: DEFAULT_NODE_PX, minWorld: 0, geoRadius: NODE_RADIUS, rim: true, ...nodeBiasFor(renderMode) },
+  )
   mat.userData.nodeMarker = true
-  // Screen-sized markers remain legible without growing into large balls on zoom.
-  const screenScale = { value: 1 }
-  mat.onBeforeCompile = shader => {
-    shader.uniforms.nodeScreenScale = screenScale
-    shader.vertexShader = 'uniform float nodeScreenScale;\n' + shader.vertexShader
-    shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>',
-      'vec3 transformed = vec3(position) * nodeScreenScale;')
-  }
-  mat.customProgramCacheKey = () => 'node-screen-minimum-v1'
 
   // Layer/filter mask는 어떤 표현 단계에서도 동일하게 적용된다.
   const mesh = new THREE.InstancedMesh(geo, mat, ids.length)
   mesh.frustumCulled = false // GPU expansion is not represented by CPU bounds.
-  mesh.renderOrder = 10
+  mesh.renderOrder = 5
   mesh.count = 0
 
   // freeNode 모드: element 당 node 사용 횟수 집계
@@ -116,42 +115,35 @@ export function buildNodePoints(stageData, colorMode = 'category') {
 
   mesh.instanceMatrix.needsUpdate = true
   if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
-  mesh.userData = { nodeIds, nodeCategories, nodePositions, nodeBaseColors, rbeNodeSet, screenScale }
+  mesh.userData = { nodeIds, nodeCategories, nodePositions, nodeBaseColors, rbeNodeSet }
   return mesh
 }
 
 /**
- * 노드는 실제 구가 아니라 선택 핸들이다. 전체 보기에서는 1~2px의 은은한 점으로 낮추고,
- * 확대하거나 Node 작업 중일 때만 3~5px로 드러낸다. 선택 반경은 screenPicking의 10px로
- * 별도 계산되므로 작은 표시에서도 클릭 편의성은 유지된다.
+ * 기본 6px로 항상 식별되며 Node 작업 중에는 8px로 강조한다. 화면 고정 크기, 실루엣 rim,
+ * 깊이 바이어스는 Side Passage Studio의 검증된 표현을 따른다.
  */
 export function updateNodePresentation(mesh, {
-  worldPerPixel = 1,
   zoom = 1,
   mode = 'auto',
   interactive = false,
   diagnostic = false,
   nodeOnly = false,
 } = {}) {
-  if (!mesh?.userData?.screenScale || !mesh.material) return null
+  if (!mesh?.material?.userData?.ss) return null
 
   let pixels
   if (mode !== 'auto') pixels = Math.max(1, Number(mode) || 3)
-  else if (interactive || diagnostic || nodeOnly) pixels = 4.5
-  else if (zoom >= 2.5) pixels = 3.1
-  else if (zoom >= 1.4) pixels = 2.2
-  else pixels = 1.35
+  else if (interactive || diagnostic || nodeOnly) pixels = 8
+  else if (zoom >= 2.5) pixels = 7
+  else pixels = DEFAULT_NODE_PX
 
-  const prominent = interactive || diagnostic || nodeOnly || mode !== 'auto' || zoom >= 2.5
-  mesh.userData.screenScale.value = worldPerPixel * pixels / NODE_RADIUS
-  mesh.material.opacity = prominent ? 0.9 : zoom >= 1.4 ? 0.48 : 0.24
-  const depthTest = !prominent
-  if (mesh.material.depthTest !== depthTest) {
-    mesh.material.depthTest = depthTest
-    mesh.material.needsUpdate = true
-  }
-  mesh.renderOrder = prominent ? 10 : 2
-  mesh.userData.presentation = { pixels, opacity: mesh.material.opacity, depthTest }
+  setScreenSpacePx(mesh.material, pixels)
+  mesh.material.opacity = 1
+  mesh.material.depthTest = true
+  mesh.renderOrder = 5
+  const prominent = interactive || diagnostic || nodeOnly || mode !== 'auto'
+  mesh.userData.presentation = { pixels, opacity: 1, depthTest: true, prominent }
   return mesh.userData.presentation
 }
 
