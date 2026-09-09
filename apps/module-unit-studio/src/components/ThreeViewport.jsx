@@ -1427,17 +1427,22 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
       const cogMm = getCogMm(stageSummary, stabilityReport, stageData, pipeFluidEmptied, modelRotated)
       candidates = buildHoistCircleCandidateNodes(hoistGroups, stageData, activeHoistGroupId, cogMm, hoistCircleTolMm)
     } else {
-      candidates = buildHoistCandidateNodes(hoistGroups, stageData, activeHoistGroupId, hoistToleranceMm)
+      const cogMm = getCogMm(stageSummary, stabilityReport, stageData, pipeFluidEmptied, modelRotated)
+      candidates = buildHoistCandidateNodes(hoistGroups, stageData, activeHoistGroupId, hoistToleranceMm, {
+        cogMm,
+        strict: strictEvaluation,
+        preferredNodeIds: collectElementNodeIds(stageData),
+      })
     }
     if (candidates.children.length > 0) {
       scene.add(candidates)
       candidateNodesRef.current = candidates
     }
     requestRender()
-  }, [hoistGroups, activeHoistGroupId, hoistToleranceMm, circleGuideEnabled, hoistCircleTolMm, stageSummary, stabilityReport, pipeFluidEmptied, modelRotated, isEditTargetStage, stageData, renderMode, colorMode, requestRender, showHoistPlate])
+  }, [hoistGroups, activeHoistGroupId, hoistToleranceMm, circleGuideEnabled, hoistCircleTolMm, stageSummary, stabilityReport, pipeFluidEmptied, modelRotated, strictEvaluation, isEditTargetStage, stageData, renderMode, colorMode, requestRender, showHoistPlate])
 
-  // ── 권상 그룹 도형의 무게중심 마커 (>=2 노드일 때 등장) ────────────────
-  // 모델 전체 무게중심과 그룹별 무게중심의 배치를 비교할 수 있게 한다.
+  // ── 권상 그룹의 권상점 중심 마커 (>=2 노드일 때 등장) ─────────────────
+  // 질량 가중 모델 무게중심과 선택 Node의 비가중 배치 중심을 구분해 비교한다.
   useEffect(() => {
     const scene = sceneRef.current
     if (!scene) return
@@ -2045,6 +2050,16 @@ function focusEntity(entity, stageData, camera, controls, requestRender) {
   camera.updateProjectionMatrix()
   controls.update()
   requestRender()
+}
+
+function collectElementNodeIds(stageData) {
+  const ids = new Set()
+  for (const e of stageData?.elements ?? []) {
+    for (const id of e.nodeIds ?? [e.startNode, e.endNode]) {
+      if (Number.isInteger(Number(id))) ids.add(Number(id))
+    }
+  }
+  return ids
 }
 
 function getCogMm(stageSummary, stabilityReport, stageData, pipeFluidEmptied = false, modelRotated = false) {

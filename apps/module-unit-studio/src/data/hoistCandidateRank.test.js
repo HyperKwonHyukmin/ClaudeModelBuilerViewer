@@ -77,6 +77,11 @@ describe('hoistCandidateRank', () => {
     expect(d.metrics.groupSpanNarrow).toBe(false)
   })
 
+  it('normalizeCandidate: Strict OFF 완화 추천 표식을 보존한다', () => {
+    const c = normalizeCandidate({ groups: [{ nodeIds: [1, 2] }], metrics: { strictOffAdvisory: true } })
+    expect(c.metrics.strictOffAdvisory).toBe(true)
+  })
+
   it('compareCandidates: 여유 같으면 그룹 수 적은 쪽이 앞', () => {
     const few = normalizeCandidate(mk({ overallStatus: 'pass', groupCount: 2, metrics: { stage6MarginMm: 100 } }))
     const many = normalizeCandidate(mk({ overallStatus: 'pass', groupCount: 4, metrics: { stage6MarginMm: 100 } }))

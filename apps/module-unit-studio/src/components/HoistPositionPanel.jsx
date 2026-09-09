@@ -311,7 +311,7 @@ export default function HoistPositionPanel() {
       {/* ── STEP 2. 권상 위치 정하기 — 자동 추천(주) 또는 직접 지정(보조) ── */}
       <StepHeader n={2} title="권상 위치 정하기" done={allGroupsValid} disabled={!mode}
         desc={mode
-          ? '구역을 나눠 PASS 위치를 추천받거나(권장), 3D에서 직접 클릭해 지정하세요.'
+          ? '구역을 나눠 PASS 우선 위치를 추천받거나, 3D에서 직접 클릭해 지정하세요.'
           : '먼저 STEP 1에서 권상 방식을 선택하세요.'} />
 
       {/* 주 경로 — 자동 추천(구역 기반): 구역을 나눠 자세안정성 PASS 위치를 찾아 제안 */}
@@ -331,7 +331,7 @@ export default function HoistPositionPanel() {
         <Sparkles size={15} /> 자동 추천 (구역 기반)
       </button>
       <div style={{ fontSize: 10, color: canAutoSelect ? '#7fd7ff' : '#5a6a82', textAlign: 'center', marginTop: -2, lineHeight: 1.4 }}>
-        구역을 나눠 자세안정성 <b>PASS 위치</b>를 제안받습니다{mode ? '' : ' · 방식 선택 후 사용'}
+        구역을 나눠 <b>PASS 우선</b>으로 제안받고, Strict OFF에서는 경고 후보까지 탐색합니다{mode ? '' : ' · 방식 선택 후 사용'}
       </div>
 
       {autoModalOpen && <HoistAutoResultModal onClose={() => setAutoModalOpen(false)} />}
@@ -343,7 +343,8 @@ export default function HoistPositionPanel() {
         <span style={{ flex: 1, height: 1, background: '#2a2a4a' }} />
       </div>
       <div style={{ fontSize: 10, color: '#8aa0b8', marginTop: -2, lineHeight: 1.4 }}>
-        그룹을 누른 뒤 3D 뷰에서 <b style={{ color: '#8aa0b8' }}>Shift+노드 클릭</b>으로 권상점을 직접 찍습니다. (민트색 = 후보 노드)
+        그룹을 누른 뒤 3D 뷰에서 <b style={{ color: '#8aa0b8' }}>Shift+노드 클릭</b>으로 권상점을 직접 찍습니다.<br/>
+        <span style={{ color: CANDIDATE_CSS }}>민트=권장</span> · <span style={{ color: '#FFC447' }}>노랑=Z단차 확인</span> · <span style={{ color: '#FF8A3D' }}>주황=Strict OFF 완화 후보</span>
       </div>
 
       {/* Circle Guide — 무게중심 기준 등거리(가상 원) 후보 강조 토글 + 전용 Tolerance */}

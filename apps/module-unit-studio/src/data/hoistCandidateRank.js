@@ -53,6 +53,7 @@ export function normalizeCandidate(c) {
       cogInsideHull: pick(m, 'cogInsideHull') ?? null,
       cogEnvelopeApplied: pick(m, 'cogEnvelopeApplied') === true,
       interiorMarginMm: numOrNull(pick(m, 'interiorMarginMm')),
+      strictOffAdvisory: pick(m, 'strictOffAdvisory') === true,
       stage6Status: pick(m, 'stage6Status') ?? null,
       evaluationMode: pick(m, 'evaluationMode') ?? null,
       stage6MarginMm: numOrNull(pick(m, 'stage6MarginMm')),

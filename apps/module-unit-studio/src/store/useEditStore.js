@@ -1178,12 +1178,10 @@ export const useEditStore = create((set, get) => ({
 
     opts.onProgress?.({ done: 0, total: 1 })
 
-    // 권상 자동 선정의 Z 클러스터링 허용오차는 '수동 강조용 tolMm'(가상판 ±값, 좁음)과 분리한다.
-    // 사용자가 명시한 값이 있으면 존중하고, 없으면 null 로 보내 엔진이 '용인 Z단차'(MaxZDiffMm)를
-    // 기본값으로 쓰게 한다 → 같은 데크의 근소한 Z 편차 노드를 한 그룹으로 묶어 넓은 면적을 확보.
-    const optimizeTolMm = (Number.isFinite(state.hoistToleranceMm) && state.hoistToleranceMm > 0)
-      ? state.hoistToleranceMm
-      : null
+    // 수동 후보 표시 Tolerance와 자동 추천 Z 탐색폭은 목적이 다르므로 완전히 분리한다.
+    // null을 보내면 엔진이 좁은 밴드부터 MaxZDiffMm까지 단계적으로 탐색한다. 사용자가 화면의
+    // 후보 표시를 좁혀도 자동 추천의 유효 조합이 함께 사라지지 않는다.
+    const optimizeTolMm = null
     const payload = buildPostureStabilityPayload(
       // shapePreference(전역)는 region.shape 폴백용 기본값 'auto'(구역별 shape 로 대체됨, 사용자 규칙 2026-07-03).
       { ...state, hoistOptimization: { regions, tolMm: optimizeTolMm, shapePreference: 'auto' } },

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { selectHoistCandidateNodes, autoHoistToleranceMm } from './HoistCandidateNodes.js'
+import { selectHoistCandidateNodes, rankNextHoistCandidates, autoHoistToleranceMm } from './HoistCandidateNodes.js'
 
 describe('autoHoistToleranceMm', () => {
   it('floors at 2mm for short / zero-height models', () => {
@@ -59,5 +59,39 @@ describe('selectHoistCandidateNodes', () => {
     expect(selectHoistCandidateNodes(nodes, 100, 5, new Set())).toEqual([1])
     expect(selectHoistCandidateNodes(nodes, NaN, 5, new Set())).toEqual([])
     expect(selectHoistCandidateNodes(null, 100, 5, new Set())).toEqual([])
+  })
+})
+
+describe('rankNextHoistCandidates', () => {
+  const nodes = new Map([
+    [1, { x: -1000, y: 0, z: 1000 }],
+    [2, { x: 1000, y: 0, z: 1000 }],
+    [3, { x: 0, y: 1200, z: 1250 }],
+    [4, { x: 0, y: -1400, z: 1800 }],
+    [5, { x: -900, y: 0, z: 1000 }],
+  ])
+
+  it('같은 Z만 자르지 않고 Strict OFF에서 다른 높이 후보를 경고 등급으로 포함한다', () => {
+    const ranked = rankNextHoistCandidates(nodes, [1], {
+      usedIds: new Set([1]), cogMm: { x: 0, y: 0 }, toleranceMm: 20, strict: false,
+    })
+    expect(ranked.map(c => c.id)).toContain(3)
+    expect(ranked.find(c => c.id === 3)?.tier).toBe('review')
+    expect(ranked.find(c => c.id === 4)?.tier).toBe('advisory')
+  })
+
+  it('Strict ON에서는 엔진 Z 한계 밖 후보를 제외하고 CoG 반대편·넓은 스팬을 우선한다', () => {
+    const ranked = rankNextHoistCandidates(nodes, [1], {
+      usedIds: new Set([1]), cogMm: { x: 0, y: 0 }, toleranceMm: 20, strict: true,
+    })
+    expect(ranked.map(c => c.id)).not.toContain(4)
+    expect(ranked[0].id).toBe(2)
+  })
+
+  it('이미 선택한 점이 늘면 면적을 키우는 다음 점을 우선한다', () => {
+    const ranked = rankNextHoistCandidates(nodes, [1, 2], {
+      usedIds: new Set([1, 2]), cogMm: { x: 0, y: 0 }, toleranceMm: 20, strict: false,
+    })
+    expect(ranked[0].id).toBe(3)
   })
 })

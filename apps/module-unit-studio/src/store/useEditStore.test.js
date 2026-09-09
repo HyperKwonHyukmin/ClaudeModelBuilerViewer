@@ -1543,7 +1543,7 @@ describe('zoneSelectHoistPositions', () => {
     expect(savedPayload.hoistOptimization.tolMm).toBeNull()
   })
 
-  it('사용자가 허용오차(hoistToleranceMm)를 명시하면 optimize payload 에 그대로 전달', async () => {
+  it('수동 후보 허용오차(hoistToleranceMm)는 자동 추천 Z 탐색과 분리한다', async () => {
     const host = makeHost()
     setHost(host)
     useEditStore.getState().setHoistMode('hydro')
@@ -1552,7 +1552,7 @@ describe('zoneSelectHoistPositions', () => {
     expect(r.ok).toBe(true)
     const postureCall = host.uploadEvaluationArtifact.mock.calls.find(([name]) => /posture/i.test(name))
     const savedPayload = JSON.parse(postureCall[1])
-    expect(savedPayload.hoistOptimization.tolMm).toBe(42)
+    expect(savedPayload.hoistOptimization.tolMm).toBeNull()
     useEditStore.setState({ hoistToleranceMm: null })
   })
 

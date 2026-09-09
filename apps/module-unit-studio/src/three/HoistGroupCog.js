@@ -14,7 +14,7 @@ const CROSS_LEN = 0.55     // 십자 가이드 길이
 const LINE_OPACITY = 0.85
 
 /**
- * 권상 그룹별 도형의 기하 무게중심(centroid)을 작은 sphere + 십자 가이드 + 라벨로 표시.
+ * 권상 그룹별 권상점 배치 중심(선택 Node 좌표의 비가중 평균)을 작은 sphere + 십자 가이드 + 라벨로 표시.
  * 그룹의 노드가 2개 이상일 때만 그린다 (도형이 만들어진 시점). 모델 전체 무게중심 마커와
  * 비교해 권상 균형을 시각적으로 가늠할 수 있게 한다.
  *
@@ -55,7 +55,7 @@ export function buildHoistGroupCog(hoistGroups, stageData) {
     root.add(makeCross(centroid, colorHex))
 
     // 라벨
-    const label = makeLabel(`G${groupId} 기하 중심`, colorHex)
+    const label = makeLabel(`G${groupId} 권상점 중심`, colorHex)
     label.position.set(centroid.x, centroid.y, centroid.z + COG_R * 2.6)
     root.add(label)
   }

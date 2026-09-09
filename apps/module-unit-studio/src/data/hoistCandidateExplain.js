@@ -91,6 +91,7 @@ function buildFactors(c) {
   }
 
   if (m.fieldReviewPriority === 1) cautions.push('배치 확인 우선 — 영역 밖 COG 또는 간이 경사 등을 확인하세요. 같은 판정 안에서 확인 사항이 없는 후보를 먼저 추천합니다. Strict OFF 경고는 유지됩니다.')
+  if (m.strictOffAdvisory) cautions.push('Strict OFF 완화 추천 — 표준 후보가 부족해 Z·단면·사각형 품질 탐색 범위를 넓혀 찾은 후보입니다. 형상과 체결 가능성을 현장에서 확인하세요.')
   if (m.tiltAngleDeg != null && m.tiltAngleDeg >= 1) cautions.push(`간이 경사 지표 ${m.tiltAngleDeg.toFixed(1)}° — 권상 중심을 COG 쪽으로 이동하는 안을 뷰어에서 비교하세요.`)
   if (m.cogEnvelopeApplied) strengths.push('사용자가 지정한 무게중심 오차 범위를 포함해 비교했습니다.')
 
