@@ -24,7 +24,7 @@ const CATEGORY_DEFS = [
   { key: 'Pipe',      label: '배관', color: '#FFAA22', layerKey: 'pipe' },
 ]
 
-export default function GroupManager() {
+export default function GroupManager({ readOnly = false }) {
   const [basis, setBasis] = useState('connectivity')   // 'connectivity' | 'category'
 
   const stages    = useStageStore(s => s.stages)
@@ -107,7 +107,7 @@ export default function GroupManager() {
       </div>
 
       {/* 그룹 새로고침 — 삭제 표시한 연결 그룹을 목록에서 내리고 남은 그룹만 표시(미리보기) */}
-      {effBasis === 'connectivity' && (
+      {!readOnly && effBasis === 'connectivity' && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
           <button
             type="button"
@@ -159,7 +159,7 @@ export default function GroupManager() {
               pending={!!intent}
               onToggleVisible={() => toggleGroupFilter(activeViewportId, i)}
               onSolo={() => soloGroup(activeViewportId, i, connGroups, maxIndividual)}
-              onDelete={() => {
+              onDelete={readOnly ? null : () => {
                 if (intent) { removeIntent(intent.id); return }
                 addIntent({ kind: 'deleteGroup', params: { groupId: g.id, memberNodeCount: nodeCount } })
               }}
@@ -196,7 +196,7 @@ export default function GroupManager() {
               setLayer('structure', c.key === 'Structure')
               setLayer('pipe',      c.key === 'Pipe')
             }}
-            onDelete={() => {
+            onDelete={readOnly ? null : () => {
               if (intent) { removeIntent(intent.id); return }
               if (!window.confirm(`${c.label} 부재 ${c.elemCount}개를 모두 삭제 의도에 추가합니다.\n적용 전까지는 미리보기이며 언제든 취소할 수 있습니다.\n\n진행할까요?`)) return
               addIntent({ kind: 'deleteCategory', params: { category: c.key, elementCount: c.elemCount } })

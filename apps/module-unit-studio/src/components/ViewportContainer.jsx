@@ -12,7 +12,6 @@ import HoistGuideToast from './HoistGuideToast.jsx'
 import ViewportShortcutsHelp from './ViewportShortcutsHelp.jsx'
 import ViewportEmptyState from './ViewportEmptyState.jsx'
 import StabilityReportPanel from './StabilityReportPanel.jsx'
-import UnitStructuralPanel from './UnitStructuralPanel.jsx'
 import { getStabilityIssueElementIds } from '../three/StabilityIssueOverlay.js'
 import { useEditStore } from '../store/useEditStore.js'
 
@@ -29,7 +28,8 @@ export default function ViewportContainer() {
   // 권상 픽킹(Shift+Node)·권상 오버레이는 상단 Hoist 탭에서만 활성화한다.
   // (hoistMode 가 설정된 채 다른 탭에서 Shift+클릭하면 권상 픽킹이 Edit 의 다중선택을 가로채는 것을 방지)
   const hoistActive = activeMode === 'hoist'
-  const analyzeActive = activeMode === 'analyze'
+  // 가서포트(보강) 픽킹은 Edit 탭에서만 — 버튼이 Edit 좌측 패널로 옮겨졌다.
+  const editActive = activeMode === 'edit'
   const supportPickActive = useEditStore(s => s.supportPickActive)
   const { stages } = useStageStore()
   const stabilityReport = useStabilityStore(s => s.report)
@@ -179,7 +179,7 @@ export default function ViewportContainer() {
                   pickFilters={pickFilters}
                   isEditTargetStage={isEditTargetStage}
                   hoistPickEnabled={hoistActive}
-                  supportPickEnabled={analyzeActive && supportPickActive}
+                  supportPickEnabled={editActive && supportPickActive}
                 />
               </div>
 
@@ -192,10 +192,6 @@ export default function ViewportContainer() {
           )
         })}
       </div>
-
-      {/* Unit 구조 해석 패널 — 전체 화면 단위로 단 1개만 렌더 (multi-viewport 분할에 영향 안 받음).
-          mainStageReady = 마지막 stage 가 로드된 시점 = 자세안정성 평가 가능 시점. */}
-      {stages.length > 0 && <UnitStructuralPanel />}
 
       {/* 우측 정보 인스펙터 — 뷰포트 우상단 floating 창. 부재/노드 선택 시 자동으로 열린다.
           (이전엔 App.jsx 의 우측 dock 컬럼이었으나 뷰어 가로 폭 확보를 위해 floating 으로 이동.) */}

@@ -1,6 +1,11 @@
 import { useState } from 'react'
-import { Box, Pencil, Cable, Activity, CheckCircle2, Save } from 'lucide-react'
+import { Box, Pencil, Cable, Activity, CheckCircle2 } from 'lucide-react'
 import { useViewerStore } from '../store/useViewerStore.js'
+import { useStageStore } from '../store/useStageStore.js'
+import { useEditStore } from '../store/useEditStore.js'
+import { useStabilityStore } from '../store/useStabilityStore.js'
+import { useUnitStructuralStore } from '../store/useUnitStructuralStore.js'
+import { getModelHealth } from '../data/modelHealth.js'
 
 // 화면 최상단 가로 바 — 좌측 브랜드 + 4개 모드 탭(Model | Edit | Hoist | Analyze).
 // 워크플로우 파이프라인(좌→우): 모델 로드 → FE 편집 → 권상(Hoist) 설정 → 해석.
@@ -14,13 +19,26 @@ const TABS = [
   { key: 'edit',       label: 'Edit',        Icon: Pencil },
   { key: 'hoist',      label: 'Hoist',       Icon: Cable },
   { key: 'analyze',    label: 'Analysis',    Icon: Activity },
-  { key: 'save',       label: 'Save',        Icon: Save },
 ]
 
 export default function TopMenuBar() {
   const activeMode = useViewerStore(s => s.activeMode)
   const setActiveMode = useViewerStore(s => s.setActiveMode)
+  const stages = useStageStore(s => s.stages)
+  const intents = useEditStore(s => s.intents)
+  const hoistMode = useEditStore(s => s.hoistMode)
+  const hoistGroups = useEditStore(s => s.hoistGroups)
+  const stability = useStabilityStore(s => s.overallStatus)
+  const structural = useUnitStructuralStore(s => s.status)
   const [hoveredKey, setHoveredKey] = useState(null)
+  const health = getModelHealth(stages.at(-1))
+  const statuses = {
+    model: stages.length ? 'done' : 'wait',
+    modelCheck: health.status === 'error' ? 'error' : health.status === 'warn' ? 'warn' : health.status === 'pass' ? 'done' : 'wait',
+    edit: intents.length ? 'done' : 'wait',
+    hoist: stability === 'fail' ? 'error' : stability === 'warn' ? 'warn' : stability === 'pass' ? 'done' : hoistMode && Object.values(hoistGroups).some(g => g?.length) ? 'active' : 'wait',
+    analyze: structural === 'Failed' ? 'error' : structural === 'Success' ? 'done' : structural === 'Running' || structural === 'Pending' ? 'active' : 'wait',
+  }
 
   return (
     <div className="module-studio-topbar" style={{
@@ -65,6 +83,11 @@ export default function TopMenuBar() {
               }}
             >
               <Icon size={15} /> <span className="module-studio-tab-label">{label}</span>
+              <span aria-label={`${label} 상태 ${statuses[key]}`} style={{
+                width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
+                background: statuses[key] === 'done' ? '#37E08A' : statuses[key] === 'warn' ? '#FFC447' : statuses[key] === 'error' ? '#FF5566' : statuses[key] === 'active' ? '#00D1FF' : '#3c4960',
+                boxShadow: statuses[key] === 'wait' ? 'none' : `0 0 5px ${statuses[key] === 'done' ? '#37E08A' : statuses[key] === 'warn' ? '#FFC447' : statuses[key] === 'error' ? '#FF5566' : '#00D1FF'}`,
+              }} />
             </button>
           )
         })}

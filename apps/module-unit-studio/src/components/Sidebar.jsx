@@ -1,14 +1,12 @@
 import { useRef, useState, useCallback } from 'react'
-import { Droplet, FileJson, FolderOpen, RotateCcw } from 'lucide-react'
+import { FileJson, FolderOpen, RotateCcw } from 'lucide-react'
 import { useViewerStore } from '../store/useViewerStore.js'
 import { useStageStore } from '../store/useStageStore.js'
-import { useEditStore, computeMassFallback } from '../store/useEditStore.js'
+import { useEditStore } from '../store/useEditStore.js'
 import { useStabilityStore } from '../store/useStabilityStore.js'
 import { useUnitStructuralStore } from '../store/useUnitStructuralStore.js'
 import { getHost } from '../host/host.js'
 import Tooltip from './Tooltip.jsx'
-import { collectPipeMaterialIds, isPipeFluidEmpty, PIPE_STEEL_RHO } from '../data/pipeFluid.js'
-import RotateModelDialog from './RotateModelDialog.jsx'
 
 const LAYER_DEFS = [
   { key: 'nodes',        label: 'Node',         color: '#E65F6A', desc: '모든 노드 점 표시. 배관 토글이 OFF 면 배관 전용 노드는 자동 숨김 (이 토글을 OFF→ON 하면 다시 모두 표시).' },
@@ -36,9 +34,6 @@ export default function Sidebar() {
   const resetEdit = useEditStore(s => s.reset)
   const resetStability = useStabilityStore(s => s.reset)
   const resetUnitStructural = useUnitStructuralStore(s => s.reset)
-  const clearRotateModelIntents = useEditStore(s => s.clearRotateModelIntents)
-  // 실제 회전 상태(단일 진실) — '회전 초기화' 버튼 노출 및 표시 정합에 사용.
-  const modelRotated = useStageStore(s => s.modelRotated)
 
   // Workbench(Electron) 호스트에서는 백엔드가 폴더를 자동 주입하므로
   // 사용자가 직접 파일/폴더를 여는 입력은 노출하지 않는다.
@@ -93,74 +88,6 @@ export default function Sidebar() {
       }
     })()
   }, [resetStages, resetViewer, resetEdit, resetStability, resetUnitStructural])
-
-  const pipeFluidEmptied = useStageStore(s => s.pipeFluidEmptied)
-  const [emptyResult, setEmptyResult] = useState(null) // { delta:number|null, count:number }
-  const [showRotateDialog, setShowRotateDialog] = useState(false)
-  const [rotateResult, setRotateResult] = useState(null) // { axis, angleDeg, changedNodeCount, invalidatedStability }
-  const [rotateReset, setRotateReset] = useState(null)   // { undoneCount, invalidatedStability } — '회전 초기화' 직후 안내
-
-  // 누적 회전 전체 해제 — 역순 역회전으로 원좌표 복원 + modelRotated=false + rotateModel provenance 제거 +
-  // 결과 무효화. (rotateModel intent 를 목록 X/Ctrl+Z 로 지워도 형상이 안 돌아오는 착시를 여기서만 해제.)
-  const handleResetRotation = useCallback(() => {
-    if (!useStageStore.getState().modelRotated) return
-    const ok = window.confirm(
-      '적용된 모델 회전을 모두 해제하고 원래 방향으로 되돌립니다.\n' +
-      '형상이 바뀌므로 기존 자세안정성/구조해석 결과는 초기화됩니다. 계속할까요?'
-    )
-    if (!ok) return
-    const r = useStageStore.getState().resetRotation()
-    clearRotateModelIntents()
-    setRotateResult(null)
-    setRotateReset({ undoneCount: r.undoneCount, invalidatedStability: r.invalidatedStability })
-  }, [clearRotateModelIntents])
-
-  const lastStage = stages.length > 0 ? stages[stages.length - 1] : null
-  const pipeMaterialCount = lastStage ? collectPipeMaterialIds(lastStage).size : 0
-  // 로드된 모델의 모든 배관 material 이 이미 순수 강재(7.85e-9)면 '유체 비움 완료' 로 인식.
-  // (사용자가 직접 비운 pipeFluidEmptied 와 합쳐서 버튼을 완료 상태로 표시)
-  const pipeFluidAlreadyEmpty = isPipeFluidEmpty(lastStage)
-  const isEmptied = pipeFluidEmptied || pipeFluidAlreadyEmpty
-
-  const handleTogglePipeFluid = useCallback(() => {
-    const st = useStageStore.getState()
-    const cur = st.stages
-    if (!cur.length) return
-
-    if (pipeFluidEmptied) {
-      const ok = window.confirm(
-        '배관(Pipe) 내부에 유체를 다시 채웁니다 (원래 밀도로 복원).\n' +
-        '무게중심이 원래대로 복구되므로 기존 해석 결과는 초기화됩니다. 계속할까요?'
-      )
-      if (!ok) return
-      st.restorePipeFluid()
-
-      // editStore 에서 emptyPipeFluid 인텐트 제거
-      const editState = useEditStore.getState()
-      const targetIntent = editState.intents.find(i => i.kind === 'emptyPipeFluid')
-      if (targetIntent) {
-        editState.removeIntent(targetIntent.id)
-      }
-      setEmptyResult(null)
-    } else {
-      const ok = window.confirm(
-        '모든 배관(Pipe) material 의 밀도를 7.85e-9 로 바꿔 내부 유체 중량을 제거합니다.\n' +
-        '무게중심이 바뀌므로 기존 자세안정성 평가 결과는 초기화되고, 다시 평가해야 합니다.\n' +
-        '계속할까요?'
-      )
-      if (!ok) return
-      const last = cur[cur.length - 1]
-      const before = computeMassFallback(last)?.totalMassTon ?? null
-      const { materialIds, changedCount, invalidatedStability } = st.emptyPipeFluid()
-      const after = computeMassFallback(last)?.totalMassTon ?? null
-      useEditStore.getState().addIntent({
-        kind: 'emptyPipeFluid',
-        params: { materialIds, targetRho: PIPE_STEEL_RHO },
-      })
-      const delta = (before != null && after != null) ? (before - after) : null
-      setEmptyResult({ delta, count: changedCount, invalidated: invalidatedStability })
-    }
-  }, [pipeFluidEmptied])
 
   const [width, setWidth] = useState(DEFAULT_WIDTH)
   const dragRef = useRef(null)  // { startX, startWidth }
@@ -324,122 +251,6 @@ export default function Sidebar() {
       {/* ── 편집 모드 토글은 Edit 모드 좌측 패널(EditPanelDock)로 이동 ── */}
       {/* ── 모델 확인(색상 기준·노드/그룹 필터)은 Model Check 리본(ModelCheckPanelDock)으로 분리 ── */}
 
-      {/* ── 섹션: 모델 조작 ─────────────────────────── */}
-      <Section label="모델 조작">
-        <Tooltip placement="right" content={
-          pipeFluidEmptied ? (
-            <>
-              <strong style={{ color: '#6ee7b7' }}>Pipe 내부 유체 채우기</strong><br/>
-              모델 로드 시 <b>기본값으로 유체를 비운 상태</b>입니다. 이 버튼을 누르면 배관 내부
-              유체(물) 중량을 원래대로 다시 채웁니다. 모델 중량·무게중심이 재계산됩니다.
-            </>
-          ) : (
-            <>
-              <strong style={{ color: '#7ab2d4' }}>Pipe 내부 유체 비우기</strong><br/>
-              모든 배관 material 의 밀도를 순수 강재(7.85e-9)로 되돌려 내부 물 중량을 제거합니다.
-              모델 중량·무게중심이 즉시 재계산되고, 구조해석(Nastran) BDF 에도 반영됩니다.
-            </>
-          )
-        }>
-          <button
-            type="button"
-            onClick={handleTogglePipeFluid}
-            disabled={(!pipeFluidEmptied && pipeFluidAlreadyEmpty) || pipeMaterialCount === 0 || stages.length === 0}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 6, width: '100%',
-              padding: '7px 10px', borderRadius: 7,
-              cursor: ((!pipeFluidEmptied && pipeFluidAlreadyEmpty) || pipeMaterialCount === 0) ? 'default' : 'pointer',
-              fontSize: 12, fontWeight: 700,
-              background: isEmptied ? 'rgba(110,231,183,0.10)' : 'rgba(122,178,212,0.12)',
-              color: isEmptied ? '#6ee7b7' : '#bcd6e8',
-              border: `1px solid ${isEmptied ? 'rgba(110,231,183,0.45)' : 'rgba(122,178,212,0.35)'}`,
-              opacity: (pipeMaterialCount === 0 && !isEmptied) ? 0.5 : 1,
-            }}
-          >
-            <Droplet size={14} />
-            {isEmptied ? (pipeFluidEmptied ? 'Pipe 내부 유체 채우기' : '유체 비움 완료 ✓') : 'Pipe 내부 유체 비우기'}
-          </button>
-        </Tooltip>
-        {/* 로드 직후 자동 적용된 기본값임을 밝힌다 — 사용자가 누른 적 없는데 '비움' 상태인 이유. */}
-        {pipeFluidEmptied && !emptyResult && (
-          <div style={{ fontSize: 10, color: '#9fd0b6', marginTop: 4, lineHeight: 1.4 }}>
-            기본값으로 배관 내부 유체를 비운 상태입니다. 유체를 포함해 평가하려면 위 버튼으로 채우세요.
-          </div>
-        )}
-        {/* 모델이 없을 때 "배관 부재가 없습니다"라고 단정하면 모델에 배관이 없다는 뜻으로
-            읽힌다. 실제로는 아직 아무것도 안 읽은 상태다 — 두 경우를 구분해 말한다. */}
-        {pipeMaterialCount === 0 && !isEmptied && (
-          <div style={{ fontSize: 10, color: '#7a8aaa', marginTop: 4 }}>
-            {stages.length === 0 ? '모델을 먼저 열어 주세요.' : '이 모델에는 배관 부재가 없습니다.'}
-          </div>
-        )}
-        {/* 이미 비워진 채 로드된 모델 — 사용자가 비운 게 아님을 구분해 안내(혼란 방지) */}
-        {pipeFluidAlreadyEmpty && !pipeFluidEmptied && (
-          <div style={{ fontSize: 10, color: '#9fd0b6', marginTop: 4 }}>
-            이미 순수 강재 밀도입니다 (내부 유체 없음).
-          </div>
-        )}
-        {emptyResult && (
-          <div style={{ fontSize: 10, color: '#9fd0b6', marginTop: 4 }}>
-            material {emptyResult.count}개 비움{emptyResult.delta != null ? ` · −${emptyResult.delta.toFixed(1)} ton` : ''}, 무게중심 갱신됨
-          </div>
-        )}
-        {emptyResult?.invalidated && (
-          <div style={{ fontSize: 10, color: '#ffcc66', marginTop: 4, lineHeight: 1.4 }}>
-            ⚠ 무게중심이 바뀌어 자세안정성 평가 결과를 초기화했습니다. 자세안정성 평가를 다시 실행하세요.
-          </div>
-        )}
-        <Tooltip placement="right" content="모델을 X/Y/Z 축 중심(무게중심 기준)으로 회전합니다. 회전된 모델로 자세안정성·구조해석·BDF 출력이 모두 수행됩니다.">
-          <button
-            onClick={() => setShowRotateDialog(true)}
-            disabled={!lastStage}
-            style={{
-              width: '100%', display: 'flex', alignItems: 'center', gap: 6,
-              padding: '7px 10px', marginTop: 6,
-              background: lastStage ? '#12122c' : '#0c0c1c',
-              border: '1px solid #2e2e50', borderRadius: 6,
-              color: lastStage ? '#cad8e8' : '#54546e',
-              fontSize: 11, fontWeight: 700, cursor: lastStage ? 'pointer' : 'not-allowed',
-            }}
-          >
-            <RotateCcw size={13} /> 모델 회전
-          </button>
-        </Tooltip>
-        {rotateResult && (
-          <div style={{ fontSize: 10, color: '#9fd0ff', marginTop: 4, lineHeight: 1.4 }}>
-            ↻ {rotateResult.axis}축 {rotateResult.angleDeg}° 회전 적용 ({rotateResult.changedNodeCount} 노드)
-          </div>
-        )}
-        {rotateResult?.invalidatedStability && (
-          <div style={{ fontSize: 10, color: '#ffcc66', marginTop: 2, lineHeight: 1.4 }}>
-            ⚠ 형상이 바뀌어 자세안정성/구조해석 결과를 초기화했습니다. 자세안정성 평가를 다시 실행하세요.
-          </div>
-        )}
-        {/* 회전 초기화 — 실제 회전 상태(modelRotated)일 때만 노출. 개별 회전 되돌리기는 불가하며 여기서만 전체 해제. */}
-        {modelRotated && (
-          <Tooltip placement="right" content="적용된 모델 회전을 모두 해제하고 원래 방향으로 되돌립니다. 회전은 개별 되돌리기가 불가하며, 이 버튼으로만 전체 해제됩니다.">
-            <button
-              onClick={handleResetRotation}
-              style={{
-                width: '100%', display: 'flex', alignItems: 'center', gap: 6,
-                padding: '7px 10px', marginTop: 6,
-                background: 'rgba(255,184,0,0.10)',
-                border: '1px solid rgba(255,184,0,0.45)', borderRadius: 6,
-                color: '#FFE6A8', fontSize: 11, fontWeight: 700, cursor: 'pointer',
-              }}
-            >
-              <RotateCcw size={13} /> 회전 초기화
-            </button>
-          </Tooltip>
-        )}
-        {rotateReset && (
-          <div style={{ fontSize: 10, color: '#9fd0b6', marginTop: 4, lineHeight: 1.4 }}>
-            ↺ 회전 {rotateReset.undoneCount}건 해제 — 원래 방향으로 복원됨
-            {rotateReset.invalidatedStability ? ' · 해석 결과 초기화됨' : ''}
-          </div>
-        )}
-      </Section>
-
       {/* ── 초기화 버튼 ─────────── */}
       <div style={{ padding: '10px 8px', borderBottom: '1px solid #1e1e38' }}>
         <Tooltip
@@ -483,13 +294,6 @@ export default function Sidebar() {
           </button>
         </Tooltip>
       </div>
-
-      {showRotateDialog && (
-        <RotateModelDialog
-          onClose={() => setShowRotateDialog(false)}
-          onApplied={(res) => { setRotateResult(res); setRotateReset(null) }}
-        />
-      )}
 
       {/* ── 리사이즈 핸들 ─────────────────────────────────────────────── */}
       <div

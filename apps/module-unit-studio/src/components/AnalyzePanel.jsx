@@ -8,13 +8,14 @@ import {
   ChevronRight,
   Play,
   Wrench,
-  Trash2,
 } from 'lucide-react'
 import { useStabilityStore } from '../store/useStabilityStore.js'
 import { useUnitStructuralStore } from '../store/useUnitStructuralStore.js'
 import { useUnitStructuralRunner } from '../hooks/useUnitStructuralRunner.js'
-import { useEditStore } from '../store/useEditStore.js'
+import { useEditStore, computeMassFallback } from '../store/useEditStore.js'
+import { useStageStore } from '../store/useStageStore.js'
 import UnitStructuralReportButton from './UnitStructuralReportButton.jsx'
+import BdfExportSection from './BdfExportSection.jsx'
 
 /**
  * AnalyzePanel — 상단 메뉴바 'Analyze' 모드의 좌측 도크 본문.
@@ -52,12 +53,9 @@ export default function AnalyzePanel() {
 
   // ── Unit 구조 해석 (실행/준비/입력 공유 훅 + 상세 패널 열기) ─────
   const us = useUnitStructuralRunner()
-  const openStructuralPanel = useUnitStructuralStore(s => s.openPanel)
+  const resetStructuralResult = useUnitStructuralStore(s => s.reset)
 
-  // ── 가서포트(보강) ────────────────────────────────────────────
-  const supportPickActive = useEditStore(s => s.supportPickActive)
-  const toggleSupportPick = useEditStore(s => s.toggleSupportPick)
-  const removeSupportBeam = useEditStore(s => s.removeSupportBeam)
+  // ── 가서포트(보강) — 추가·제거는 Edit 탭으로 옮겼고 여기선 반영 개수만 보여 준다 ──
   // 편집으로 직전 해석 결과가 초기화됐음을 알리는 배너 플래그
   const editStaleNotice = useEditStore(s => s.editStaleNotice)
   const clearEditStaleNotice = useEditStore(s => s.clearEditStaleNotice)
@@ -65,6 +63,15 @@ export default function AnalyzePanel() {
   // 무한 렌더 루프에 빠진다(패널 크래시 → 빈 화면). 안정적인 intents 참조만 구독하고 본문에서 필터링.
   const intents = useEditStore(s => s.intents)
   const supportBeams = intents.filter(i => i.kind === 'addSupportBeam')
+  const stages = useStageStore(s => s.stages)
+  const stageSummary = useStageStore(s => s.stageSummary)
+  const lastStage = stages.at(-1)
+  const massFallback = lastStage ? computeMassFallback(lastStage) : null
+  const massTon = massFallback?.totalMassTon ?? stageSummary?.massProperties?.totalMassTon
+  const cog = massFallback?.centerOfGravityMm ?? stageSummary?.massProperties?.centerOfGravityMm
+  const hoistMode = useEditStore(s => s.hoistMode)
+  const hoistGroups = useEditStore(s => s.hoistGroups)
+  const wireLengthM = useEditStore(s => s.wireLengthM)
 
   const hasStabilityResult = !!stabilityReport || !!stabilityError
   const inputsDisabled = us.isRunning || us.isFinished
@@ -122,6 +129,14 @@ export default function AnalyzePanel() {
         </div>
       )}
 
+      <Section label="해석 시나리오">
+        <ScenarioRow label="Solver" value="Nastran SOL 101 · 선형 정적" />
+        <ScenarioRow label="하중 방향" value="중력 -Z" />
+        <ScenarioRow label="총중량 / 무게중심" value={`${formatNumber(massTon, 2, 't')} / ${formatCog(cog)}`} />
+        <ScenarioRow label="권상 조건" value={`${hoistMode ?? '미지정'} · ${Object.values(hoistGroups).filter(g => g?.length).length}그룹 · Wire ${wireLengthM ?? '-'}m`} />
+        <ScenarioRow label="평가 기준" value={`SF ${us.safetyFactor} · ${us.allowableMpa} MPa`} />
+      </Section>
+
       {/* ── 섹션 1: 자세안정성 평가 ─────────────────── */}
       <Section label="자세안정성 평가">
         <StabilityStatusRow
@@ -147,59 +162,23 @@ export default function AnalyzePanel() {
         )}
       </Section>
 
-      {/* ── 섹션: 가서포트(보강) 추가 ─────────────────── */}
-      <Section label="가서포트(보강)">
-        <button
-          type="button"
-          onClick={toggleSupportPick}
-          title="버튼을 켠 뒤 3D 뷰에서 Shift + Node 2개를 클릭하면 L100×100×10t 보강재가 설치됩니다."
-          style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
-            width: '100%', padding: '8px 10px', borderRadius: 6,
-            fontSize: 11.5, fontWeight: 800, letterSpacing: 0.3, cursor: 'pointer',
-            background: supportPickActive ? 'rgba(45,212,191,0.18)' : '#0f0f1e',
-            color: supportPickActive ? '#5eead4' : '#ccd8e8',
-            border: `1px solid ${supportPickActive ? '#2DD4BF' : '#2a2a40'}`,
-            transition: 'all 0.15s ease',
-          }}
-        >
-          <Wrench size={14} />
-          {supportPickActive ? '가서포트 설치 모드 — Shift+Node 2개' : '가서포트 추가'}
-        </button>
-        {supportPickActive && (
-          <Hint>Shift + Node 2개를 선택하면 두 노드를 잇는 L100×100×10t 보강재가 설치됩니다.</Hint>
-        )}
-        {supportBeams.length > 0 && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {supportBeams.map((sb) => (
-              <div key={sb.id} style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6,
-                padding: '5px 8px', background: 'rgba(45,212,191,0.08)',
-                border: '1px solid rgba(45,212,191,0.35)', borderRadius: 6,
-              }}>
-                <span style={{ fontSize: 10.5, color: '#bfe9d8', fontWeight: 700 }}>
-                  L100×100×10t · N{sb.params?.startNode}↔N{sb.params?.endNode}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => removeSupportBeam(sb.id)}
-                  title="이 가서포트 제거"
-                  style={{
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    width: 22, height: 22, borderRadius: 5, cursor: 'pointer',
-                    background: 'transparent', border: '1px solid #2a2a4a', color: '#FF8090',
-                  }}
-                >
-                  <Trash2 size={12} />
-                </button>
-              </div>
-            ))}
+      {/* ── 섹션: 가서포트(보강) 반영 현황 ─────────────────
+          추가·제거는 편집 도구라 Edit 탭으로 옮겼다(사용자 요청). 해석을 실행하는 이 패널에는
+          "지금 몇 개가 반영되는지" 만 남긴다. */}
+      {supportBeams.length > 0 && (
+        <Section label="가서포트(보강)">
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 7, padding: '6px 9px', borderRadius: 6,
+            background: 'rgba(45,212,191,0.08)', border: '1px solid rgba(45,212,191,0.35)',
+          }}>
+            <Wrench size={13} color="#5eead4" />
+            <span style={{ fontSize: 11, color: '#bfe9d8', fontWeight: 700 }}>
+              가서포트 {supportBeams.length}개 반영
+            </span>
           </div>
-        )}
-        {supportBeams.length > 0 && (
-          <Hint>보강 후 아래 "구조 해석 실행"을 누르면 가서포트가 반영되어 재해석됩니다.</Hint>
-        )}
-      </Section>
+          <Hint>추가·제거는 상단 <strong style={{ color: '#FFE6A8' }}>Edit</strong> 탭에서 합니다.</Hint>
+        </Section>
+      )}
 
       {/* ── 섹션 2: Unit 구조 해석 (입력·실행·결과 직접 소유) ───── */}
       <Section label="Unit 구조 해석">
@@ -261,22 +240,37 @@ export default function AnalyzePanel() {
 
         {/* 해석 완료 후 Studio 주 화면에서 즉시 보고서를 생성한다. */}
         {us.status === 'Success' && <UnitStructuralReportButton />}
+        {us.isFinished && (
+          <ActionButton onClick={resetStructuralResult} accent="#FFC447" icon={<Play size={14} />} title="모델과 권상 설정은 유지하고 해석 입력·결과만 다시 준비합니다.">
+            조건 변경 후 재실행
+          </ActionButton>
+        )}
+      </Section>
 
-        {/* 상세 결과 패널 열기 — 해석(Success) 전까지 비활성 */}
-        <ActionButton
-          onClick={openStructuralPanel}
-          disabled={us.status !== 'Success'}
-          accent="#FFC447"
-          icon={<ClipboardList size={14} />}
-          title={us.status === 'Success'
-            ? 'Unit 구조 해석 상세 결과 패널을 엽니다.'
-            : '구조 해석을 먼저 실행하면 상세 결과 패널을 열 수 있습니다.'}
-        >
-          구조 해석 패널 열기
-        </ActionButton>
+      <Section label="산출물">
+        <BdfExportSection />
       </Section>
     </div>
   )
+}
+
+function ScenarioRow({ label, value }) {
+  return <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 10.5, lineHeight: 1.45 }}>
+    <span style={{ color: '#7f91aa', flexShrink: 0 }}>{label}</span>
+    <strong style={{ color: '#d7e3ef', textAlign: 'right' }}>{value}</strong>
+  </div>
+}
+
+function formatNumber(value, digits, unit) {
+  const n = Number(value)
+  return Number.isFinite(n) ? `${n.toFixed(digits)} ${unit}` : '재계산 필요'
+}
+
+function formatCog(cog) {
+  const values = Array.isArray(cog) ? cog : cog ? [cog.x, cog.y, cog.z] : []
+  return values.length === 3 && values.every(v => Number.isFinite(Number(v)))
+    ? `(${values.map(v => Number(v).toFixed(0)).join(', ')}) mm`
+    : '재계산 필요'
 }
 
 // ── 자세안정성 상태 배지 행 ─────────────────────────────────────────────────
@@ -380,7 +374,7 @@ function ReadinessRow({ isReady, overall, blocking }) {
 
 function RunButton({ canRun, isRunning, isFinished, progress, onClick }) {
   const label = isRunning ? `실행 중... ${Math.round(progress)}%`
-    : isFinished ? '해석 완료 — 초기화 후 재실행'
+    : isFinished ? '해석 완료'
     : '구조 해석 실행'
   const enabled = canRun
   return (
@@ -389,7 +383,7 @@ function RunButton({ canRun, isRunning, isFinished, progress, onClick }) {
       onClick={onClick}
       disabled={!enabled}
       title={
-        isFinished ? '이미 해석이 완료되었습니다 — 다시 실행하려면 좌측 "초기화" 후 폴더를 다시 여세요'
+        isFinished ? '아래 "조건 변경 후 재실행" 버튼으로 모델·권상 설정을 유지한 채 다시 준비할 수 있습니다.'
         : enabled ? 'Unit 구조 해석 실행'
         : isRunning ? '실행 중...'
         : '자세안정성 PASS/WARN + Workbench 환경 필요'
@@ -441,6 +435,9 @@ function StructuralSummary({ summary }) {
   const exceedCount = summary?.memberExceedCount ?? 0
   const wireCount = summary?.wireCount ?? 0
   const wireCompression = summary?.wireCompressionCount ?? 0
+  const wireMissing = summary?.wireMissingResultCount ?? 0
+  const displacementCount = summary?.nodeDisplacementCount ?? 0
+  const resultComplete = memberCount > 0 && wireCount > 0 && wireMissing === 0 && displacementCount > 0
   return (
     <div style={{
       display: 'flex', flexDirection: 'column', gap: 4,
@@ -459,6 +456,14 @@ function StructuralSummary({ summary }) {
         value={`${wireCompression} / ${wireCount}`}
         color={wireCompression > 0 ? '#FFC447' : '#37E08A'}
       />
+      <SummaryRow
+        label="결과 완전성"
+        value={resultComplete ? '응력·변위·Wire 결과 확인' : `확인 필요 · Wire 누락 ${wireMissing}`}
+        color={resultComplete ? '#37E08A' : '#FFC447'}
+      />
+      <div style={{ fontSize: 9.5, color: '#788ba4', lineHeight: 1.4 }}>
+        전역 힘·모멘트 평형 오차는 현재 결과 파일에 제공되지 않으므로 보고서에서 별도 확인이 필요합니다.
+      </div>
     </div>
   )
 }

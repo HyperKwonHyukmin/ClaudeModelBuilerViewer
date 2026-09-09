@@ -108,7 +108,7 @@ export function suggestCogToleranceMm(bbox, ratio = 0.02) {
 }
 
 // 편집(intent) 적용 시 자세안정성(posture) 결과를 그대로 유지하는 kind.
-// 가서포트(addSupportBeam)는 자세안정성 PASS 이후 Analysis 단계에서 추가하는 "구조 보강"이므로
+// 가서포트(addSupportBeam)는 자세안정성 PASS 이후 덧대는 "구조 보강"이므로(버튼은 Edit 탭)
 // 구조해석 결과만 무효화하고 자세안정성은 유지한다(기존 설계 의도). 그 외 모델 형상·질량을 바꾸는
 // 편집(addRigid/deleteElement/deleteGroup/deleteCategory/deleteOrphanNodes/emptyPipeFluid/rotateModel)은
 // 자세안정성 결과까지 낡게 만들므로 함께 무효화한다.
@@ -136,7 +136,8 @@ export const useEditStore = create((set, get) => ({
   // Rigid 연결을 위해 선택된 노드들 (편집 모드에서 Shift+Click 으로 토글)
   pendingNodeSelection: [],
 
-  // 가서포트(보강) 픽 모드 — Analysis 탭 전용. Shift+Node 2개 선택 시 addSupportBeam intent 생성.
+  // 가서포트(보강) 픽 모드 — Edit 탭 전용(ViewportContainer 의 supportPickEnabled 게이트).
+  // Shift+Node 2개 선택 시 addSupportBeam intent 생성.
   supportPickActive: false,
   supportPickNodes: [],
   // 이번 세션에 편집 모델(_edited.json)을 백엔드에 업로드한 적이 있는지 — 재해석 동기화 게이트.

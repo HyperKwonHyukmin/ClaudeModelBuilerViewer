@@ -16,7 +16,7 @@ const MODE_DEFS = [
   { key: 'freeNode', icon: '○', label: 'Node Check', desc: '노드 연결 상태' },
 ]
 
-export default function LayerPanel({ viewportId, stageData, isEditTargetStage = true, embedded = false }) {
+export default function LayerPanel({ viewportId, stageData, isEditTargetStage = true, embedded = false, readOnly = false }) {
   const [collapsed, setCollapsed] = useState(false)
   const [hint, setHint] = useState(null)
   const hintTimerRef = useRef(null)
@@ -34,7 +34,7 @@ export default function LayerPanel({ viewportId, stageData, isEditTargetStage = 
   const removeEditIntent = useEditStore(s => s.removeIntent)
 
   // editAllowed 는 새 intent 를 추가/삭제하는 액션 권한이므로 편집 모드일 때만 true.
-  const editAllowed = editEnabled && isEditTargetStage
+  const editAllowed = !readOnly && editEnabled && isEditTargetStage
 
   const vp = viewports.find(v => v.id === viewportId)
   if (!vp) return null
@@ -212,7 +212,7 @@ export default function LayerPanel({ viewportId, stageData, isEditTargetStage = 
           useGroupDeletion 처럼 동일 목록·동일 삭제 방식). Model Check 도크(embedded)에서만 표시. */}
       {embedded && colorMode === 'group' && (
         <div style={{ borderTop: '1px solid rgba(255,255,255,0.07)', padding: '8px 8px 9px' }}>
-          <GroupManager />
+          <GroupManager readOnly={readOnly} />
         </div>
       )}
 

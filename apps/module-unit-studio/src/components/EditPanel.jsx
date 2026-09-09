@@ -6,8 +6,11 @@ import { useViewerStore } from '../store/useViewerStore.js'
 import { summarizeIntent, makeBatchId } from '../data/EditIntent.js'
 import { computeDeleteMask } from '../data/applyEditIntents.js'
 import GroupManager from './GroupManager.jsx'
+import SupportBeamSection from './SupportBeamSection.jsx'
 import AddRigidDialog from './AddRigidDialog.jsx'
 import ConflictSummary from './ConflictSummary.jsx'
+import ModelTransformSection from './ModelTransformSection.jsx'
+import BdfExportSection from './BdfExportSection.jsx'
 
 /**
  * EditPanel — 사이드바 안에 위치하는 EditIntent 목록 패널.
@@ -136,6 +139,16 @@ export default function EditPanel() {
       {/* 그룹 관리 — Model Check 리본과 동일한 공용 컴포넌트(GroupManager).
           연결 그룹/부재 종류 기준 전환, 각 그룹 확인(표시)·단독 뷰·삭제 + "그룹 새로고침". */}
       <GroupManager />
+
+      {/* 형상 좌표를 바꾸는 조작은 Edit 단계에서만 수행한다. */}
+      <ModelTransformSection />
+
+      {/* 가서포트(보강) 추가 — Analyze 탭에 있던 것을 편집 도구인 여기로 옮겼다(사용자 요청).
+          픽 모드 게이트도 ViewportContainer 에서 Edit 탭 기준으로 바뀌었다. */}
+      <SupportBeamSection />
+
+      {/* 중간 산출물이 필요한 사용자를 위한 명시적 내보내기. */}
+      <BdfExportSection compact />
 
       {/* 선택된 부재 삭제 — 우측 인스펙터는 정보만 출력하므로, 부재 삭제 액션은 좌측 패널에서 수행한다.
           3D 뷰포트에서 부재를 클릭하면 여기에 삭제 버튼이 나타난다. */}

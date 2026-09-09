@@ -13,6 +13,9 @@ import { autoHoistCircleTolMm } from '../three/HoistCircleCandidateNodes.js'
 import { COLORS } from '../utils/colors.js'
 import Tooltip from './Tooltip.jsx'
 import HoistAutoResultModal from './HoistAutoResultModal.jsx'
+import HoistLoadConditionSection from './HoistLoadConditionSection.jsx'
+import { getModelHealth } from '../data/modelHealth.js'
+import { evaluateHoistFootprint } from '../data/hoistPreflight.js'
 
 const HOIST_MODES = [
   { id: 'hydro',   label: 'Hydro 방식',  detail: 'Hook',    maxGroups: 4, minNodes: 2, defaultWire: 8  },
@@ -101,8 +104,10 @@ export default function HoistPositionPanel() {
   )
 
   const hasModel = (stages?.length ?? 0) > 0
+  const modelHealth = getModelHealth(lastStage)
+  const modelRunnable = modelHealth.blocking.length === 0
   const [autoModalOpen, setAutoModalOpen] = useState(false)
-  const canAutoSelect = hasModel && !!mode
+  const canAutoSelect = hasModel && !!mode && modelRunnable
 
   // STEP 3 옵션을 사용자가 건드렸는지(강조 Tolerance/배관 외경 지정) — 미니 스테퍼 표시용.
   // 옵션은 선택 사항이므로 '완료'가 아니라 '입력됨' 신호로만 쓴다.
@@ -114,7 +119,11 @@ export default function HoistPositionPanel() {
     const n = (groups[id] ?? []).length
     return n >= minNodesForMode && n <= 4
   })
-  const canRunEvaluation = !!mode && allGroupsValid
+  const footprint = evaluateHoistFootprint(
+    Object.fromEntries(activeGroupIds.map(id => [id, groups[id] ?? []])),
+    lastStage,
+  )
+  const canRunEvaluation = !!mode && allGroupsValid && modelRunnable && footprint.ok
 
   const [running, setRunning] = useState(false)
   const onRunEvaluation = async () => {
@@ -248,6 +257,15 @@ export default function HoistPositionPanel() {
         </Tooltip>
         </div>
       </div>
+
+      <HoistLoadConditionSection />
+
+      {!modelRunnable && hasModel && (
+        <div style={{ padding: '7px 9px', borderRadius: 6, background: 'rgba(255,85,102,.09)', border: '1px solid rgba(255,85,102,.45)', color: '#ffb3bc', fontSize: 10.5, lineHeight: 1.45 }}>
+          <strong>모델 오류로 권상 검토를 시작할 수 없습니다.</strong><br />
+          {modelHealth.blocking.join(' · ')} — Model Check에서 오류를 먼저 확인하세요.
+        </div>
+      )}
 
       {/* 진행 로드맵 — 초심자가 "지금 어디까지 했고 다음에 뭘 하는지" 한눈에 보도록 */}
       <StepFlow mode={mode} groupsValid={allGroupsValid} hasResult={!!stabilityReport} optionsTouched={optionsTouched} />
@@ -779,7 +797,18 @@ export default function HoistPositionPanel() {
 
       {/* ── STEP 4. 평가 실행 ── */}
       <StepHeader n={4} title="자세안정성 평가 실행" done={!!stabilityReport}
-        desc={canRunEvaluation ? '준비 완료 — 아래 버튼으로 평가를 실행하세요.' : 'STEP 1·2를 완료하면 실행할 수 있습니다.'} />
+        desc={canRunEvaluation ? '준비 완료 — 아래 버튼으로 평가를 실행하세요.' : '모델 상태·권상점 개수·지지 면적을 확인하세요.'} />
+
+      {allGroupsValid && !footprint.ok && (
+        <div style={{ padding: '7px 9px', borderRadius: 6, background: 'rgba(255,196,71,.09)', border: '1px solid rgba(255,196,71,.45)', color: '#ffdf9e', fontSize: 10.5, lineHeight: 1.5 }}>
+          <strong>권상점이 좁은 구역에 모여 있습니다.</strong><br />
+          {footprint.blocking.join(' · ')}<br />
+          모델 외곽 쪽 Node를 선택해 지지 면적 또는 점 간격을 넓혀 주세요.
+        </div>
+      )}
+      {allGroupsValid && footprint.ok && footprint.pointCount >= 3 && (
+        <div style={{ color: '#82c9aa', fontSize: 10 }}>지지 면적 비율 {(footprint.areaRatio * 100).toFixed(1)}% · 사전검사 통과</div>
+      )}
 
       {/* 자세안정성 평가 실행 — 도크 하단에 고정(sticky).
           이 패널의 내용은 1366×768 에서 세로로 301px 넘치기 때문에, 예전에는 이 탭의
@@ -803,10 +832,14 @@ export default function HoistPositionPanel() {
           content={
             !mode
               ? '먼저 권상 방식(Hydro / Goliat / 천장 Crane)을 선택해 주세요.'
+              : !modelRunnable
+                ? `Model Check 오류를 먼저 해결하세요: ${modelHealth.blocking.join(' · ')}`
               : !allGroupsValid
                 ? (mode === 'ceiling'
                     ? '천장 Crane 은 그룹 1개에 노드 3 또는 4개(삼각형/사각형) 를 선택해야 평가를 실행할 수 있습니다.'
                     : '모든 그룹이 2~4 개의 노드(직선/삼각형/사각형) 를 가져야 평가를 실행할 수 있습니다.')
+                : !footprint.ok
+                  ? footprint.blocking.join(' · ')
                 : (
                   <>
                     <strong style={{ color: '#6AE07A' }}>자세안정성 평가 실행</strong><br/>
@@ -848,9 +881,11 @@ export default function HoistPositionPanel() {
           <div style={{ marginTop: 5, fontSize: 10, color: '#7a8aaa', lineHeight: 1.45 }}>
             {!mode
               ? '권상 방식(Hydro / Goliat / 천장 Crane) 선택 필요'
+              : !modelRunnable
+                ? `모델 오류: ${modelHealth.blocking.join(' · ')}`
               : mode === 'ceiling'
-                ? '천장 Crane: 그룹 1개에 노드 3 또는 4개 필요'
-                : '각 그룹은 2~4개의 노드가 있어야 합니다'}
+                ? (allGroupsValid ? footprint.blocking.join(' · ') : '천장 Crane: 그룹 1개에 노드 3 또는 4개 필요')
+                : (allGroupsValid ? footprint.blocking.join(' · ') : '각 그룹은 2~4개의 노드가 있어야 합니다')}
           </div>
         )}
 
