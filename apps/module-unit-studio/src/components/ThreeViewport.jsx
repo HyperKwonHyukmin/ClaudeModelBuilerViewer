@@ -4,7 +4,7 @@ import { TrackballControls } from 'three/addons/controls/TrackballControls.js'
 import { MousePointer2, Rotate3D, Move, Focus } from 'lucide-react'
 import { pickViewport, worldUnitsPerPixel } from '../three/screenPicking.js'
 import { buildScene, disposeScene } from '../three/SceneBuilder.js'
-import { applyFreeNodeFilters, applyHoistModeHighlight } from '../three/NodePoints.js'
+import { applyFreeNodeFilters, applyHoistModeHighlight, updateNodePresentation } from '../three/NodePoints.js'
 import { applyGroupVisibility } from '../three/GroupVisibility.js'
 import { applyDeleteMask } from '../three/applyDeleteMask.js'
 import { buildBrokenRbeHighlight } from '../three/BrokenRbeHighlight.js'
@@ -88,9 +88,10 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
   const [sceneError, setSceneError] = useState(null)
   const [navigationMode, setNavigationMode] = useState('rotate')
   const navigationModeRef = useRef('rotate')
-  const [nodeSize, setNodeSize] = useState(5)
+  const [nodeSize, setNodeSize] = useState('auto')
   const [fieldVisible, setFieldVisible] = useState(true)
-  const nodeSizeRef = useRef(5)
+  const nodeSizeRef = useRef('auto')
+  const nodeDisplayContextRef = useRef({ interactive: false, diagnostic: false, nodeOnly: false })
   const hoverHighlightRef = useRef(null)
   const hoverEntityRef = useRef(null)
   const containerRef = useRef(null)
@@ -280,9 +281,12 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
     renderer.setClearColor(0x1a1a2e, 1)
     renderer.clear()
     const nodeMesh = sceneDataRef.current?.pickables?.nodes
-    if (nodeMesh?.userData.screenScale) {
-      nodeMesh.userData.screenScale.value = worldUnitsPerPixel(camera, h) * nodeSizeRef.current / 0.0448
-    }
+    updateNodePresentation(nodeMesh, {
+      worldPerPixel: worldUnitsPerPixel(camera, h),
+      zoom: camera.zoom,
+      mode: nodeSizeRef.current,
+      ...nodeDisplayContextRef.current,
+    })
     renderer.render(scene, camera)
 
     // Axes indicator — bottom-left corner
@@ -315,6 +319,16 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
       doRender()
     })
   }, [doRender])
+
+  const nodeOnlyPick = pickFilters?.node !== false && ['element', 'rigid', 'mass'].every(key => pickFilters?.[key] === false)
+  useEffect(() => {
+    nodeDisplayContextRef.current = {
+      interactive: editEnabled || (hoistPickEnabled && !!hoistMode) || nodeOnlyPick,
+      diagnostic: colorMode === 'freeNode',
+      nodeOnly: displayStyle === 'nodeOnly',
+    }
+    requestRender()
+  }, [editEnabled, hoistPickEnabled, hoistMode, nodeOnlyPick, colorMode, displayStyle, requestRender])
 
   // ── 회전 중심(pivot)을 무게중심으로 고정 ────────────────────────────────
   // 사용자가 노드를 더블클릭해 직접 지정(pivotOverride)하기 전까지 회전 중심을 항상
@@ -1737,10 +1751,11 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
           <option value="shaded">음영</option><option value="xray">반투명</option>
           <option value="wire">와이어프레임</option><option value="nodeOnly">노드만</option>
         </select>
-        <select aria-label="노드 표시 크기" title="화면상 노드의 최소 표시 크기. 선택 허용 범위는 동일합니다."
-          value={nodeSize} onChange={e => { nodeSizeRef.current = Number(e.target.value); setNodeSize(Number(e.target.value)); requestRender() }}
+        <select aria-label="노드 표시 방식" title="자동은 전체 보기에서 Node를 작고 은은하게 표시하고, 확대·선택·편집·권상 시 자동으로 강조합니다. 클릭 반경은 표시 크기와 무관하게 유지됩니다."
+          value={nodeSize} onChange={e => { nodeSizeRef.current = e.target.value; setNodeSize(e.target.value); requestRender() }}
           style={{ ...VIEW_BTN_STYLE, background: '#152337', color: '#d8e4f3', minHeight: 30 }}>
-          <option value={3}>노드: 작게</option><option value={5}>노드: 표준</option><option value={7}>노드: 크게</option>
+          <option value="auto">Node: 자동</option><option value="1.5">Node: 미세</option>
+          <option value="3">Node: 표준</option><option value="5">Node: 강조</option>
         </select>
       </div>
       <div style={{ position: 'absolute', left: 130, bottom: 14, right: 95, pointerEvents: 'none',

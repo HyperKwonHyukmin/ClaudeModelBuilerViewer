@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import * as THREE from 'three'
 import { pickScreenNode, pickScreenElement, pickViewport, worldUnitsPerPixel } from './screenPicking.js'
-import { buildNodePoints } from './NodePoints.js'
+import { buildNodePoints, updateNodePresentation } from './NodePoints.js'
 
 const rect = { left: 20, top: 30, width: 800, height: 600 }
 const pointer = (x = 400, y = 300) => ({ clientX: x + rect.left, clientY: y + rect.top })
@@ -16,15 +16,23 @@ function fixture(positions = [[0, 0, 0]]) {
 }
 
 describe('screen-space node picking', () => {
-  it.each(['cylinder', 'section3d'])('keeps nodes visible and selectable inside thick members in %s', mode => {
+  it.each(['cylinder', 'section3d'])('keeps overview quiet but promotes nodes for explicit node work in %s', mode => {
     const { camera } = fixture()
     const mesh = buildNodePoints({ nodeMap: new Map([[1, {}]]), getNodePos: () => new THREE.Vector3(), rigids: [] }, 'category', mode)
     const beam = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2), new THREE.MeshBasicMaterial())
     beam.updateMatrixWorld()
+    updateNodePresentation(mesh, { worldPerPixel: 0.01, zoom: 1 })
+    expect(mesh.material.depthTest).toBe(true)
+    expect(mesh.material.opacity).toBe(0.24)
+    let hits = pickViewport({ pickables: { nodes: mesh }, targets: [mesh, beam], camera, rect,
+      pointer: pointer(), raycaster: new THREE.Raycaster() })
+    expect(hits[0].object).toBe(beam)
+
+    updateNodePresentation(mesh, { worldPerPixel: 0.01, zoom: 1, interactive: true })
     expect(mesh.material.depthTest).toBe(false)
-    expect(mesh.material.opacity).toBe(1)
+    expect(mesh.material.opacity).toBe(0.9)
     expect(mesh.renderOrder).toBeGreaterThan(beam.renderOrder)
-    const hits = pickViewport({ pickables: { nodes: mesh }, targets: [mesh, beam], camera, rect,
+    hits = pickViewport({ pickables: { nodes: mesh }, targets: [mesh, beam], camera, rect,
       pointer: pointer(), raycaster: new THREE.Raycaster() })
     expect(hits[0].object).toBe(mesh)
     mesh.visible = false

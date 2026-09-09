@@ -5,7 +5,8 @@ const NODE_RADIUS = 0.0448  // 44.8 mm (80 % of 56 mm)
 const _dummy = new THREE.Object3D()
 
 // freeNode 모드 색상
-const COLOR_NORMAL   = new THREE.Color(COLORS.node)   // Shared Node (2+) — 빨강
+const COLOR_STANDARD = new THREE.Color(0x8FA9BC)       // 일반 검토 — 부재보다 조용한 청회색
+const COLOR_NORMAL   = new THREE.Color(COLORS.node)   // Free Node 검토의 Shared Node (2+) — 빨강
 const COLOR_FREE_END = new THREE.Color(0xF2C94C)       // Free Node (1 연결) — amber
 const COLOR_ORPHAN   = new THREE.Color(0xB46DFF)       // Orphan Node (0 연결) — violet
 
@@ -33,13 +34,12 @@ const COLOR_RBE_HOIST = new THREE.Color(0xE9A8B8)      // 연한 분홍 (light p
  */
 export function buildNodePoints(stageData, colorMode = 'category') {
   const ids = [...stageData.nodeMap.keys()]
-  // STUDIO 표준 §11: 저폴리(10×7)+flatShading 금지 → 매끈한 16×12 + 반투명(depthWrite false).
-  // 반투명이라 부재(Line/Tube)가 노드를 통과해 비쳐 "연결 여부" 판단이 쉽고 더 전문적이다(ModelBuilder 노드 룩 통일).
-  // opacity 는 0.78 — 기존 0.65 대비 색감 +20%(요청). 너무 투명하면 노드 색이 옅게 보이던 문제 개선.
+  // 가까이서 강조될 때도 각진 점으로 보이지 않도록 매끈한 구를 사용한다.
+  // 실제 화면 크기·투명도·깊이 판정은 updateNodePresentation이 작업 맥락/zoom에 맞춰 조절한다.
   const geo = new THREE.SphereGeometry(NODE_RADIUS, 16, 12)
-  // Nodes are selectable UI markers, not solids: never bury them inside beams.
-  // Basic material keeps their category colors independent of scene lighting.
-  const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 1, depthTest: false, depthWrite: false })
+  // Node는 형상보다 선택 핸들에 가깝다. 기본은 부재 뒤에 자연스럽게 가려지고,
+  // Node 작업 모드에서는 depthTest를 꺼 전면 표시한다.
+  const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.28, depthTest: true, depthWrite: false })
   mat.userData.nodeMarker = true
   // Screen-sized markers remain legible without growing into large balls on zoom.
   const screenScale = { value: 1 }
@@ -51,8 +51,7 @@ export function buildNodePoints(stageData, colorMode = 'category') {
   }
   mat.customProgramCacheKey = () => 'node-screen-minimum-v1'
 
-  // Both cylinder and section views draw nodes over members. Layer/filter masks
-  // still hide nodes, and picking uses this same depthTest policy.
+  // Layer/filter mask는 어떤 표현 단계에서도 동일하게 적용된다.
   const mesh = new THREE.InstancedMesh(geo, mat, ids.length)
   mesh.frustumCulled = false // GPU expansion is not represented by CPU bounds.
   mesh.renderOrder = 10
@@ -107,7 +106,8 @@ export function buildNodePoints(stageData, colorMode = 'category') {
     _dummy.updateMatrix()
     mesh.setMatrixAt(i, _dummy.matrix)
 
-    const col = cat === 'orphan' ? COLOR_ORPHAN : cat === 'free' ? COLOR_FREE_END : COLOR_NORMAL
+    const col = cat === 'orphan' ? COLOR_ORPHAN : cat === 'free' ? COLOR_FREE_END
+      : colorMode === 'freeNode' ? COLOR_NORMAL : COLOR_STANDARD
     mesh.setColorAt(i, col)
     nodeBaseColors[i] = col.clone()
 
@@ -118,6 +118,41 @@ export function buildNodePoints(stageData, colorMode = 'category') {
   if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
   mesh.userData = { nodeIds, nodeCategories, nodePositions, nodeBaseColors, rbeNodeSet, screenScale }
   return mesh
+}
+
+/**
+ * 노드는 실제 구가 아니라 선택 핸들이다. 전체 보기에서는 1~2px의 은은한 점으로 낮추고,
+ * 확대하거나 Node 작업 중일 때만 3~5px로 드러낸다. 선택 반경은 screenPicking의 10px로
+ * 별도 계산되므로 작은 표시에서도 클릭 편의성은 유지된다.
+ */
+export function updateNodePresentation(mesh, {
+  worldPerPixel = 1,
+  zoom = 1,
+  mode = 'auto',
+  interactive = false,
+  diagnostic = false,
+  nodeOnly = false,
+} = {}) {
+  if (!mesh?.userData?.screenScale || !mesh.material) return null
+
+  let pixels
+  if (mode !== 'auto') pixels = Math.max(1, Number(mode) || 3)
+  else if (interactive || diagnostic || nodeOnly) pixels = 4.5
+  else if (zoom >= 2.5) pixels = 3.1
+  else if (zoom >= 1.4) pixels = 2.2
+  else pixels = 1.35
+
+  const prominent = interactive || diagnostic || nodeOnly || mode !== 'auto' || zoom >= 2.5
+  mesh.userData.screenScale.value = worldPerPixel * pixels / NODE_RADIUS
+  mesh.material.opacity = prominent ? 0.9 : zoom >= 1.4 ? 0.48 : 0.24
+  const depthTest = !prominent
+  if (mesh.material.depthTest !== depthTest) {
+    mesh.material.depthTest = depthTest
+    mesh.material.needsUpdate = true
+  }
+  mesh.renderOrder = prominent ? 10 : 2
+  mesh.userData.presentation = { pixels, opacity: mesh.material.opacity, depthTest }
+  return mesh.userData.presentation
 }
 
 /**

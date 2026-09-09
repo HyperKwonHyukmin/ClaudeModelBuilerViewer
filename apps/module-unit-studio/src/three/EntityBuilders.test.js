@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import * as THREE from 'three'
-import { buildNodePoints } from './NodePoints.js'
+import { buildNodePoints, updateNodePresentation } from './NodePoints.js'
 import { buildRigidMesh } from './RigidMesh.js'
 import { buildMassMarkers } from './MassMarkers.js'
 import { buildBoundaryMarkers } from './BoundaryMarkers.js'
@@ -126,6 +126,17 @@ describe('buildRigidMesh', () => {
     rigidGroup.traverse(o => { o.geometry?.dispose?.(); o.material?.dispose?.() })
     markerGroup.traverse(o => { o.geometry?.dispose?.(); o.material?.dispose?.() })
     dofGroup.traverse(o => { o.geometry?.dispose?.(); o.material?.dispose?.() })
+  })
+
+  it('uses a quiet overview marker and promotes nodes during node work', () => {
+    const stage = new StageData(makeJson())
+    const mesh = buildNodePoints(stage)
+    const overview = updateNodePresentation(mesh, { worldPerPixel: 0.01, zoom: 1, mode: 'auto' })
+    expect(overview).toMatchObject({ pixels: 1.35, opacity: 0.24, depthTest: true })
+    const working = updateNodePresentation(mesh, { worldPerPixel: 0.01, zoom: 1, mode: 'auto', interactive: true })
+    expect(working).toMatchObject({ pixels: 4.5, opacity: 0.9, depthTest: false })
+    mesh.geometry.dispose()
+    mesh.material.dispose()
   })
 })
 
