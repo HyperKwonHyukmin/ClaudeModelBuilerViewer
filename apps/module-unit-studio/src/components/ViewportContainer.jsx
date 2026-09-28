@@ -3,17 +3,17 @@ import { useViewerStore } from '../store/useViewerStore.js'
 import { useStageStore } from '../store/useStageStore.js'
 import { useStabilityStore } from '../store/useStabilityStore.js'
 import ThreeViewport from './ThreeViewport.jsx'
-import InspectorPanel from './InspectorPanel.jsx'
 import PickTooltip from './PickTooltip.jsx'
 import EditModeWatermark from './EditModeWatermark.jsx'
-import MassSummaryOverlay from './MassSummaryOverlay.jsx'
 import HoistInstructionOverlay from './HoistInstructionOverlay.jsx'
 import HoistGuideToast from './HoistGuideToast.jsx'
 import ViewportShortcutsHelp from './ViewportShortcutsHelp.jsx'
 import ViewportEmptyState from './ViewportEmptyState.jsx'
+import ViewportHintBar from './shell/ViewportHintBar.jsx'
 import StabilityReportPanel from './StabilityReportPanel.jsx'
 import { getStabilityIssueElementIds } from '../three/StabilityIssueOverlay.js'
 import { useEditStore } from '../store/useEditStore.js'
+import useCameraSync from '../hooks/useCameraSync.js'
 
 /**
  * Dynamic viewport grid.
@@ -24,7 +24,7 @@ import { useEditStore } from '../store/useEditStore.js'
  * Each viewport has its own LayerPanel overlay (bottom-left).
  */
 export default function ViewportContainer() {
-  const { viewports, setActiveViewport, setViewportStage, activeViewportId, layers, setPickedEntity, pickedEntity, focusSelectionRequest, isolateSelection, renderMode, displayStyle, pickFilters, activeMode } = useViewerStore()
+  const { viewports, removeViewport, setActiveViewport, setViewportStage, activeViewportId, layers, cameraLinked, setPickedEntity, pickedEntity, focusSelectionRequest, isolateSelection, renderMode, displayStyle, pickFilters, activeMode } = useViewerStore()
   // 권상 픽킹(Shift+Node)·권상 오버레이는 상단 Hoist 탭에서만 활성화한다.
   // (hoistMode 가 설정된 채 다른 탭에서 Shift+클릭하면 권상 픽킹이 Edit 의 다중선택을 가로채는 것을 방지)
   const hoistActive = activeMode === 'hoist'
@@ -42,6 +42,9 @@ export default function ViewportContainer() {
   const handleReady = useCallback((id, api) => {
     viewportApiRefs.current[id] = api
   }, [])
+
+  // 여러 뷰를 띄웠을 때 카메라를 함께 움직인다(우측 도크 '동기화' 토글).
+  useCameraSync(viewportApiRefs, cameraLinked, viewports)
 
   const [tooltip, setTooltip] = useState({ pickInfo: null, position: null })
   const [hoverTooltip, setHoverTooltip] = useState({ pickInfo: null, position: null })
@@ -99,14 +102,16 @@ export default function ViewportContainer() {
       <PickTooltip pickInfo={activeTooltip.pickInfo} position={activeTooltip.position} editEnabled={editTargetActive} />
       <EditModeWatermark />
       {hoistActive && <HoistInstructionOverlay />}
-      <MassSummaryOverlay />
+      {/* 질량·COG 카드와 선택 정보(인스펙터)는 우측 도크 '정보' 탭으로 이주했다 —
+          3D 위에 상시 떠 있던 창 두 개가 모델을 가리지 않게. */}
+      <ViewportHintBar />
 
-      {/* Viewport grid */}
+      {/* Viewport grid — 1개면 전폭, 2개면 좌우, 3~4개면 2×2 */}
       <div style={{
         width: '100%', height: '100%',
         display: 'grid',
-        gridTemplateColumns: '1fr',
-        gridTemplateRows: '1fr',
+        gridTemplateColumns: `repeat(${viewports.length <= 1 ? 1 : 2}, 1fr)`,
+        gridTemplateRows: `repeat(${viewports.length <= 2 ? 1 : 2}, 1fr)`,
         gap: 2,
       }}>
         {viewports.map((vp) => {
@@ -159,6 +164,18 @@ export default function ViewportContainer() {
                   </span>
                 )}
 
+                {viewports.length > 1 && (
+                  <button
+                    onClick={e => {
+                      e.stopPropagation()
+                      delete viewportApiRefs.current[vp.id]
+                      removeViewport(vp.id)
+                    }}
+                    style={{ background: 'none', border: 'none', color: '#8aa0b8', cursor: 'pointer', fontSize: 14, padding: '0 2px', lineHeight: 1 }}
+                    title="뷰포트 닫기"
+                    aria-label="뷰포트 닫기"
+                  >×</button>
+                )}
               </div>
 
               {/* Three.js canvas */}
@@ -186,16 +203,15 @@ export default function ViewportContainer() {
               {/* 모델 확인(LayerPanel)은 Model 사이드바(Sidebar)로 이주 — 더 이상 뷰포트 floating 아님. */}
               {/* 권상 위치 설정 패널은 좌측 Hoist 도크(LeftDock)로 이주 — 더 이상 뷰포트 floating 아님. */}
               {isEditTargetStage && hoistActive && <HoistGuideToast />}
-              {/* 자세안정성 결과 패널은 Hoist(실행 직후 자동 열림)·Analyze(결과 보기) 두 탭에서만 표시. */}
-              {isEditTargetStage && (hoistActive || activeMode === 'analyze') && <StabilityReportPanel />}
+              {/* 자세안정성 결과 패널은 Hoist 탭에서만 표시(사용자 요청). Analyze 탭은 구조 해석 화면이라
+                  이 창이 남아 있으면 뷰를 가린다. panelOpen 은 store 에 남으므로 Hoist 로 돌아오면 다시 보인다.
+                  (Analyze 의 "결과 보기" 버튼은 Hoist 탭으로 전환하며 이 패널을 연다.) */}
+              {isEditTargetStage && hoistActive && <StabilityReportPanel />}
             </div>
           )
         })}
       </div>
 
-      {/* 우측 정보 인스펙터 — 뷰포트 우상단 floating 창. 부재/노드 선택 시 자동으로 열린다.
-          (이전엔 App.jsx 의 우측 dock 컬럼이었으나 뷰어 가로 폭 확보를 위해 floating 으로 이동.) */}
-      <InspectorPanel />
 
       {/* 단축키 발견성 — 뷰포트 우하단 고정 버튼/팝오버(순수 표시용). 전체 뷰포트 영역에 1개만 렌더. */}
       <ViewportShortcutsHelp />

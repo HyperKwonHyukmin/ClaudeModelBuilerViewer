@@ -9,7 +9,12 @@ const TONE = {
   empty: { color: '#7a8aaa', Icon: AlertTriangle, label: '모델 없음' },
 }
 
-export default function ModelHealthPanel() {
+/**
+ * @param {{ embedded?: boolean }} props
+ *   embedded=true — 좌측 탭 패널의 아코디언 안에서 렌더한다(아코디언이 이미 제목을 달고 있어
+ *   자체 'FEM 건전성' 라벨과 바깥 여백·구분선을 끈다).
+ */
+export default function ModelHealthPanel({ embedded = false }) {
   const stages = useStageStore(s => s.stages)
   const summary = useStageStore(s => s.stageSummary)
   const stage = stages[stages.length - 1] ?? null
@@ -20,8 +25,8 @@ export default function ModelHealthPanel() {
   const cog = mass?.centerOfGravityMm
 
   return (
-    <section style={{ padding: '10px 8px', borderBottom: '1px solid #1e1e38' }} aria-label="FEM 모델 건전성">
-      <div style={{ fontSize: 10, color: '#7ab2d4', letterSpacing: 1.4, fontWeight: 800, marginBottom: 7 }}>FEM 건전성</div>
+    <section style={embedded ? { padding: 0 } : { padding: '10px 8px', borderBottom: '1px solid #1e1e38' }} aria-label="FEM 모델 건전성">
+      {!embedded && <div style={{ fontSize: 10, color: '#7ab2d4', letterSpacing: 1.4, fontWeight: 800, marginBottom: 7 }}>FEM 건전성</div>}
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: tone.color, fontSize: 11, fontWeight: 800, marginBottom: 8 }}>
         <tone.Icon size={14} /> {tone.label}
       </div>

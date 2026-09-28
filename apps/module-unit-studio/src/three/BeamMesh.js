@@ -1,11 +1,15 @@
 import * as THREE from 'three'
 import { COLORS } from '../utils/colors.js'
 import { getGroupDisplayCount, groupColorThree } from '../utils/groupPalette.js'
+import { sizeScreenMarker } from './screenMarker.js'
 
 // Rod radii in scene units (metres)
 const STRUCT_R = 0.025   // 25 mm
 const PIPE_R   = 0.020   // 20 mm
-const SEGS     = 12      // cylinder circumference segments
+const SEGS     = 6       // cylinder circumference segments (화면에선 가는 선이라 6면이면 충분)
+// 선 모드 부재의 화면 반지름(px). 위 *_R 은 CPU raycast 판정 반경으로만 쓰이고,
+// 실제 굵기는 셰이더가 줌과 무관하게 이 값으로 고정한다 — 확대해도 굵어지지 않는 얇은 직선.
+const LINE_PX  = 0.75
 
 // Reused objects — allocated once, no GC pressure per element
 const _dummy = new THREE.Object3D()
@@ -101,7 +105,7 @@ export function buildBeamMesh(stageData, colorMode = 'category') {
 
 function _buildRods(elements, category, radius, color, stageData) {
   const geo  = new THREE.CylinderGeometry(radius, radius, 1, SEGS, 1)
-  const mat  = new THREE.MeshStandardMaterial({ color, metalness: 0.15, roughness: 0.55, flatShading: true })
+  const mat  = new THREE.MeshBasicMaterial({ color })
   const elems = elements.filter(e => e.type === 'BEAM' && e.category === category)
 
   const mesh = new THREE.InstancedMesh(geo, mat, elems.length)
@@ -138,12 +142,13 @@ function _buildRods(elements, category, radius, color, stageData) {
 
   mesh.instanceMatrix.needsUpdate = true
   mesh.userData = { elementIds, elementData, elementGroupIds, originalMatrices }
+  sizeScreenMarker(mesh, radius, LINE_PX, true)
   return mesh
 }
 
 function _buildRodsColored(elems, radius, stageData, colorFn) {
   const geo = new THREE.CylinderGeometry(radius, radius, 1, SEGS, 1)
-  const mat = new THREE.MeshStandardMaterial({ metalness: 0.15, roughness: 0.55, flatShading: true })
+  const mat = new THREE.MeshBasicMaterial()
 
   const mesh = new THREE.InstancedMesh(geo, mat, elems.length)
   mesh.count = 0
@@ -180,5 +185,6 @@ function _buildRodsColored(elems, radius, stageData, colorFn) {
   mesh.instanceMatrix.needsUpdate = true
   if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
   mesh.userData = { elementIds, elementData, elementGroupIds, originalMatrices }
+  sizeScreenMarker(mesh, radius, LINE_PX, true)
   return mesh
 }

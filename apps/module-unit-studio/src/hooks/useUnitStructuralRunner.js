@@ -7,8 +7,9 @@ import { useStageStore } from '../store/useStageStore.js'
 import { buildEditedStageJson, buildEditedStageFileName } from '../data/applyEditedModel.js'
 
 // 구조해석 실행 직전, 현재 편집(가서포트 포함) 모델을 _edited.json 으로 백엔드에 재업로드한다.
+// Wire 포함 BDF 다운로드도 같은 동기화를 거친다 — 그래야 받은 BDF 가 해석에 들어갈 BDF 와 같다.
 // 반환: null(업로드 불필요) | { ok:true } | { ok:false, error }
-async function syncEditedModel(host) {
+export async function syncEditedModel(host) {
   const editState = useEditStore.getState()
   const intents = editState.intents ?? []
   // 편집이 한 번도 없었으면(원본 그대로) 업로드 생략 — 백엔드는 원본 BDF 를 쓴다.

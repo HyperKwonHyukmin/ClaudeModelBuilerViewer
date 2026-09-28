@@ -1319,6 +1319,139 @@ describe('useEditStore — 가서포트', () => {
     expect(useEditStore.getState().intents).toHaveLength(0)
     expect(useUnitStructuralStore.getState().status).toBe(null)
   })
+
+  it('기본 단면은 L100×100×10t (0.0.150 이전과 동일)', () => {
+    expect(useEditStore.getState().supportSectionId).toBe('ANG_100x100x10')
+    useEditStore.getState().addSupportBeam(1, 4)
+    const p = useEditStore.getState().intents[0].params
+    expect(p.sectionId).toBe('ANG_100x100x10')
+    expect(p.dims).toEqual([100, 100, 10, 10])
+  })
+
+  it('setSupportSectionId 후 설치하면 그 단면의 dims 가 intent 에 박힌다', () => {
+    useEditStore.getState().setSupportSectionId('ANG_130x130x12')
+    const s = useEditStore.getState()
+    s.toggleSupportPick()
+    s.pickSupportNode(1); s.pickSupportNode(4)
+    const p = useEditStore.getState().intents[0].params
+    expect(p.sectionId).toBe('ANG_130x130x12')
+    expect(p.dims).toEqual([130, 130, 12, 12])
+  })
+
+  // 단면 변경은 "다음에 설치할 것" 에만 걸린다 — 이미 설치한 부재를 소급해 바꾸면
+  // 사용자가 의도한 규격 혼용(예: 일부만 두껍게)이 사라진다.
+  it('단면을 바꿔도 이미 설치된 가서포트는 그대로다 (규격 혼용 가능)', () => {
+    const s = useEditStore.getState()
+    s.addSupportBeam(1, 4)                       // 기본 100×100×10t
+    s.setSupportSectionId('ANG_100x100x13')
+    useEditStore.getState().addSupportBeam(2, 3) // 100×100×13t
+    const ids = useEditStore.getState().intents.map(i => i.params.sectionId)
+    expect(ids).toEqual(['ANG_100x100x10', 'ANG_100x100x13'])
+  })
+
+  it('알 수 없는 단면 id 는 기본 단면으로 눕는다', () => {
+    useEditStore.getState().setSupportSectionId('ANG_999x999x99')
+    expect(useEditStore.getState().supportSectionId).toBe('ANG_100x100x10')
+  })
+
+  // ⚠ CSV 는 사용자가 CAD 로 가져가는 산출물이라 **모델 폴더에 조용히 쓰지 않는다** —
+  // 저장 위치를 묻는 창(showSaveFilePicker / Electron 저장 대화상자)을 반드시 거쳐야 한다.
+  it('exportSupportCsv → folderRef 가 있어도 폴더에 쓰지 않고 저장 위치를 묻는다', async () => {
+    const writeFile = vi.fn(async () => ({ ok: true }))
+    setHost({ name: 'mock', pickFolder: vi.fn(), getInitialFolder: vi.fn(), writeFile })
+    useStageStore.setState({ sourceFolderRef: '/some/folder' })
+
+    let picked = null
+    const chunks = []
+    // 테스트 환경은 node 라 window 가 없다 — saveTextFile 의 `typeof window` 분기를 타도록 심어 준다.
+    globalThis.window = { showSaveFilePicker: vi.fn(async (opts) => {
+      picked = opts
+      return {
+        name: opts.suggestedName,
+        createWritable: async () => ({ write: async (t) => chunks.push(t), close: async () => {} }),
+      }
+    }) }
+
+    const s = useEditStore.getState()
+    s.addSupportBeam(1, 4)
+    s.setSupportSectionId('ANG_130x130x12')
+    useEditStore.getState().addSupportBeam(2, 3)
+
+    const r = await useEditStore.getState().exportSupportCsv()
+    expect(r.ok).toBe(true)
+    expect(r.rowCount).toBe(2)
+    expect(r.location).toBe('picker')
+    expect(writeFile).not.toHaveBeenCalled()                 // 폴더 무단 저장 없음
+    expect(picked.suggestedName).toMatch(/^support_C_.*\.csv$/)
+    const sizes = chunks[0].trim().split('\r\n').slice(1).map(l => l.split(',')[5])
+    expect(sizes).toEqual(['ANG_100x100x10', 'ANG_130x130x12'])
+
+    delete globalThis.window
+    useStageStore.setState({ sourceFolderRef: null })
+  })
+
+  it('exportSupportCsv → 저장 대화상자를 취소하면 실패로 보고한다', async () => {
+    setHost({ name: 'mock', pickFolder: vi.fn(), getInitialFolder: vi.fn(), writeFile: vi.fn() })
+    globalThis.window = { showSaveFilePicker: vi.fn(async () => {
+      const e = new Error('abort'); e.name = 'AbortError'; throw e
+    }) }
+    useEditStore.getState().addSupportBeam(1, 4)
+    const r = await useEditStore.getState().exportSupportCsv()
+    expect(r.ok).toBe(false)
+    expect(r.error).toBe('취소되었습니다')
+    delete globalThis.window
+  })
+
+  // Electron 에서 showSaveFilePicker 를 먼저 띄우면 0 KB 파일 + 저장창 2번이 된다(0.0.156 수정).
+  it('exportSupportCsv → Electron 에서는 showSaveFilePicker 없이 다운로드 저장창 한 번만', async () => {
+    setHost({ name: 'electron', pickFolder: vi.fn(), getInitialFolder: vi.fn(), writeFile: vi.fn() })
+    const picker = vi.fn()
+    globalThis.window = { showSaveFilePicker: picker }
+    const click = vi.fn()
+    globalThis.document = {
+      createElement: () => ({ click, remove: () => {} }),
+      body: { appendChild: () => {} },
+    }
+    const origCreate = URL.createObjectURL
+    const origRevoke = URL.revokeObjectURL
+    URL.createObjectURL = () => 'blob:x'
+    URL.revokeObjectURL = () => {}
+
+    useEditStore.getState().addSupportBeam(1, 4)
+    const r = await useEditStore.getState().exportSupportCsv()
+    expect(r.ok).toBe(true)
+    expect(r.location).toBe('download')
+    expect(picker).not.toHaveBeenCalled()
+    expect(click).toHaveBeenCalledTimes(1)
+
+    URL.createObjectURL = origCreate
+    URL.revokeObjectURL = origRevoke
+    delete globalThis.window
+    delete globalThis.document
+  })
+
+  // 편집 의도 JSON 은 해석 파이프라인이 다시 읽어 가는 중간 산출물이라 예전처럼 폴더에 바로 쓴다.
+  it('exportToFile 은 반대로 folderRef 에 조용히 쓴다 (CSV 와 정책이 다름)', async () => {
+    const writeFile = vi.fn(async () => ({ ok: true }))
+    setHost({ name: 'mock', pickFolder: vi.fn(), getInitialFolder: vi.fn(), writeFile })
+    useStageStore.setState({ sourceFolderRef: '/some/folder' })
+    useEditStore.getState().addSupportBeam(1, 4)
+    const r = await useEditStore.getState().exportToFile()
+    expect(r.ok).toBe(true)
+    expect(r.location).toBe('folder')
+    expect(writeFile).toHaveBeenCalledTimes(1)
+    useStageStore.setState({ sourceFolderRef: null })
+  })
+
+  it('exportSupportCsv → 가서포트가 없으면 파일을 쓰지 않는다', async () => {
+    const writeFile = vi.fn(async () => ({ ok: true }))
+    setHost({ name: 'mock', pickFolder: vi.fn(), getInitialFolder: vi.fn(), writeFile })
+    useStageStore.setState({ sourceFolderRef: '/some/folder' })
+    const r = await useEditStore.getState().exportSupportCsv()
+    expect(r.ok).toBe(false)
+    expect(writeFile).not.toHaveBeenCalled()
+    useStageStore.setState({ sourceFolderRef: null })
+  })
 })
 
 describe('useEditStore — F1: 권상 재선정/재평가 시 이전 구조해석 결과 무효화', () => {
@@ -1760,5 +1893,86 @@ describe('useEditStore — importFromJson 노드 중복 제거', () => {
     const s = useEditStore.getState()
     expect(s.hoistGroups[1]).toEqual([10, 11, 12])
     expect(s.hoistGroups[2]).toEqual([13, 14])   // 12 는 그룹 1 에만
+  })
+})
+
+// ── 그룹 자동 연결 적용 (applyGroupConnectProposals) ───────────────────────
+// 후보 계산은 data/groupAutoConnect.test.js 가 검증한다. 여기서는 "고른 후보를 intent 로
+// 커밋할 때" 의 규칙만 본다 — 종속 중복 차단·batch 묶음·미리보기 정리.
+describe('applyGroupConnectProposals', () => {
+  const makeConnectStage = () => new StageData({
+    meta: { phase: 'C', stageName: 'C_Final', timestamp: '20260911_100000', unit: 'mm', schemaVersion: '1.1' },
+    nodes: [
+      { id: 1, x: 0,   y: 0,    z: 0, tags: [] },
+      { id: 2, x: 600, y: 0,    z: 0, tags: [] },
+      { id: 3, x: 0,   y: -300, z: 0, tags: [] },
+      { id: 4, x: 600, y: -300, z: 0, tags: [] },
+    ],
+    elements: [
+      { id: 11, type: 'BEAM', startNode: 1, endNode: 2, propertyId: 2, category: 'Structure' },
+      { id: 12, type: 'BEAM', startNode: 3, endNode: 4, propertyId: 2, category: 'Structure' },
+    ],
+    rigids: [],
+    properties: [{ id: 2, kind: 'L', dims: [100, 100, 10, 10] }],
+    materials: [], pointMasses: [],
+    connectivity: { groupCount: 2, largestGroupNodeCount: 2, isolatedNodeCount: 0, groups: [
+      { id: 0, nodeIds: [1, 2], elementIds: [11] },
+      { id: 1, nodeIds: [3, 4], elementIds: [12] },
+    ] },
+    healthMetrics: { totals: { nodeCount: 4, elementCount: 2, rigidCount: 0, pointMassCount: 0,
+      bbox: { minX: 0, maxX: 600, minY: -300, maxY: 0, minZ: 0, maxZ: 0 } }, issues: {} },
+  })
+
+  beforeEach(() => {
+    useEditStore.getState().reset()
+    useStageStore.setState({ stages: [makeConnectStage()] })
+  })
+  afterEach(() => {
+    useEditStore.getState().reset()
+    useStageStore.setState({ stages: [] })
+  })
+
+  it('고른 후보를 addRigid intent 로 만들고 미리보기를 비운다', () => {
+    const store = useEditStore.getState()
+    store.setGroupConnectProposals([{ srcNode: 3, tgtNode: 1 }, { srcNode: 4, tgtNode: 2 }])
+    const res = store.applyGroupConnectProposals([{ srcNode: 3, tgtNode: 1 }, { srcNode: 4, tgtNode: 2 }])
+
+    expect(res.applied).toBe(2)
+    expect(res.failed).toHaveLength(0)
+    const rigids = useEditStore.getState().intents.filter(i => i.kind === 'addRigid')
+    expect(rigids).toHaveLength(2)
+    // 독립 = 주 구조 노드, 종속 = 소그룹 노드
+    expect(rigids[0].params.independentNode).toBe(1)
+    expect(rigids[0].params.dependentNodes).toEqual([3])
+    expect(rigids[0].params.remark).toBe('AUTOCONNECT')
+    // 한 번의 적용은 같은 batch — Ctrl+Z 로 통째로 되돌아간다
+    expect(new Set(rigids.map(i => i.batchId)).size).toBe(1)
+    expect(useEditStore.getState().groupConnectProposals).toHaveLength(0)
+  })
+
+  it('이미 다른 RBE 의 종속인 노드는 커밋 직전에 막는다 (Nastran FATAL 방지)', () => {
+    const store = useEditStore.getState()
+    store.addIntent({ kind: 'addRigid', params: { independentNode: 2, dependentNodes: [3] } })
+    const res = useEditStore.getState().applyGroupConnectProposals([{ srcNode: 3, tgtNode: 1 }])
+
+    expect(res.applied).toBe(0)
+    expect(res.failed).toHaveLength(1)
+    expect(res.failed[0]).toMatchObject({ srcNode: 3, tgtNode: 1 })
+    // 수동으로 넣은 1건만 남는다
+    expect(useEditStore.getState().intents.filter(i => i.kind === 'addRigid')).toHaveLength(1)
+  })
+
+  it('빈 배열이면 아무것도 하지 않는다', () => {
+    const res = useEditStore.getState().applyGroupConnectProposals([])
+    expect(res).toEqual({ applied: 0, warned: 0, failed: [] })
+    expect(useEditStore.getState().intents).toHaveLength(0)
+  })
+
+  it('전량 실패면 미리보기를 남겨 사유를 보며 재시도할 수 있게 한다', () => {
+    const store = useEditStore.getState()
+    store.addIntent({ kind: 'addRigid', params: { independentNode: 2, dependentNodes: [3] } })
+    store.setGroupConnectProposals([{ srcNode: 3, tgtNode: 1 }])
+    useEditStore.getState().applyGroupConnectProposals([{ srcNode: 3, tgtNode: 1 }])
+    expect(useEditStore.getState().groupConnectProposals).toHaveLength(1)
   })
 })

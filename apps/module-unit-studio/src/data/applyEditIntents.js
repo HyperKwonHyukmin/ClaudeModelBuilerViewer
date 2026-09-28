@@ -25,6 +25,8 @@
  * 메모이제이션은 호출자(useMemo) 가 담당.
  */
 
+import { resolveSupportSection } from './supportSections.js'
+
 const EMPTY = Object.freeze({
   deletedNodeIds:         new Set(),
   deletedElementIds:      new Set(),
@@ -168,10 +170,15 @@ export function computeDeleteMask(stageData, intents) {
   const addedSupportBeams = []
   for (const intent of intents) {
     if (intent.kind !== 'addSupportBeam') continue
-    const { startNode, endNode, dims } = intent.params ?? {}
+    const { startNode, endNode } = intent.params ?? {}
     if (!Number.isInteger(startNode) || !Number.isInteger(endNode)) continue
     if (!stageData.nodeMap?.has(startNode) || !stageData.nodeMap?.has(endNode)) continue
-    addedSupportBeams.push({ intentId: intent.id, startNode, endNode, dims: dims ?? [100, 100, 10, 10] })
+    // 단면은 params 에서 복원한다 — sectionId 가 없는 구(舊) intent 는 dims 로, 그마저 없으면 기본 단면.
+    const section = resolveSupportSection(intent.params)
+    addedSupportBeams.push({
+      intentId: intent.id, startNode, endNode,
+      sectionId: section.id, dims: [...section.dims],
+    })
   }
 
   const totalGroups = stageData.groups?.length ?? 0

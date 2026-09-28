@@ -11,10 +11,13 @@ import { FileSpreadsheet, Loader2 } from 'lucide-react'
  */
 // 실측(대형 모델 2,500부재, dev PC): 결과 6.2s · 상세 9.1s. 서버 사양·전송·저장까지 넉넉히 잡은 값이다.
 const ESTIMATE_SEC = { result: 25, detail: 35 }
+// PDF 는 그 위에 "서버 Excel 로 열어 인쇄" 가 더 붙는다 — 실측 결과 +4s · 상세 +12s(Excel 기동 2.6s 포함).
+const PDF_EXTRA_SEC = { result: 10, detail: 20 }
 
-export default function ReportProgressOverlay({ kind = 'result' }) {
+export default function ReportProgressOverlay({ kind = 'result', format = 'xlsx' }) {
   const [elapsed, setElapsed] = useState(0)
-  const estimate = ESTIMATE_SEC[kind] ?? ESTIMATE_SEC.result
+  const estimate = (ESTIMATE_SEC[kind] ?? ESTIMATE_SEC.result)
+    + (format === 'pdf' ? (PDF_EXTRA_SEC[kind] ?? PDF_EXTRA_SEC.result) : 0)
   const label = kind === 'detail' ? '상세 레포트' : '결과 레포트'
   const over = elapsed > estimate
   const pct = Math.min(95, Math.round((elapsed / estimate) * 100))
@@ -69,6 +72,7 @@ export default function ReportProgressOverlay({ kind = 'result' }) {
           <br />
           백엔드가 해석 결과로 3D 그림을 그리고 서식을 채우는 중입니다.
           <br />
+          {format === 'pdf' && <>변환까지 마친 뒤 PDF 로 내려받습니다.<br /></>}
           서버 사양에 따라 더 걸릴 수 있습니다.
           <br />
           완료되면 저장 위치를 묻는 창이 열립니다. 그때까지 기다려 주세요.

@@ -61,7 +61,7 @@ export default function ZonePartitionMap({ view, onCycle, includePipe }) {
         )}
       </svg>
       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, color: '#8aa0b8', gap: 8 }}>
-        <span>↑ X(종) · ← Y(횡) · 평면도(3D 뷰와 동일)</span>
+        <span>→ X(횡) · ↑ Y(종)</span>
         <span>셀 클릭=포인트 수 순환(0=제외·자동=엔진 추천) · 4점=사각형(▭)↔일직선(―) · 주황=노드 부족{cog ? ' · 핑크십자=무게중심' : ''}</span>
       </div>
     </div>

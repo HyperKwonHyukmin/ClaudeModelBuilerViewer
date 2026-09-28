@@ -1,5 +1,6 @@
 import { useRef, useState, useCallback } from 'react'
-import { FileJson, FolderOpen, RotateCcw } from 'lucide-react'
+import { AlertTriangle, Box, CheckCircle2, FileJson, FolderOpen, RotateCcw } from 'lucide-react'
+import TabPanel, { Accordion, HelpList, StatusLine } from './shell/TabPanel.jsx'
 import { useViewerStore } from '../store/useViewerStore.js'
 import { useStageStore } from '../store/useStageStore.js'
 import { useEditStore } from '../store/useEditStore.js'
@@ -153,15 +154,41 @@ export default function Sidebar() {
     window.addEventListener('mouseup', onMouseUp)
   }, [width])
 
+  const resizeHandle = (
+    <div
+      onMouseDown={onResizeMouseDown}
+      style={{
+        position: 'absolute', top: 0, right: 0, bottom: 0, width: 5,
+        cursor: 'col-resize', background: 'transparent',
+        transition: 'background 0.15s ease', zIndex: 10,
+      }}
+      onMouseEnter={e => e.currentTarget.style.background = 'rgba(70,130,180,0.35)'}
+      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+      title="드래그하여 너비 조절"
+    />
+  )
+
+  const lastStage = stages.length > 0 ? stages[stages.length - 1] : null
+  const modelStatus = stages.length > 0
+    ? <StatusLine tone="ok" icon={CheckCircle2} right={`단계 ${stages.length}`}>
+        {`N ${(lastStage?.healthMetrics?.totals?.nodeCount ?? 0).toLocaleString()} · E ${(lastStage?.healthMetrics?.totals?.elementCount ?? 0).toLocaleString()}`}
+      </StatusLine>
+    : <StatusLine tone="muted" icon={AlertTriangle}>{loading ? '로딩 중…' : '모델 없음'}</StatusLine>
+
+  const modelHelp = (
+    <>
+      <div>결과 폴더의 phase JSON 을 읽어 3D 로 세우는 시작점입니다.</div>
+      <HelpList title="레이어" items={[
+        '보고 싶은 것만 남기면 큰 모델에서 원하는 부재를 훨씬 빨리 찾습니다.',
+        '색상 기준·노드 필터는 Model Check 탭에 있습니다.',
+      ]} />
+      <HelpList title="다음 단계" items={['모델이 성한지 확인 → Model Check · 고치기 → Edit · 권상 위치 → Hoist']} />
+    </>
+  )
+
   return (
-    <div style={{
-      width, flexShrink: 0, position: 'relative',
-      background: '#0b0b1e',
-      borderRight: '1px solid #1e1e38',
-      display: 'flex', flexDirection: 'column',
-      height: '100%',
-      overflowY: 'auto', overflowX: 'hidden',
-    }}>
+    <TabPanel id="model" title="Model" purpose="결과 폴더를 열고 무엇이 실렸는지 봅니다."
+      icon={Box} status={modelStatus} help={modelHelp} width={width} extra={resizeHandle}>
       {/* hidden inputs — 단독 웹 모드에서만 의미가 있음 */}
       {!isHosted && (
         <input ref={fileInputRef} type="file" accept=".json" multiple style={{ display: 'none' }} onChange={handleFileInput} />
@@ -295,43 +322,15 @@ export default function Sidebar() {
         </Tooltip>
       </div>
 
-      {/* ── 리사이즈 핸들 ─────────────────────────────────────────────── */}
-      <div
-        onMouseDown={onResizeMouseDown}
-        style={{
-          position: 'absolute', top: 0, right: 0, bottom: 0, width: 5,
-          cursor: 'col-resize',
-          background: 'transparent',
-          transition: 'background 0.15s ease',
-          zIndex: 10,
-        }}
-        onMouseEnter={e => e.currentTarget.style.background = 'rgba(70,130,180,0.35)'}
-        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-        title="드래그하여 너비 조절"
-      />
-    </div>
+    </TabPanel>
   )
 }
 
 // ── 섹션 래퍼 ─────────────────────────────────────────────────────────────
 
+// 이 패널의 섹션 = 공통 틀의 아코디언(호출부는 그대로 두고 껍데기만 교체).
 function Section({ label, children }) {
-  return (
-    <div style={{
-      padding: '11px 8px 10px',
-      borderBottom: '1px solid #1e1e38',
-      display: 'flex', flexDirection: 'column', gap: 4,
-    }}>
-      <div style={{
-        fontSize: 10, color: '#7ab2d4', letterSpacing: 1.5,
-        textTransform: 'uppercase', fontWeight: 800,
-        marginBottom: 3, paddingLeft: 2,
-      }}>
-        {label}
-      </div>
-      {children}
-    </div>
-  )
+  return <Accordion title={label} defaultOpen contentGap={4}>{children}</Accordion>
 }
 
 // ── 일반 액션 버튼 ────────────────────────────────────────────────────────

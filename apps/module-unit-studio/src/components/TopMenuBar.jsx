@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Box, Pencil, Cable, Activity, CheckCircle2 } from 'lucide-react'
+import { Box, Pencil, Cable, Activity, CheckCircle2, Save } from 'lucide-react'
 import { useViewerStore } from '../store/useViewerStore.js'
 import { useStageStore } from '../store/useStageStore.js'
 import { useEditStore } from '../store/useEditStore.js'
@@ -7,7 +7,7 @@ import { useStabilityStore } from '../store/useStabilityStore.js'
 import { useUnitStructuralStore } from '../store/useUnitStructuralStore.js'
 import { getModelHealth } from '../data/modelHealth.js'
 
-// 화면 최상단 가로 바 — 좌측 브랜드 + 4개 모드 탭(Model | Edit | Hoist | Analyze).
+// 화면 최상단 가로 바 — 좌측 브랜드 + 6개 모드 탭(Model | Model Check | Edit | Hoist | Analysis | Save).
 // 워크플로우 파이프라인(좌→우): 모델 로드 → FE 편집 → 권상(Hoist) 설정 → 해석.
 // 참조 MooringFittingStudio 의 TopRibbon(.ribbon-tabbar / .ribbon-tab.active) 룩을
 // 이 앱의 Tailwind4 + 인라인 다크 컬러 관례로 재현한다(emerald #6ee7b7 강조).
@@ -19,6 +19,7 @@ const TABS = [
   { key: 'edit',       label: 'Edit',        Icon: Pencil },
   { key: 'hoist',      label: 'Hoist',       Icon: Cable },
   { key: 'analyze',    label: 'Analysis',    Icon: Activity },
+  { key: 'save',       label: 'Save',        Icon: Save },
 ]
 
 export default function TopMenuBar() {
@@ -38,6 +39,8 @@ export default function TopMenuBar() {
     edit: intents.length ? 'done' : 'wait',
     hoist: stability === 'fail' ? 'error' : stability === 'warn' ? 'warn' : stability === 'pass' ? 'done' : hoistMode && Object.values(hoistGroups).some(g => g?.length) ? 'active' : 'wait',
     analyze: structural === 'Failed' ? 'error' : structural === 'Success' ? 'done' : structural === 'Running' || structural === 'Pending' ? 'active' : 'wait',
+    // Save 는 "저장할 것이 있는가" — 모델이 있으면 BDF 는 언제든 뽑을 수 있다.
+    save: structural === 'Success' ? 'done' : stages.length ? 'active' : 'wait',
   }
 
   return (

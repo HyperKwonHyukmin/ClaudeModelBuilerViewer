@@ -11,6 +11,7 @@ import { applyDeleteMask } from '../three/applyDeleteMask.js'
 import { buildBrokenRbeHighlight } from '../three/BrokenRbeHighlight.js'
 import { buildAddRigidPreview } from '../three/AddRigidPreview.js'
 import { buildSupportBeamPreview, buildSupportBeam3D } from '../three/SupportBeamPreview.js'
+import { buildGroupConnectPreview } from '../three/GroupConnectPreview.js'
 import { buildElementsHighlight, buildNodesHighlight, buildMultiSelectionHighlight, buildMultiSelElementHighlight } from '../three/SelectionHighlight.js'
 import { buildCenterOfGravityMarker } from '../three/CenterOfGravityMarker.js'
 import { buildHoistGroupHighlight } from '../three/HoistGroupHighlight.js'
@@ -26,7 +27,7 @@ import { buildSlingAngleOverlay, hasSlingAngleIssues } from '../three/SlingAngle
 import { buildNastranResultOverlay } from '../three/NastranResultOverlay.js'
 import { computeOrthoPanSpeed } from '../three/orthoPan.js'
 import { computeFitFraming, sceneHalfExtentsAbout, STANDARD_VIEWS } from '../three/viewportFraming.js'
-import { studioRenderPixelRatio } from '../utils/resolutionFrame.js'
+import { studioRenderPixelRatio } from '../utils/renderPixelRatio.js'
 import { useViewerStore } from '../store/useViewerStore.js'
 import { useUnitStructuralStore } from '../store/useUnitStructuralStore.js'
 import { useEditStore, computeMassFallback } from '../store/useEditStore.js'
@@ -120,7 +121,12 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
   // 과거엔 씬 빌드 시점의 카메라 스냅샷(fitStateRef)을 복원해 F/A/S/D 가 "그때의 배율" 로 돌아갔고,
   // 확대 상태나 모델 교체 후에는 모델 전체가 화면에 담기지 않았다.
   const viewActionsRef = useRef({ fitAll: () => {}, setStandardView: () => {} })
+  const rotateAroundTargetRef = useRef(() => {})
   const sceneRadiusRef = useRef(20)     // model scale in scene metres, used for adaptive clip planes
+  // 씬 재빌드는 stageData/colorMode/renderMode 변경 시 매번 일어나지만, fitCamera(전체 프레이밍)는
+  // stageData 참조가 실제로 바뀔 때만 수행한다. 그래야 3D 단면 토글·색상 기준 전환에서 현재
+  // 뷰 위치/줌이 그대로 유지된다.
+  const lastFittedStageRef = useRef(null)
   const highlightRef   = useRef(null)   // current selection highlight Group
   const brokenRbeRef   = useRef(null)   // broken RBE 노란 overlay (편집 모드)
   const selectedElementIdsRef = useRef(new Set())
@@ -149,6 +155,8 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
   const pendingNodeSelection   = useEditStore(s => s.pendingNodeSelection)
   const toggleNodeSelection    = useEditStore(s => s.toggleNodeSelection)
   const multiSelElements       = useEditStore(s => s.multiSelElements)
+  const groupConnectProposals  = useEditStore(s => s.groupConnectProposals)
+  const groupConnectHoverIndex = useEditStore(s => s.groupConnectHoverIndex)
   const toggleMultiSelElement  = useEditStore(s => s.toggleMultiSelElement)
   const clearMultiSelElements  = useEditStore(s => s.clearMultiSelElements)
   const hoistMode              = useEditStore(s => s.hoistMode)
@@ -201,6 +209,7 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
   const multiSelElemRef = useRef(null)   // Ctrl+Click 다중 선택 element overlay (주황 cylinder)
   const addRigidRef = useRef(null)   // addRigid intent 미리보기 overlay (노란 점선)
   const supportBeamRef = useRef(null)   // 가서포트 미리보기 overlay (청록 실선)
+  const groupConnectRef = useRef(null)  // 그룹 자동 연결 후보 overlay (라임 점선)
   const supportPickRef = useRef(null)   // 가서포트 픽 진행 중 선택 노드 하이라이트 (노란 sphere)
   const hoistRef    = useRef(null)   // 권상 그룹 노드 overlay
   const cogRef      = useRef(null)   // 무게중심 마커 (sphere + cross + 라벨)
@@ -360,7 +369,7 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
     // Windows 디스플레이 배율이 큰 환경에서 devicePixelRatio 를 그대로 쓰면 렌더 타깃이
     // 과도하게 커져 뷰가 버벅이거나 브라우저가 캔버스를 비정상 복원하는 경우가 있다.
     // CSS 크기는 유지하고 내부 렌더 해상도만 2배로 제한한다.
-    renderer.setPixelRatio(studioRenderPixelRatio(container, window.devicePixelRatio))
+    renderer.setPixelRatio(studioRenderPixelRatio(window.devicePixelRatio))
     renderer.setSize(Math.max(1, container.clientWidth), Math.max(1, container.clientHeight))
     renderer.autoClear = false
     renderer.toneMapping = THREE.NoToneMapping
@@ -540,6 +549,13 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
       if (!container.matches(':hover')) return
       if (e.target?.closest?.('input, textarea, select, [contenteditable="true"]') || e.ctrlKey || e.metaKey || e.altKey) return
 
+      // ← ↑ → ↓ 는 모델 중심(controls.target) 기준 궤도 회전. 입력 필드 focus 시엔 위에서 이미 return.
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+        rotateAroundTargetRef.current(e.key)
+        e.preventDefault()
+        return
+      }
+
       const k = e.key.toLowerCase()
       if (k === 'z') { e.preventDefault(); viewActionsRef.current.focusSelection(); return }
       if (k === 'home') { e.preventDefault(); viewActionsRef.current.fitAll(); return }
@@ -563,7 +579,7 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
       // 탭 전환/도크 재배치 중 관찰되는 일시적 0×0 크기를 카메라에 적용하면
       // aspect=Infinity/NaN이 남아 다음 정상 프레임도 왜곡될 수 있다.
       if (w < 1 || h < 1) return
-      renderer.setPixelRatio(studioRenderPixelRatio(container, window.devicePixelRatio))
+      renderer.setPixelRatio(studioRenderPixelRatio(window.devicePixelRatio))
       renderer.setSize(w, h)
       const halfH = (camera.top - camera.bottom) / 2
       const halfW = halfH * (w / h)
@@ -980,7 +996,12 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
 
       applyFullVisibility(sceneData, layers, groupFilters, stageData, isolateSelection, selectedElementIdsRef.current, freeNodeFilters, deleteMask, hideNodeIds, displayStyle)
 
-      sceneRadiusRef.current = fitCamera(stageData, cameraRef.current, controlsRef.current)
+      // fitCamera 는 새 모델(stageData 참조가 변한 경우)만 다시 프레이밍한다. 3D 단면(renderMode)
+      // 이나 색상 기준(colorMode) 전환은 씬만 재빌드하고 카메라는 유지.
+      if (lastFittedStageRef.current !== stageData) {
+        sceneRadiusRef.current = fitCamera(stageData, cameraRef.current, controlsRef.current)
+        lastFittedStageRef.current = stageData
+      }
       setTimeout(() => setSceneError(null), 0)
       requestRender()
     } catch (err) {
@@ -1176,6 +1197,23 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
     }
     requestRender()
   }, [deleteMask, stageData, renderMode, colorMode, requestRender])
+
+  // ── 그룹 자동 연결 후보 미리보기 (라임 점선 + 양 끝 마커) ─────────────
+  // 적용 전 후보만 그린다. 적용하면 addRigid intent 가 되어 위의 RBE 미리보기가 이어받는다.
+  useEffect(() => {
+    const scene = sceneRef.current
+    if (!scene) return
+    if (groupConnectRef.current) {
+      scene.remove(groupConnectRef.current)
+      disposeScene(groupConnectRef.current)
+      groupConnectRef.current = null
+    }
+    if (stageData && isEditTargetStage && groupConnectProposals.length > 0) {
+      const g = buildGroupConnectPreview(stageData, groupConnectProposals, groupConnectHoverIndex)
+      if (g) { scene.add(g); groupConnectRef.current = g }
+    }
+    requestRender()
+  }, [groupConnectProposals, groupConnectHoverIndex, stageData, isEditTargetStage, requestRender])
 
   // ── Group visibility filters ──────────────────────────────────────────
   useEffect(() => {
@@ -1677,8 +1715,45 @@ export default function ThreeViewport({ stageData, layers, onReady, onPick, onHo
     rendererRef.current.domElement.style.cursor = mode === 'pan' ? 'grab' : 'default'
   }, [])
 
+  // ← ↑ → ↓ 회전 — controls.target 을 피벗으로 카메라를 자기 로컬 축 기준으로 궤도 이동.
+  //   좌/우 = 카메라 로컬 up(=화면 세로축) 기준 회전.
+  //   상/하 = 카메라 로컬 right(=화면 가로축) 기준 회전.
+  //   같은 quaternion 을 camera.up 에도 적용하므로 "고정 세계 up" 이 없다 → pole 이 생기지
+  //   않고 어느 방향으로든 무한 회전해도 화면 반전이 발생하지 않는다.
+  const rotateAroundTarget = useCallback((key) => {
+    const camera = cameraRef.current
+    const controls = controlsRef.current
+    if (!camera || !controls) return
+    const STEP = (5 * Math.PI) / 180
+    const offset = new THREE.Vector3().subVectors(camera.position, controls.target)
+    if (offset.lengthSq() < 1e-12) return
+
+    camera.updateMatrixWorld(true)
+    // matrixWorld 의 열 0/1 = 카메라 로컬 X(right)/Y(up) 을 월드 좌표로 표현한 벡터.
+    const localRight = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0).normalize()
+    const localUp    = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 1).normalize()
+
+    let axis, angle
+    if (key === 'ArrowLeft')       { axis = localUp;    angle = -STEP }
+    else if (key === 'ArrowRight') { axis = localUp;    angle = +STEP }
+    else if (key === 'ArrowUp')    { axis = localRight; angle = -STEP }
+    else if (key === 'ArrowDown')  { axis = localRight; angle = +STEP }
+    else return
+
+    const quat = new THREE.Quaternion().setFromAxisAngle(axis, angle)
+    offset.applyQuaternion(quat)
+    // camera.up 도 같은 quat 로 돌려야 상/하 반복 시 로컬 프레임이 유지돼 반전이 없다.
+    camera.up.applyQuaternion(quat).normalize()
+
+    camera.position.copy(controls.target).add(offset)
+    camera.lookAt(controls.target)
+    controls.update()
+    requestRender()
+  }, [requestRender])
+
   // Mount-once keyboard listeners use the latest selection and camera actions.
   viewActionsRef.current = { fitAll, setStandardView, focusSelection }
+  rotateAroundTargetRef.current = rotateAroundTarget
 
   return (
     <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden' }}>

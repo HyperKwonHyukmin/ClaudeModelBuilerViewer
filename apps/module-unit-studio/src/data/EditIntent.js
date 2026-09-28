@@ -16,7 +16,10 @@
  * - deleteGroup.params:        { groupId, memberNodeCount? }
  * - deleteElement.params:      { elementId, category?, startNode?, endNode? }   // 메타 필드는 summary 용
  * - deleteOrphanNodes.params:  { nodeIds: number[] }
+ * - addSupportBeam.params:     { startNode, endNode, sectionId, sectionKind, dims[4] }
  */
+
+import { SUPPORT_SECTIONS, supportSectionLabel } from './supportSections.js'
 
 export const EDIT_INTENT_SCHEMA_VERSION = '1.0'
 
@@ -293,7 +296,7 @@ export function summarizeIntent(intent) {
   }
   if (intent.kind === 'addSupportBeam') {
     const { startNode, endNode } = intent.params ?? {}
-    return `가서포트 L100×100×10t (N${startNode}↔N${endNode})`
+    return `가서포트 ${supportSectionLabel(intent.params)} (N${startNode}↔N${endNode})`
   }
   return `알 수 없는 intent: ${intent.kind}`
 }
@@ -447,6 +450,13 @@ function validateAddSupportBeam(params, stageData, existingIntents, errors, warn
   }
   if (a === b) {
     errors.push('가서포트 두 노드가 동일합니다.')
+    return
+  }
+  // 단면은 카탈로그(supportSections.js) 안의 것만 허용한다 — CSV 로 내보낸 `ANG_*` 문자열이
+  // ModelBuilder 의 단면 파서를 통과해야 하고, 임의 치수는 그 왕복을 깨뜨린다.
+  // sectionId 가 없는 구(舊) intent 는 dims 로 기본 단면(100×100×10t)에 대응되므로 통과시킨다.
+  if (params?.sectionId != null && !SUPPORT_SECTIONS.some(s => s.id === params.sectionId)) {
+    errors.push(`알 수 없는 가서포트 단면: ${params.sectionId}`)
     return
   }
   if (stageData?.nodeMap) {

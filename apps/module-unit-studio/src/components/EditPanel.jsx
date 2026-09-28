@@ -7,6 +7,8 @@ import { summarizeIntent, makeBatchId } from '../data/EditIntent.js'
 import { computeDeleteMask } from '../data/applyEditIntents.js'
 import GroupManager from './GroupManager.jsx'
 import SupportBeamSection from './SupportBeamSection.jsx'
+import GroupAutoConnectSection from './GroupAutoConnectSection.jsx'
+import { Accordion } from './shell/TabPanel.jsx'
 import AddRigidDialog from './AddRigidDialog.jsx'
 import ConflictSummary from './ConflictSummary.jsx'
 import ModelTransformSection from './ModelTransformSection.jsx'
@@ -117,39 +119,39 @@ export default function EditPanel() {
   const warnCount = listIntents.filter(i => i.validation?.status === 'warning').length
 
   return (
-    <div style={{
-      padding: '11px 8px 10px',
-      borderBottom: '1px solid #1e1e38',
-      display: 'flex', flexDirection: 'column', gap: 6,
-    }}>
-      <div style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        fontSize: 10, color: '#FFB800', letterSpacing: 1.5,
-        textTransform: 'uppercase', fontWeight: 800,
-        marginBottom: 2, paddingLeft: 2,
-      }}>
-        <span>편집 의도</span>
-        <span style={{ fontSize: 10, color: '#9a9ad0', letterSpacing: 0.5, textTransform: 'none' }}>
-          {listIntents.length} 개
-          {warnCount > 0 && <span style={{ color: '#FFAA55' }}> · 경고 {warnCount}</span>}
-          {errCount  > 0 && <span style={{ color: '#FF8866' }}> · 오류 {errCount}</span>}
-        </span>
-      </div>
-
+    <>
       {/* 그룹 관리 — Model Check 리본과 동일한 공용 컴포넌트(GroupManager).
           연결 그룹/부재 종류 기준 전환, 각 그룹 확인(표시)·단독 뷰·삭제 + "그룹 새로고침". */}
-      <GroupManager />
+      <Accordion title="그룹 관리" tone="alt" defaultOpen>
+        <GroupManager />
+      </Accordion>
+
+      {/* 자동 연결 — 분리된 소그룹을 주 구조에 잇는 RBE2 후보를 계산해 미리보기 후 적용한다.
+          그룹을 '확인'하는 그룹 관리 바로 아래에 둔다(발견 → 연결이 한 자리에서 끝나도록). */}
+      <Accordion title="자동 연결" tone="alt" defaultOpen={false}>
+        <GroupAutoConnectSection />
+      </Accordion>
 
       {/* 형상 좌표를 바꾸는 조작은 Edit 단계에서만 수행한다. */}
-      <ModelTransformSection />
+      <Accordion title="형상 변환" defaultOpen={false}>
+        <ModelTransformSection />
+      </Accordion>
 
       {/* 가서포트(보강) 추가 — Analyze 탭에 있던 것을 편집 도구인 여기로 옮겼다(사용자 요청).
           픽 모드 게이트도 ViewportContainer 에서 Edit 탭 기준으로 바뀌었다. */}
-      <SupportBeamSection />
+      <Accordion title="가서포트(보강)" tone="alt" defaultOpen={false}>
+        <SupportBeamSection />
+      </Accordion>
 
-      {/* 중간 산출물이 필요한 사용자를 위한 명시적 내보내기. */}
-      <BdfExportSection compact />
+      {/* 중간 산출물이 필요한 사용자를 위한 명시적 내보내기(정식 저장은 Save 탭). */}
+      <Accordion title="중간 산출물" defaultOpen={false}>
+        <BdfExportSection compact />
+      </Accordion>
 
+      <Accordion title="편집 의도" defaultOpen
+        badge={listIntents.length > 0
+          ? `${listIntents.length}${errCount > 0 ? ` · 오류 ${errCount}` : warnCount > 0 ? ` · 경고 ${warnCount}` : ''}`
+          : null}>
       {/* 선택된 부재 삭제 — 우측 인스펙터는 정보만 출력하므로, 부재 삭제 액션은 좌측 패널에서 수행한다.
           3D 뷰포트에서 부재를 클릭하면 여기에 삭제 버튼이 나타난다. */}
       {pickedEntity?.type === 'element' && isLastStage && (
@@ -324,7 +326,8 @@ export default function EditPanel() {
           ))}
         </div>
       )}
-    </div>
+      </Accordion>
+    </>
   )
 }
 

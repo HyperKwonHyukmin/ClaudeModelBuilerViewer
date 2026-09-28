@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 
 import {
   deriveIds, initialReportForm, isPositiveNumber, isReportFormValid, toReportOptions, REPORT_DEFAULTS,
+  EXTRA_NOTICE_MAX,
 } from './unitLiftingReportForm.js'
 
 describe('unitLiftingReportForm', () => {
@@ -44,9 +45,18 @@ describe('unitLiftingReportForm', () => {
     expect(toReportOptions({
       hullNo: ' 3496 ', unitNo: '35210', drawingNo: ' D-1 ', revision: '  ', author: ' A1 ',
       department: ' 구조 ', jigLimitTon: '5', yieldStrengthMpa: '355', notes: ' 비고 ',
+      extraNotice: ' 추가 문구 ',
     })).toEqual({
       hullNo: '3496', unitNo: '35210', drawingNo: 'D-1', revision: '0', author: 'A1',
       department: '구조', jigLimitTon: 5, yieldStrengthMpa: 355, notes: '비고',
+      extraNotice: '추가 문구',
     })
+  })
+
+  it('주의 사항 추가 문구는 서식 박스 폭에 맞춰 잘린다', () => {
+    // 입력란 maxLength 를 우회해 붙여넣기로 긴 글이 들어와도 서식을 넘지 않게 한다.
+    expect(toReportOptions({ jigLimitTon: 6.2, yieldStrengthMpa: 275, extraNotice: '가'.repeat(60) })
+      .extraNotice).toHaveLength(EXTRA_NOTICE_MAX)
+    expect(initialReportForm().extraNotice).toBe('')
   })
 })

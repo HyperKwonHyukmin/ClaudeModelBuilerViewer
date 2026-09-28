@@ -124,6 +124,30 @@ describe('buildEditedStageJson', () => {
     expect(prop.materialId).toBe(1)   // 재질 폴백 = materials[0].id
   })
 
+  it('단면이 섞이면 규격별로 PBEAML 이 1장씩만 생긴다 (같은 규격은 PID 공유)', () => {
+    const json = baseJson()
+    json.nodes.push({ id: 7, x: 0, y: 1000, z: 0, tags: [] })
+    const stage = new StageData(json)
+    const ok = { status: 'ok' }
+    const intents = [
+      { id: 'a', kind: 'addSupportBeam', params: { startNode: 1, endNode: 4, sectionId: 'ANG_100x100x10', sectionKind: 'L', dims: [100, 100, 10, 10] }, validation: ok },
+      { id: 'b', kind: 'addSupportBeam', params: { startNode: 4, endNode: 7, sectionId: 'ANG_100x100x10', sectionKind: 'L', dims: [100, 100, 10, 10] }, validation: ok },
+      { id: 'c', kind: 'addSupportBeam', params: { startNode: 1, endNode: 7, sectionId: 'ANG_130x130x12', sectionKind: 'L', dims: [130, 130, 12, 12] }, validation: ok },
+    ]
+    const out = buildEditedStageJson(stage, intents)
+
+    const added = out.properties.filter(p => p.card === 'PBEAML' && p.kind === 'L')
+    expect(added).toHaveLength(2)                                  // 규격 2종 → 2장
+    expect(added.map(p => p.dims)).toEqual([[100, 100, 10, 10], [130, 130, 12, 12]])
+
+    const beams = intents.map(i => out.elements.find(e =>
+      e.startNode === i.params.startNode && e.endNode === i.params.endNode))
+    expect(beams[0].propertyId).toBe(beams[1].propertyId)          // 같은 규격 = 같은 PID
+    expect(beams[2].propertyId).not.toBe(beams[0].propertyId)
+    // 130×130×12t 가 실제로 그 PID 를 가리키는지 (규격↔PID 가 엇갈리지 않는지)
+    expect(out.properties.find(p => p.id === beams[2].propertyId).dims).toEqual([130, 130, 12, 12])
+  })
+
   it('수직(±Z) 부재의 orientation 은 [0,0,1] 과 평행하지 않다(퇴화 회피)', () => {
     const json = baseJson()
     json.nodes.push({ id: 7, x: 0, y: 0, z: 0, tags: [] })

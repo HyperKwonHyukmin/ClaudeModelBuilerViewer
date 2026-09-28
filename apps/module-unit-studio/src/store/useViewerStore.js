@@ -35,10 +35,100 @@ const DEFAULT_PICK_FILTERS = {
 
 let nextId = 1
 
-export const useViewerStore = create((set) => ({
-  // 단일 뷰포트 — 멀티뷰포트(뷰 추가/삭제·카메라 동기화)는 제거됨.
-  // colorMode/freeNodeFilters/groupFilters 가 이 뷰포트 객체에 묶여 있어 상태 구조는 유지한다.
+// ── 고정 도크(우측 표시·정보 / 하단 결과·입력감사·메시지) — 열림·탭·높이를 localStorage 에 영속 ──
+// open 은 세션마다 접힌 채로 시작한다(모델을 열기 전 도크가 펼쳐져 있으면 빈 패널만 보인다).
+const RIGHT_DOCK_KEY = 'moduleunit.rightDock.v1'
+const BOTTOM_DOCK_KEY = 'moduleunit.bottomDock.v1'
+const DEFAULT_RIGHT_DOCK = { open: false, tab: 'display' }       // tab: 'display' | 'info'
+const DEFAULT_BOTTOM_DOCK = { open: false, tab: 'result', height: 320, maximized: false }  // 'result' | 'audit' | 'messages'
+export const BOTTOM_DOCK_MIN_H = 160
+function loadDock(key, dflt) {
+  try {
+    const raw = localStorage.getItem(key)
+    const v = raw ? JSON.parse(raw) : null
+    return v && typeof v === 'object' ? { ...dflt, ...v, open: false, maximized: false } : { ...dflt }
+  } catch { return { ...dflt } }
+}
+function persistDock(key, v) {
+  try { localStorage.setItem(key, JSON.stringify(v)) } catch { /* no-op */ }
+}
+
+export const useViewerStore = create((set, get) => ({
+  // 뷰포트 — 기본 1개, 우측 도크의 "뷰 추가"로 최대 4분할.
+  // (2026-06-23 `2f6281f` 에서 단일 뷰포트로 축소했다가, ModelBuilderStudio 와 구성을 맞추는
+  //  2026-09-11 작업에서 되살렸다. 카메라 동기화는 hooks/useCameraSync.js — 직교 카메라라
+  //  position/quaternion/up/target 뿐 아니라 camera.zoom 까지 맞춰야 배율이 같아진다.)
   viewports: [{ id: nextId++, stageIndex: 0, ...DEFAULT_VP_COLOR }],
+
+  addViewport: () => {
+    if (get().viewports.length >= 4) return
+    set(s => ({ viewports: [...s.viewports, { id: nextId++, stageIndex: 0, ...DEFAULT_VP_COLOR }] }))
+  },
+
+  removeViewport: (id) => {
+    set(s => {
+      if (s.viewports.length <= 1) return s
+      const viewports = s.viewports.filter(v => v.id !== id)
+      const activeId = s.activeViewportId === id ? viewports[0]?.id : s.activeViewportId
+      return { viewports, activeViewportId: activeId }
+    })
+  },
+
+  // 여러 뷰포트의 카메라를 함께 움직인다.
+  cameraLinked: false,
+  toggleCameraLink: () => set(s => ({ cameraLinked: !s.cameraLinked })),
+
+  // ── 우측 도크(표시·정보) ────────────────────────────────────────────────
+  rightDock: loadDock(RIGHT_DOCK_KEY, DEFAULT_RIGHT_DOCK),
+  setRightDock: (patch) => set(s => {
+    const rightDock = { ...s.rightDock, ...patch }
+    persistDock(RIGHT_DOCK_KEY, rightDock)
+    return { rightDock }
+  }),
+  toggleRightDock: () => set(s => {
+    const rightDock = { ...s.rightDock, open: !s.rightDock.open }
+    persistDock(RIGHT_DOCK_KEY, rightDock)
+    return { rightDock }
+  }),
+  // 같은 탭을 다시 누르면 접힌다.
+  openRightDockTab: (tab) => set(s => {
+    const same = s.rightDock.open && s.rightDock.tab === tab
+    const rightDock = { ...s.rightDock, open: !same, tab }
+    persistDock(RIGHT_DOCK_KEY, rightDock)
+    return { rightDock }
+  }),
+
+  // ── 하단 도크(결과·입력 감사·메시지) ───────────────────────────────────
+  bottomDock: loadDock(BOTTOM_DOCK_KEY, DEFAULT_BOTTOM_DOCK),
+  setBottomDock: (patch) => set(s => {
+    const next = { ...s.bottomDock, ...patch }
+    if (patch && 'height' in patch) next.height = Math.max(BOTTOM_DOCK_MIN_H, Number(patch.height) || BOTTOM_DOCK_MIN_H)
+    persistDock(BOTTOM_DOCK_KEY, next)
+    return { bottomDock: next }
+  }),
+  toggleBottomDock: () => set(s => {
+    const bottomDock = { ...s.bottomDock, open: !s.bottomDock.open }
+    persistDock(BOTTOM_DOCK_KEY, bottomDock)
+    return { bottomDock }
+  }),
+  openBottomDockTab: (tab) => set(s => {
+    const same = s.bottomDock.open && s.bottomDock.tab === tab
+    const bottomDock = { ...s.bottomDock, open: !same, tab }
+    persistDock(BOTTOM_DOCK_KEY, bottomDock)
+    return { bottomDock }
+  }),
+  toggleBottomDockMax: () => set(s => {
+    const bottomDock = { ...s.bottomDock, open: true, maximized: !s.bottomDock.maximized }
+    persistDock(BOTTOM_DOCK_KEY, bottomDock)
+    return { bottomDock }
+  }),
+  // 결과 도착 등 자동 펼침 — 이미 더 크게 두었으면 높이는 그대로.
+  openBottomDockAtLeast: (tab, minHeight) => set(s => {
+    const height = Math.max(s.bottomDock.height, Number(minHeight) || 0)
+    const bottomDock = { ...s.bottomDock, open: true, tab, height }
+    persistDock(BOTTOM_DOCK_KEY, bottomDock)
+    return { bottomDock }
+  }),
 
   // ── 레이아웃 폭 동기화 (Sidebar / InspectorPanel → dock) ──
   layoutBounds: { ...DEFAULT_LAYOUT_BOUNDS },
@@ -164,6 +254,7 @@ export const useViewerStore = create((set) => ({
     set({
       viewports: [{ id, stageIndex: 0, ...DEFAULT_VP_COLOR }],
       activeViewportId: id,
+      cameraLinked: false,
       inspectorTab: '메타',
       activeMode: 'model',
       layers: { ...DEFAULT_LAYERS },

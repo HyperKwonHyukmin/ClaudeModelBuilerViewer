@@ -10,12 +10,14 @@ import {
   Wrench,
 } from 'lucide-react'
 import { useStabilityStore } from '../store/useStabilityStore.js'
+import { useViewerStore } from '../store/useViewerStore.js'
+import TabPanel, { Accordion, HelpList, StatusLine } from './shell/TabPanel.jsx'
 import { useUnitStructuralStore } from '../store/useUnitStructuralStore.js'
 import { useUnitStructuralRunner } from '../hooks/useUnitStructuralRunner.js'
 import { useEditStore, computeMassFallback } from '../store/useEditStore.js'
 import { useStageStore } from '../store/useStageStore.js'
 import UnitStructuralReportButton from './UnitStructuralReportButton.jsx'
-import BdfExportSection from './BdfExportSection.jsx'
+import { LiftingBdfDownloadButton, Op2DownloadButton } from './StructuralFileDownloads.jsx'
 
 /**
  * AnalyzePanel — 상단 메뉴바 'Analyze' 모드의 좌측 도크 본문.
@@ -49,7 +51,10 @@ export default function AnalyzePanel() {
   const stabilityRunning = useStabilityStore(s => s.running)
   const stabilityError = useStabilityStore(s => s.error)
   const stabilityOverall = useStabilityStore(s => s.overallStatus)
-  const openStabilityPanel = useStabilityStore(s => s.openPanel)
+  const openPanel = useStabilityStore(s => s.openPanel)
+  // 결과 패널은 Hoist 탭에서만 뜨므로(ViewportContainer) 여기서는 탭 전환까지 함께 한다.
+  const setActiveMode = useViewerStore(s => s.setActiveMode)
+  const openStabilityPanel = () => { openPanel(); setActiveMode('hoist') }
 
   // ── Unit 구조 해석 (실행/준비/입력 공유 훅 + 상세 패널 열기) ─────
   const us = useUnitStructuralRunner()
@@ -76,30 +81,41 @@ export default function AnalyzePanel() {
   const hasStabilityResult = !!stabilityReport || !!stabilityError
   const inputsDisabled = us.isRunning || us.isFinished
 
+  // 상태 스트립 — 이 탭에서 "지금 어디까지 왔나"를 한 줄로. 해석 상태가 우선이고,
+  // 아직 시작 전이면 그 앞 단계(자세안정성)가 준비됐는지를 보여 준다.
+  const analysisStatusLine = us.status === 'Running' || us.status === 'Pending'
+    ? <StatusLine tone="info" icon={Loader2} right={us.progress != null ? `${us.progress}%` : null}>구조 해석 실행 중</StatusLine>
+    : us.status === 'Failed'
+      ? <StatusLine tone="danger" icon={XCircle}>구조 해석 실패</StatusLine>
+      : us.status === 'Success'
+        ? <StatusLine tone="ok" icon={CheckCircle2} right={`허용 ${us.allowableMpa} MPa`}>구조 해석 완료</StatusLine>
+        : us.isReady
+          ? <StatusLine tone="info" icon={Play} right={`SF ${us.safetyFactor}`}>실행 준비됨</StatusLine>
+          : <StatusLine tone="muted" icon={AlertTriangle}>
+              {hasStabilityResult ? (us.blocking?.[0] ?? '실행 조건 확인 필요') : 'Hoist 탭에서 자세안정성 평가를 먼저 실행'}
+            </StatusLine>
+
+  const analysisHelp = (
+    <>
+      <div>권상 조건이 정해진 모델을 Nastran SOL 101(선형 정적)으로 풀고 부재 응력·변위·Wire 장력을 봅니다.</div>
+      <HelpList title="실행 조건" items={[
+        '자세안정성 PASS 또는 WARN — FAIL 이면 Hoist 탭에서 위치를 다시 잡습니다',
+        'Workbench(Electron) 환경 — 웹 단독 모드에서는 실행할 수 없습니다',
+      ]} />
+      <HelpList title="결과 보는 곳" items={[
+        '부재 응력·변위·Wire 장력 표 — 하단 도크 "구조 해석 결과" 탭 (Ctrl+J)',
+        '검토 보고서(xlsx) — Save 탭',
+      ]} />
+      <HelpList title="해석 파일" items={[
+        'Wire 포함 BDF — 자세안정성 평가 후 받을 수 있는 구조 해석용 BDF',
+        '결과 OP2 — 구조 해석 성공 후, 그 BDF 를 푼 결과 (Save 탭에서도 받을 수 있음)',
+      ]} />
+    </>
+  )
+
   return (
-    <div style={{
-      width: 301,
-      flexShrink: 0,
-      position: 'relative',
-      background: '#0b0b1e',
-      borderRight: '1px solid #1e1e38',
-      display: 'flex',
-      flexDirection: 'column',
-      height: '100%',
-      overflowY: 'auto',
-      overflowX: 'hidden',
-    }}>
-      {/* ── 헤더 ────────────────────────────────────── */}
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 7,
-        padding: '12px 10px 10px',
-        borderBottom: '1px solid #1e1e38',
-      }}>
-        <Activity size={15} color="#6ee7b7" />
-        <span style={{ fontSize: 12, fontWeight: 900, color: '#e6f1ff', letterSpacing: 0.5 }}>
-          해석 (Analysis)
-        </span>
-      </div>
+    <TabPanel id="analysis" title="Analysis" purpose="구조 해석을 실행하고 결과를 확인합니다."
+      icon={Activity} status={analysisStatusLine} help={analysisHelp}>
 
       {/* ── 편집으로 결과가 무효화됐음을 알리는 배너 ─────── */}
       {editStaleNotice && (
@@ -150,16 +166,16 @@ export default function AnalyzePanel() {
           accent="#00D1FF"
           icon={<ClipboardList size={14} />}
           title={hasStabilityResult
-            ? '자세안정성 평가 결과 패널을 엽니다.'
+            ? 'Hoist 탭으로 이동해 자세안정성 평가 결과 패널을 엽니다.'
             : 'Hoist 탭에서 "자세안정성 평가 실행"을 먼저 수행하세요.'}
         >
-          결과 보기
+          Hoist 탭에서 결과 보기
         </ActionButton>
-        {!hasStabilityResult && (
-          <Hint>
-            Hoist 탭에서 평가를 먼저 실행하면 여기서 결과를 다시 열 수 있습니다.
-          </Hint>
-        )}
+        <Hint>
+          {hasStabilityResult
+            ? '결과 패널은 Hoist 탭에서만 표시됩니다 — 이 탭의 3D 뷰를 가리지 않기 위함입니다.'
+            : 'Hoist 탭에서 평가를 먼저 실행하면 여기서 결과를 다시 열 수 있습니다.'}
+        </Hint>
       </Section>
 
       {/* ── 섹션: 가서포트(보강) 반영 현황 ─────────────────
@@ -247,10 +263,13 @@ export default function AnalyzePanel() {
         )}
       </Section>
 
-      <Section label="산출물">
-        <BdfExportSection />
+      {/* ── 산출물: 구조 해석 입력(Wire 포함 BDF)과 결과(OP2) ─────
+          편집 모델 BDF(Wire 없음)는 Save·Edit 탭에 있다. 여기서는 해석에 실제로 들어가는 BDF 를 준다. */}
+      <Section label="해석 파일">
+        <LiftingBdfDownloadButton />
+        <Op2DownloadButton />
       </Section>
-    </div>
+    </TabPanel>
   )
 }
 
@@ -479,23 +498,10 @@ function SummaryRow({ label, value, color }) {
 
 // ── 공통 프리미티브 ─────────────────────────────────────────────────────────
 
+// 이 패널의 섹션 = 공통 틀의 아코디언. 호출부(<Section label="…">)는 그대로 두고 껍데기만 바꿔
+// 다른 탭과 같은 접기/펼치기 동작을 얻는다.
 function Section({ label, children }) {
-  return (
-    <div style={{
-      padding: '11px 8px 12px',
-      borderBottom: '1px solid #1e1e38',
-      display: 'flex', flexDirection: 'column', gap: 7,
-    }}>
-      <div style={{
-        fontSize: 10, color: '#7ab2d4', letterSpacing: 1.5,
-        textTransform: 'uppercase', fontWeight: 800,
-        marginBottom: 1, paddingLeft: 2,
-      }}>
-        {label}
-      </div>
-      {children}
-    </div>
-  )
+  return <Accordion title={label} defaultOpen contentGap={7}>{children}</Accordion>
 }
 
 function StatusPill({ fg, bg, border, children }) {

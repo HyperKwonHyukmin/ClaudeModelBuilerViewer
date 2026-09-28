@@ -7,6 +7,9 @@ import {
 } from '../data/EditIntent.js'
 import { buildEditedStageJson, buildEditedStageFileName } from '../data/applyEditedModel.js'
 import { rankHoistCandidates } from '../data/hoistCandidateRank.js'
+import { GROUP_AUTO_DEFAULTS } from '../data/groupAutoConnect.js'
+import { DEFAULT_SUPPORT_SECTION_ID, getSupportSection, buildSupportBeamParams } from '../data/supportSections.js'
+import { buildSupportCsv, buildSupportCsvFileName } from '../data/supportCsv.js'
 import { pipeNodeIds, partitionZones, assignNodesToZones, zoneCountFor, zoneShapeFor, countActiveZones, SHAPE_QUAD } from '../data/hoistZonePartition.js'
 import { useStageStore } from './useStageStore.js'
 import { useStabilityStore } from './useStabilityStore.js'
@@ -140,6 +143,16 @@ export const useEditStore = create((set, get) => ({
   // Shift+Node 2개 선택 시 addSupportBeam intent 생성.
   supportPickActive: false,
   supportPickNodes: [],
+
+  // 다음에 설치할 가서포트의 단면(supportSections.js 카탈로그 id).
+  // 설치 시점의 값이 intent.params 에 박히므로, 도중에 바꾸면 그 이후 것만 새 단면이 된다.
+  supportSectionId: DEFAULT_SUPPORT_SECTION_ID,
+
+  // 그룹 자동 연결 후보(적용 전 미리보기). planGroupConnections().proposals 를 그대로 담는다.
+  // 뷰포트는 이 배열을 라임 점선으로 그리고, hover 인덱스만 흰색으로 강조한다.
+  // 체크 해제한 후보는 UI 가 { ...p, disabled: true } 로 표시해 표와 인덱스를 맞춘 채 숨긴다.
+  groupConnectProposals: [],
+  groupConnectHoverIndex: null,
   // 이번 세션에 편집 모델(_edited.json)을 백엔드에 업로드한 적이 있는지 — 재해석 동기화 게이트.
   editedModelUploaded: false,
 
@@ -547,6 +560,9 @@ export const useEditStore = create((set, get) => ({
     supportPickNodes: [],
   })),
 
+  // 단면 변경은 앞으로 설치할 가서포트에만 적용된다(기존 intent 는 그대로).
+  setSupportSectionId: (sectionId) => set({ supportSectionId: getSupportSection(sectionId).id }),
+
   pickSupportNode: (nodeId) => {
     if (nodeId == null) return
     const stage = currentStage()
@@ -559,30 +575,117 @@ export const useEditStore = create((set, get) => ({
     const next = [...cur, nodeId]
     if (next.length < 2) { set({ supportPickNodes: next }); return }
     const [a, b] = next
+    const section = getSupportSection(get().supportSectionId)
     const res = get().addIntent({
       kind: 'addSupportBeam',
-      params: { startNode: a, endNode: b, sectionKind: 'L', dims: [100, 100, 10, 10] },
+      params: buildSupportBeamParams(a, b, section.id),
     })
     set({ supportPickNodes: [] })
     if (res.ok) {
       // 구조해석 결과 무효화는 addIntent 가 담당(가서포트는 구조해석만 초기화, 자세안정성 유지).
-      get().flashHoistGuide(`가서포트 설치됨 (N${a}↔N${b})`, 'success')
+      get().flashHoistGuide(`가서포트 ${section.label} 설치됨 (N${a}↔N${b})`, 'success')
     } else {
       get().flashHoistGuide(res.validation?.errors?.[0] ?? '가서포트 추가 실패', 'error')
     }
   },
 
   // 프로그램적 추가(테스트/대체 진입점) — 구조 결과 무효화는 addIntent 가 담당.
-  addSupportBeam: (a, b) => {
+  // sectionId 를 주지 않으면 현재 선택된 단면을 쓴다.
+  addSupportBeam: (a, b, sectionId = null) => {
     return get().addIntent({
       kind: 'addSupportBeam',
-      params: { startNode: a, endNode: b, sectionKind: 'L', dims: [100, 100, 10, 10] },
+      params: buildSupportBeamParams(a, b, sectionId ?? get().supportSectionId),
     })
   },
 
   // 구조 결과 무효화는 removeIntent 가 담당(가서포트 제거이므로 자세안정성은 유지).
   removeSupportBeam: (intentId) => {
     get().removeIntent(intentId)
+  },
+
+  /**
+   * 설치된 가서포트를 사내 구조 CSV 서식으로 내보낸다(HiTessCloud BdfToCsv.py 와 같은 열 구성).
+   *
+   * ⚠ **항상 저장 위치를 묻는다**(`askLocation`). 사용자가 CAD 쪽으로 가져가는 산출물이라
+   * 모델 폴더에 조용히 떨어지면 어디에 생겼는지 알 수 없다 — 해석 파이프라인이 다시 읽는
+   * 중간 산출물(편집 의도 JSON)과 성격이 다르다.
+   * ⚠ 저장 대화상자는 사용자 제스처가 살아 있어야 뜨므로 **이 함수 안에서 saveTextFile 앞에
+   * await 를 두지 말 것**(CSV 조립은 동기).
+   *
+   * BDF 를 거치지 않고 intent 에서 바로 만들기 때문에 구조 해석 전에도 뽑을 수 있다.
+   *
+   * @returns {Promise<{ ok:boolean, fileName?:string, rowCount?:number, skipped?:number,
+   *                     location?:'picker'|'download', error?:string }>}
+   */
+  exportSupportCsv: async () => {
+    const stage = currentStage()
+    if (!stage) return { ok: false, error: '모델이 로드되지 않았습니다.' }
+    const { csv, rowCount, skipped } = buildSupportCsv(stage, get().intents)
+    if (rowCount === 0) return { ok: false, error: '내보낼 가서포트가 없습니다.' }
+    const fileName = buildSupportCsvFileName(stage, formatTimestamp)
+    const r = await saveTextFile(fileName, csv, 'text/csv', '가서포트 CSV', { askLocation: true })
+    return r.ok ? { ...r, rowCount, skipped } : r
+  },
+
+  // ── 그룹 자동 연결 (Edit 탭 "자동 연결") ──────────────────────────────────
+  setGroupConnectProposals: (list) => set({
+    groupConnectProposals: Array.isArray(list) ? [...list] : [],
+    groupConnectHoverIndex: null,
+  }),
+  setGroupConnectHoverIndex: (index) => set({
+    groupConnectHoverIndex: Number.isInteger(index) && index >= 0 ? index : null,
+  }),
+  clearGroupConnectProposals: () => set({ groupConnectProposals: [], groupConnectHoverIndex: null }),
+
+  /**
+   * 선택한 자동 연결 후보를 addRigid intent 로 커밋한다.
+   *
+   * 후보 계산 시점 이후에 수동 RBE 가 생겼을 수 있으므로 **커밋 직전에 종속 중복을 다시 본다** —
+   * 한 노드가 두 RBE2 의 종속이면 Nastran FATAL 2101 이라 여기가 마지막 방어선이다.
+   * 한 번의 적용은 같은 batchId 를 공유해 Ctrl+Z 로 통째로 되돌아간다.
+   *
+   * 전건 실패면 미리보기를 그대로 남겨 사유를 보며 재시도할 수 있게 한다.
+   *
+   * @param {Array<{srcNode:number, tgtNode:number}>} proposals  체크된 후보
+   * @returns {{applied:number, warned:number, failed:Array<{srcNode:number,tgtNode:number,errors:string[]}>}}
+   */
+  applyGroupConnectProposals: (proposals, opts = {}) => {
+    const list = Array.isArray(proposals) ? proposals : []
+    if (list.length === 0) return { applied: 0, warned: 0, failed: [] }
+    const stage = currentStage()
+    const occupied = collectDependentNodes(stage, get().intents)
+    const batchId = `autoconnect-${Date.now()}`
+    let applied = 0, warned = 0
+    const failed = []
+    for (const p of list) {
+      const dep = p.srcNode, indep = p.tgtNode
+      if (occupied.has(dep)) {
+        failed.push({ srcNode: dep, tgtNode: indep, errors: [`노드 #${dep} 는 이미 다른 RBE 의 종속노드입니다.`] })
+        continue
+      }
+      if (occupied.has(indep)) {
+        failed.push({ srcNode: dep, tgtNode: indep, errors: [`구조노드 #${indep} 는 다른 RBE 의 종속노드라 독립노드로 쓸 수 없습니다.`] })
+        continue
+      }
+      const res = get().addIntent({
+        kind: 'addRigid',
+        params: {
+          independentNode: indep,
+          dependentNodes: [dep],
+          cm: opts.cm ?? GROUP_AUTO_DEFAULTS.cm,
+          remark: opts.remark ?? GROUP_AUTO_DEFAULTS.remark,
+        },
+      }, { batchId })
+      if (!res.ok) {
+        failed.push({ srcNode: dep, tgtNode: indep, errors: res.validation?.errors ?? ['알 수 없는 오류'] })
+        continue
+      }
+      if (res.validation?.status === 'warning') warned++
+      applied++
+      occupied.add(dep)
+    }
+    if (applied > 0) set({ groupConnectProposals: [], groupConnectHoverIndex: null })
+    return { applied, warned, failed }
   },
 
   markEditedModelUploaded: () => set({ editedModelUploaded: true }),
@@ -722,47 +825,7 @@ export const useEditStore = create((set, get) => ({
     const payload = serializeIntents(intents, stage, hoisting)
     const json = JSON.stringify(payload, null, 2)
     const fileName = buildExportFileName(stage)
-
-    // 1) "폴더 열기" 흐름의 folderRef — host 가 환경별 IO 를 담당
-    const folderRef = useStageStore.getState().sourceFolderRef
-    if (folderRef != null) {
-      const r = await getHost().writeFile(folderRef, fileName, json)
-      if (r.ok) return { ok: true, fileName, location: 'folder' }
-      console.warn('[exportToFile] host.writeFile failed, falling back:', r.error)
-    }
-
-    // 2) showSaveFilePicker — 사용자가 위치 선택 (Web 전용)
-    if (typeof window !== 'undefined' && typeof window.showSaveFilePicker === 'function') {
-      try {
-        const fh = await window.showSaveFilePicker({
-          suggestedName: fileName,
-          types: [{ description: 'EditIntent JSON', accept: { 'application/json': ['.json'] } }],
-        })
-        const writable = await fh.createWritable()
-        await writable.write(json)
-        await writable.close()
-        return { ok: true, fileName: fh.name, location: 'picker' }
-      } catch (e) {
-        if (e?.name === 'AbortError') return { ok: false, error: '취소되었습니다' }
-        // 그 외 오류는 download 로 폴백
-        console.warn('[exportToFile] showSaveFilePicker failed, falling back:', e)
-      }
-    }
-
-    // 3) download (브라우저 다운로드 폴더)
-    if (typeof document === 'undefined') {
-      return { ok: false, error: '브라우저 환경이 아닙니다.' }
-    }
-    const blob = new Blob([json], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = fileName
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    URL.revokeObjectURL(url)
-    return { ok: true, fileName, location: 'download' }
+    return saveTextFile(fileName, json, 'application/json', 'EditIntent JSON')
   },
 
   /**
@@ -863,6 +926,8 @@ export const useEditStore = create((set, get) => ({
     selectedIntentId: null,
     hasShownEntryToast: false,
     pendingNodeSelection: [],
+    groupConnectProposals: [],
+    groupConnectHoverIndex: null,
     multiSelElements: [],
     hoistMode: 'hydro',
     hoistGroupCount: 1,
@@ -877,6 +942,7 @@ export const useEditStore = create((set, get) => ({
     hoistGuide: null,
     supportPickActive: false,
     supportPickNodes: [],
+    supportSectionId: DEFAULT_SUPPORT_SECTION_ID,
     editedModelUploaded: false,
     editStaleNotice: false,
   }),
@@ -1243,9 +1309,91 @@ export const useEditStore = create((set, get) => ({
 // ── 내부 유틸 ────────────────────────────────────────────────────────────
 
 /**
+ * 텍스트 파일 저장 — 편집 의도 JSON·가서포트 CSV 가 공유한다.
+ *
+ *   1) host.writeFile(folderRef, ...) — "폴더 열기" 로 받은 폴더에 **조용히** 쓰기.
+ *      해석 파이프라인이 다시 읽어 갈 중간 산출물(편집 의도 JSON)에만 쓴다.
+ *   2) window.showSaveFilePicker() — 사용자가 위치 직접 선택
+ *   3) <a download> — Electron 뷰어에서는 `will-download` 가 걸려 **OS 저장 대화상자**가 뜬다
+ *      (WorkBench `electron/index.js` 의 installCleanSaveDialogTitle). 순수 브라우저에서는
+ *      다운로드 폴더로 바로 떨어진다.
+ *
+ * ⚠ `askLocation` 을 주면 1) 을 건너뛴다 — 사용자가 가져가는 산출물(가서포트 CSV)은 어디에
+ * 저장됐는지 모른 채 모델 폴더에 묻히면 안 된다. Electron 뷰어는 `file://` 이라
+ * showSaveFilePicker 가 막힐 수 있는데, 그때는 3) 의 blob 다운로드가 저장 대화상자를 띄운다
+ * (실측 확인: `will-download` 발화 → savePath 미설정이면 OS 저장창).
+ *
+ * ⚠ showSaveFilePicker 는 **사용자 제스처**가 살아 있어야 한다. 호출 전에 await 를 끼우지 말 것.
+ *
+ * @returns {Promise<{ ok:boolean, fileName?:string, location?:'folder'|'picker'|'download', error?:string }>}
+ */
+async function saveTextFile(fileName, text, mimeType, pickerLabel, { askLocation = false } = {}) {
+  const folderRef = askLocation ? null : useStageStore.getState().sourceFolderRef
+  if (folderRef != null) {
+    const r = await getHost().writeFile(folderRef, fileName, text)
+    if (r.ok) return { ok: true, fileName, location: 'folder' }
+    console.warn('[saveTextFile] host.writeFile failed, falling back:', r.error)
+  }
+
+  // ⚠ Electron 뷰어에서는 showSaveFilePicker 를 쓰지 않는다. 저장창은 뜨고 빈 파일(0 KB)까지
+  // 만들어지지만 file:// 에서 createWritable/write 가 실패해, 아래 blob 다운로드로 폴백하면서
+  // **저장창이 두 번** 떴다(사용자 신고, 0.0.156). blob 다운로드만으로 OS 저장창이 한 번 뜬다.
+  const isElectron = getHost()?.name === 'electron'
+  if (!isElectron && typeof window !== 'undefined' && typeof window.showSaveFilePicker === 'function') {
+    let fh = null
+    try {
+      const ext = `.${fileName.split('.').pop()}`
+      fh = await window.showSaveFilePicker({
+        suggestedName: fileName,
+        types: [{ description: pickerLabel, accept: { [mimeType]: [ext] } }],
+      })
+      const writable = await fh.createWritable()
+      await writable.write(text)
+      await writable.close()
+      return { ok: true, fileName: fh.name, location: 'picker' }
+    } catch (e) {
+      if (e?.name === 'AbortError') return { ok: false, error: '취소되었습니다' }
+      // 사용자가 이미 위치를 골랐다면 두 번째 저장창을 띄우지 않고 실패로 알린다.
+      if (fh) return { ok: false, error: `파일 쓰기 실패: ${e?.message ?? e}` }
+      console.warn('[saveTextFile] showSaveFilePicker failed, falling back:', e)
+    }
+  }
+
+  if (typeof document === 'undefined') {
+    return { ok: false, error: '브라우저 환경이 아닙니다.' }
+  }
+  const blob = new Blob([text], { type: mimeType })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = fileName
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+  return { ok: true, fileName, location: 'download' }
+}
+
+/**
  * 현재 활성 단계의 StageData 를 반환한다.
  * useStageStore 와 useViewerStore 의 결합도를 줄이기 위해 lazy 로 import 한다.
  */
+/**
+ * 이미 어떤 RBE2 의 **종속**으로 잡혀 있는 노드 집합 — 원본 rigids + 누적된 addRigid intent.
+ * 한 노드가 두 RBE2 의 종속이면 Nastran FATAL 2101 이므로 자동 연결은 이 집합을 피해 간다.
+ */
+function collectDependentNodes(stage, intents) {
+  const s = new Set()
+  for (const r of stage?.rigids ?? []) {
+    for (const d of r.dependentNodes ?? []) s.add(d)
+  }
+  for (const it of intents ?? []) {
+    if (it.kind !== 'addRigid') continue
+    for (const d of it.params?.dependentNodes ?? []) s.add(d)
+  }
+  return s
+}
+
 function currentStage() {
   try {
     // useViewerStore 의 첫 viewport stageIndex 기준 — 단순한 휴리스틱.

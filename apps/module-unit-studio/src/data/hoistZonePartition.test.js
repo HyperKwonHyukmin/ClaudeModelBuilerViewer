@@ -305,20 +305,20 @@ describe('buildZonePartitionView', () => {
     const noAnchor = buildZonePartitionView(vbbox, { bandAxis: 'y', bands: [2] }, [], new Set())
     expect(noAnchor.cog).toBeNull()
     const withAnchor = buildZonePartitionView(vbbox, { bandAxis: 'y', bands: [2], anchor: { x: 50, y: 25 } }, [], new Set())
-    expect(withAnchor.cog).toMatchObject({ x: 250, y: 500 })
+    expect(withAnchor.cog).toMatchObject({ x: 500, y: 250 })
   })
-  it('viewBox 종횡비 = 평면도(가로=Y범위, 세로=X범위) → 500x1000', () => {
+  it('viewBox 종횡비 = 가로=X범위, 세로=Y범위 → 1000x500', () => {
     const view = buildZonePartitionView(vbbox, { bandAxis: 'y', bands: [1] }, [], new Set())
-    expect(view.viewBox.w).toBe(500)
-    expect(view.viewBox.h).toBe(1000)
+    expect(view.viewBox.w).toBe(1000)
+    expect(view.viewBox.h).toBe(500)
   })
-  it('평면도 방향 — +X는 위(작은 svgY), +Y는 왼쪽(작은 svgX)', () => {
+  it('방향 — +X는 오른쪽(큰 svgX), +Y는 위(작은 svgY) (0.0.156)', () => {
     const entries = [[1, { x: 100, y: 50, z: 0 }], [2, { x: 0, y: 0, z: 0 }]]
     const view = buildZonePartitionView(vbbox, { bandAxis: 'y', bands: [1] }, entries, new Set())
-    expect(view.dots[0].x).toBeCloseTo(0)    // maxY → 왼쪽
-    expect(view.dots[0].y).toBeCloseTo(0)    // maxX → 위
-    expect(view.dots[1].x).toBeCloseTo(500)  // minY → 오른쪽
-    expect(view.dots[1].y).toBeCloseTo(1000) // minX → 아래
+    expect(view.dots[0].x).toBeCloseTo(1000) // maxX → 오른쪽
+    expect(view.dots[0].y).toBeCloseTo(0)    // maxY → 위
+    expect(view.dots[1].x).toBeCloseTo(0)    // minX → 왼쪽
+    expect(view.dots[1].y).toBeCloseTo(500)  // minY → 아래
   })
   it('thin: 노드수 < 포인트수면 true', () => {
     const entries = [[1, { x: 10, y: 10, z: 0 }], [2, { x: 20, y: 20, z: 0 }]]
@@ -347,10 +347,10 @@ describe('buildZonePartitionView', () => {
     expect(Number.isFinite(view.cells[0].y)).toBe(true)
     expect(Number.isFinite(view.cells[0].h)).toBe(true)
   })
-  it('극단 종횡비(X 1000:1)도 W ≥ 120 보장', () => {
+  it('극단 종횡비(X 1000:1)도 H ≥ 120 보장', () => {
     const view = buildZonePartitionView({ minX: 0, maxX: 1000, minY: 0, maxY: 1 }, { bandAxis: 'y', bands: [1] }, [], new Set())
-    expect(view.viewBox.w).toBe(120)
-    expect(view.viewBox.h).toBe(1000)
+    expect(view.viewBox.w).toBe(1000)
+    expect(view.viewBox.h).toBe(120)
   })
   it('0점 셀은 excluded=true, points<=0', () => {
     const config = { bandAxis: 'y', bands: [1, 1], pointsPerZone: [[0], [3]] }

@@ -14,7 +14,12 @@ import { useViewerStore } from '../store/useViewerStore.js'
  */
 const MAX_IDS = 80   // 표시 상한 (종속노드 많은 RBE 대비)
 
-export default function InspectorPanel() {
+/**
+ * @param {{ embedded?: boolean }} props
+ *   embedded=true — 우측 도크('정보' 탭) 안에서 렌더한다. 위치·그림자는 도크가 맡으므로
+ *   absolute 배치를 쓰지 않고 도크 폭을 그대로 채운다. (false = 예전 뷰포트 floating 창)
+ */
+export default function InspectorPanel({ embedded = false }) {
   const { stages } = useStageStore()
   const { viewports, activeViewportId, pickedEntity, clearPickedEntity } = useViewerStore()
 
@@ -27,13 +32,23 @@ export default function InspectorPanel() {
   )
 
   // 파일 미로드 / 선택 없음 / 노드 정보 없음 → 아무것도 표시하지 않는다.
-  if (!stage || !info) return null
+  if (!stage || !info) {
+    // 도크 안에서는 "선택된 것이 없다"는 사실 자체를 알려 줘야 빈 패널로 보이지 않는다.
+    if (!embedded) return null
+    return (
+      <div style={{ padding: '12px 12px', fontSize: 11.5, color: '#7a8aaa', lineHeight: 1.6 }}>
+        3D 뷰에서 부재나 노드를 선택하면 연결 정보가 여기에 나타납니다.
+      </div>
+    )
+  }
 
   const shown = info.nodeIds.slice(0, MAX_IDS)
   const overflow = info.nodeIds.length - shown.length
 
   return (
-    <div style={{
+    <div style={embedded ? {
+      width: '100%', background: 'transparent', overflow: 'hidden',
+    } : {
       position: 'absolute', top: 8, right: 8, zIndex: 26,
       width: 240, maxWidth: '90vw',
       background: 'rgba(18,18,42,0.95)', border: '1px solid #2a3a5a',

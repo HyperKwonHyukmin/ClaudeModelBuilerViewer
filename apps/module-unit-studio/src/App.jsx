@@ -1,33 +1,34 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import TopMenuBar from './components/TopMenuBar.jsx'
 import LeftDock from './components/LeftDock.jsx'
 import ViewportContainer from './components/ViewportContainer.jsx'
-import BottomReviewDock from './components/BottomReviewDock.jsx'
-import UnitStructuralResultDock from './components/UnitStructuralResultDock.jsx'
+import BottomDock from './components/shell/BottomDock.jsx'
+import RightDock from './components/shell/RightDock.jsx'
+import { installGlobalErrorHandlers } from './store/useErrorLogStore.js'
 import { useStageStore } from './store/useStageStore.js'
 import { useViewerStore } from './store/useViewerStore.js'
 import { useEditStore } from './store/useEditStore.js'
 import { getHost } from './host/host.js'
-import { computeResolutionFrame } from './utils/resolutionFrame.js'
 
 export default function App() {
   const leftDockRef = useRef(null)
   const setSidebarWidth = useViewerStore(s => s.setSidebarWidth)
-  const [resolutionFrame, setResolutionFrame] = useState(() =>
-    computeResolutionFrame(window.innerWidth, window.innerHeight))
 
+  // 전역 오류(렌더 밖 예외·unhandled rejection) → 하단 도크 "메시지" 탭.
+  // 토스트·상태 문구는 몇 초 뒤 사라져 "아까 뭔가 실패했는데 뭐였지"를 되짚을 수 없다.
+  useEffect(() => installGlobalErrorHandlers(), [])
+
+  // 도크 단축키 — Ctrl+B 우측(표시·정보) · Ctrl+J 하단(결과·감사·메시지) · Ctrl+Shift+J 하단 최대화
   useEffect(() => {
-    let raf = 0
-    const onResize = () => {
-      cancelAnimationFrame(raf)
-      raf = requestAnimationFrame(() => setResolutionFrame(
-        computeResolutionFrame(window.innerWidth, window.innerHeight)))
+    const onKeyDown = (e) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey) return
+      const k = String(e.key).toLowerCase()
+      const vs = useViewerStore.getState()
+      if (k === 'b') { e.preventDefault(); vs.toggleRightDock(); return }
+      if (k === 'j') { e.preventDefault(); if (e.shiftKey) vs.toggleBottomDockMax(); else vs.toggleBottomDock() }
     }
-    window.addEventListener('resize', onResize)
-    return () => {
-      cancelAnimationFrame(raf)
-      window.removeEventListener('resize', onResize)
-    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
   }, [])
 
   // CSS media query가 실제로 줄인 좌측 도크 폭을 overlay 배치에도 동일하게 전파한다.
@@ -86,34 +87,24 @@ export default function App() {
     setEnabled(activeMode === 'edit')
   }, [activeMode])
 
-  const presentation = resolutionFrame.mode === 'presentation'
   return (
-    <main className="module-studio-resolution-stage" aria-label="Module Unit Studio 작업 화면">
-    <div className="module-studio-shell" data-studio-scale={resolutionFrame.scale} data-resolution-mode={resolutionFrame.mode} style={{
+    <main className="module-studio-shell" aria-label="Module Unit Studio 작업 화면" style={{
       display: 'flex', flexDirection: 'column',
-      width: presentation ? resolutionFrame.width : '100%',
-      height: presentation ? resolutionFrame.height : '100%',
-      position: presentation ? 'absolute' : 'relative',
-      left: presentation ? resolutionFrame.left : 0,
-      top: presentation ? resolutionFrame.top : 0,
-      transform: presentation ? `scale(${resolutionFrame.scale})` : 'none',
-      transformOrigin: 'top left',
+      width: '100%', height: '100%',
       background: '#0d0d1a', color: '#e0e0e0', overflow: 'hidden',
     }}>
       <TopMenuBar />
+      {/* 좌: 탭 패널 │ 중: 뷰포트 + 하단 도크(결과·입력감사·메시지) │ 우: 표시·정보 도크 */}
       <div className="module-studio-body" style={{ display: 'flex', flex: 1, minWidth: 0, minHeight: 0, overflow: 'hidden' }}>
         <aside ref={leftDockRef} className="module-studio-left-dock" aria-label="Studio 작업 패널">
           <LeftDock />
         </aside>
         <div className="module-studio-workspace" style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, minHeight: 0, overflow: 'hidden' }}>
-          {/* 우측 인스펙터(InspectorPanel)는 dock 컬럼에서 빠지고 ViewportContainer 내부의
-              뷰포트 위 floating 정보 창으로 이동했다 — 뷰어가 가로 전폭을 사용한다. */}
           <ViewportContainer />
-          <UnitStructuralResultDock />
-          <BottomReviewDock />
+          <BottomDock />
         </div>
+        <RightDock />
       </div>
-    </div>
     </main>
   )
 }

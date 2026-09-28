@@ -36,14 +36,6 @@ html, body, #root {
   min-height: 0;
 }
 
-.module-studio-resolution-stage {
-  position: relative;
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
-  background: #080812;
-}
-
 .module-studio-left-dock {
   display: flex;
   flex: 0 0 auto;

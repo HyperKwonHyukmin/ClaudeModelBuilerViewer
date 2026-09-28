@@ -20,7 +20,11 @@ import { computeMassFallback } from '../store/useEditStore.js'
  */
 const G = 9.80665  // m/s² — 표준 중력가속도
 
-export default function MassSummaryOverlay() {
+/**
+ * @param {{ embedded?: boolean }} props
+ *   embedded=true — 우측 도크('정보' 탭) 안에서 렌더한다(absolute 배치·그림자 없음).
+ */
+export default function MassSummaryOverlay({ embedded = false }) {
   const stageSummary = useStageStore(s => s.stageSummary)
   const stages = useStageStore(s => s.stages)
   const pipeFluidEmptied = useStageStore(s => s.pipeFluidEmptied)
@@ -52,7 +56,13 @@ export default function MassSummaryOverlay() {
             ? '모델 전체 질량 / 권상 하중 / 무게중심 (00_StageSummary.json 기준)'
             : `모델 전체 질량 / 권상 하중 / 무게중심 (자동 계산: ${massData.source})`
       }
-      style={{
+      style={embedded ? {
+        margin: '10px 10px 0',
+        background: 'rgba(8, 6, 22, 0.92)',
+        border: '1px solid rgba(255,215,0,0.35)',
+        borderRadius: 10,
+        padding: '10px 12px 9px',
+      } : {
         position: 'absolute',
         right: 14,
         bottom: 14,

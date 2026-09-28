@@ -85,15 +85,29 @@ export function buildEditedStageJson(stageData, intents) {
 
   // ── addSupportBeam 주입 (CBEAM + PBEAML L) ────────────────────────────
   // element id 는 위 통합 카운터(nextId)를 이어 사용 → addRigid 로 추가된 id 와도 충돌 없음.
+  // ⚠ PID 는 **기존 최대값+1** 이다(2026-09-17 사용자 결정). 레거시 BdfToCsv.py 의 매직넘버
+  //   PID 1000 을 예약하지 않는다 — 기존 모델이 그 번호를 이미 쓰고 있을 수 있고(사내
+  //   3370_M04.bdf 의 1000 번이 그 모델의 가서포트다), 단면이 3종이라 한 번호로 담기지도 않는다.
+  //   가서포트 식별은 아래 element 의 `remark: '가서포트'` 로 한다.
+  // ⚠ property 는 **단면별로 1장만** 만든다(치수가 키). 가서포트마다 PBEAML 을 찍으면
+  //   같은 규격이 수십 장 중복돼 BDF 가 불필요하게 커지고, 결과 해석에서 PID 로 단면을
+  //   묶어 보는 쪽(보고서 부재 표)이 같은 규격을 여러 줄로 본다.
   let nextPropertyId = (properties.length ? Math.max(...properties.map(p => p.id ?? 0)) : 0) + 1
   const supportMaterialId = resolveSupportMaterialId(stageData)
+  const supportPropByDims = new Map()
   for (const sb of mask.addedSupportBeams ?? []) {
-    const propId = nextPropertyId++
-    properties.push({
-      id: propId, card: 'PBEAML', kind: 'L',
-      dims: [...(sb.dims ?? [100, 100, 10, 10])],
-      materialId: supportMaterialId,
-    })
+    const dims = [...(sb.dims ?? [100, 100, 10, 10])]
+    const key = dims.join('x')
+    let propId = supportPropByDims.get(key)
+    if (propId == null) {
+      propId = nextPropertyId++
+      supportPropByDims.set(key, propId)
+      properties.push({
+        id: propId, card: 'PBEAML', kind: 'L',
+        dims,
+        materialId: supportMaterialId,
+      })
+    }
     elements.push({
       id: nextId++, type: 'CBEAM',
       startNode: sb.startNode, endNode: sb.endNode,

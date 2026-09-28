@@ -26,7 +26,13 @@ const MIN_HEIGHT = 120
  *
  * Renders only when useUnitStructuralStore.result 가 있을 때.
  */
-export default function UnitStructuralResultDock() {
+/**
+ * @param {{ embedded?: boolean }} props
+ *   embedded=true — 하단 도크(`shell/BottomDock.jsx`)의 '구조 해석 결과' 탭 안에서 렌더한다.
+ *   이때 위치·높이·접기는 도크가 책임지므로 fixed 배치와 리사이즈 그립을 쓰지 않는다.
+ *   (기본값 false 는 이 컴포넌트를 단독 floating 도크로 쓰던 예전 동작 — 호환용으로 남긴다.)
+ */
+export default function UnitStructuralResultDock({ embedded = false }) {
   const result = useUnitStructuralStore(s => s.result)
   const summary = useUnitStructuralStore(s => s.summary)
   const allowable = result?.evaluation?.structuralAllowableMPa ?? 220
@@ -80,6 +86,30 @@ export default function UnitStructuralResultDock() {
   }, [collapsed, height])
 
   if (!result) return null
+
+  if (embedded) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, background: '#12122a' }}>
+        <Header
+          summary={summary}
+          allowable={allowable}
+          tab={tab}
+          setTab={setTab}
+          collapsed={false}
+          onToggleCollapse={null}
+        />
+        <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: '6px 10px 10px' }}>
+          {tab === 'members' ? (
+            <MembersTable members={result.members ?? []} />
+          ) : tab === 'displacements' ? (
+            <DisplacementsTable displacements={result.displacements ?? []} />
+          ) : (
+            <WiresTable wires={result.wires ?? []} />
+          )}
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div style={{
@@ -193,7 +223,8 @@ function Header({ summary, allowable, tab, setTab, collapsed, onToggleCollapse }
       <span style={{ fontSize: 11, color: '#7aa6c8', marginLeft: 'auto' }}>
         허용 {allowable} MPa
       </span>
-      <button
+      {/* 하단 도크 안(embedded)에서는 접기를 도크가 맡으므로 이 버튼을 그리지 않는다. */}
+      {onToggleCollapse && <button
         onClick={onToggleCollapse}
         title={collapsed ? '결과 패널 펼치기' : '결과 패널 접기'}
         aria-label={collapsed ? '결과 패널 펼치기' : '결과 패널 접기'}
@@ -204,7 +235,7 @@ function Header({ summary, allowable, tab, setTab, collapsed, onToggleCollapse }
           borderRadius: 4, color: '#7aa6c8', cursor: 'pointer',
           fontSize: 14, lineHeight: 1, padding: 0,
         }}
-      >{collapsed ? '▲' : '▼'}</button>
+      >{collapsed ? '▲' : '▼'}</button>}
     </div>
   )
 }

@@ -1,5 +1,6 @@
 import { Fragment, useState } from 'react'
-import { AlertTriangle, ChevronDown, ChevronRight, ClipboardList, Eye, EyeOff, Loader2, Play, Plus, RotateCcw, ShieldAlert, ShieldCheck, Sparkles, Trash2, X } from 'lucide-react'
+import { AlertTriangle, Cable, CheckCircle2, ChevronDown, ChevronRight, ClipboardList, Eye, EyeOff, Loader2, Play, Plus, RotateCcw, ShieldAlert, ShieldCheck, Sparkles, Trash2, X } from 'lucide-react'
+import TabPanel, { StatusLine } from './shell/TabPanel.jsx'
 import {
   useEditStore,
   getHoistMaxGroups,
@@ -172,31 +173,25 @@ export default function HoistPositionPanel() {
     flashGuide('권상점과 생성된 wire를 모두 초기화했습니다.', 'success')
   }
 
-  return (
-    // 상단 Hoist 탭의 좌측 도크(301px). 이전엔 3D 뷰포트 위 position:absolute floating 이었으나
-    // 메뉴바 도입으로 도크로 이주했다. 폭은 Edit/Analyze 도크(301)와 동일하게 고정해야
-    // UnitStructuralResultDock 의 layoutBounds.sidebarWidth 계산과 어긋나지 않는다.
-    // 내부 컨트롤(방식·그룹·노드 칩·Wire·외경·실행)·store·단축키 로직은 그대로 유지.
-    <div style={{
-      width: 301,
-      flexShrink: 0,
-      position: 'relative',
-      background: '#0b0b1e',
-      borderRight: '1px solid #1e1e38',
-      height: '100%',
-      overflowY: 'auto',
-      overflowX: 'hidden',
-      padding: '8px',
-      userSelect: 'none',
-      display: 'flex',
-      flexDirection: 'column',
-      gap: 7,
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
-        <div style={{ fontSize: 14, color: '#90E8FF', letterSpacing: 0.8, fontWeight: 900 }}>
-          권상(Hoisting) 위치 설정
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+  // 상단 Hoist 탭의 좌측 도크. 외곽은 다른 탭과 같은 공통 틀(shell/TabPanel)을 쓰고,
+  // 내부 컨트롤(방식·그룹·노드 칩·Wire·외경·실행)·store·단축키 로직은 그대로 유지한다.
+  // 헤더의 '가상판'·'초기화' 는 이 탭 고유 액션이라 TabPanel 의 headerExtra 로 올린다.
+  const hoistStatus = !hasModel
+    ? <StatusLine tone="muted" icon={AlertTriangle}>모델을 먼저 엽니다</StatusLine>
+    : !modelRunnable
+      ? <StatusLine tone="danger" icon={AlertTriangle}>모델 오류 — Model Check 확인</StatusLine>
+      : <StatusLine
+          tone={stabilityOverall === 'fail' ? 'danger' : stabilityOverall === 'warn' ? 'warn' : stabilityOverall === 'pass' ? 'ok' : 'info'}
+          icon={stabilityOverall === 'pass' ? CheckCircle2 : AlertTriangle}
+          right={mode ? `${HOIST_MODES.find(m => m.id === mode)?.label ?? mode} · ${groupCount}그룹` : null}>
+          {stabilityOverall === 'pass' ? '자세안정성 PASS'
+            : stabilityOverall === 'warn' ? '자세안정성 WARN — 검토 후 진행'
+            : stabilityOverall === 'fail' ? '자세안정성 FAIL — 위치 재지정'
+            : mode ? '권상점 지정 중' : '권상 방식을 고르세요'}
+        </StatusLine>
+
+  const headerExtra = (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
         {/* 가상판(Z-레벨 가이드 평판) 표시 토글 — hoist 리본 헤더 고정(사용자 요청 2026-07-03, 기본 켜짐). */}
         <Tooltip
           placement="bottom"
@@ -255,9 +250,13 @@ export default function HoistPositionPanel() {
             초기화
           </button>
         </Tooltip>
-        </div>
-      </div>
+    </div>
+  )
 
+  return (
+    <TabPanel id="hoist" title="Hoist" purpose="권상 위치를 정하고 자세안정성을 평가합니다."
+      icon={Cable} status={hoistStatus} headerExtra={headerExtra}>
+    <div style={{ padding: '8px', userSelect: 'none', display: 'flex', flexDirection: 'column', gap: 7 }}>
       <HoistLoadConditionSection />
 
       {!modelRunnable && hasModel && (
@@ -929,6 +928,7 @@ export default function HoistPositionPanel() {
         )}
       </div>
     </div>
+    </TabPanel>
   )
 }
 

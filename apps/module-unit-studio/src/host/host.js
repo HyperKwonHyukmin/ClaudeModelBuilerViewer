@@ -26,8 +26,9 @@
  *   optimizeHoistPositions(posturePath) : Promise<{ ok, report?, error?, optimizationPath? }>
  *     ModuleAnalysis.Cli --optimize 로 자세안정성 기반 권상 위치 후보를 평가하고 best 그룹을 돌려준다.
  *
- *   generateUnitLiftingReport({ analysisId, options })
- *     저장된 Unit 구조 해석 결과로 표준 검토 보고서(xlsx)를 생성해 사용자 PC 에 저장한다.
+ *   generateUnitLiftingReport({ analysisId, kind, format, options })
+ *     저장된 Unit 구조 해석 결과로 표준 검토 보고서를 생성해 사용자 PC 에 저장한다.
+ *     format 은 'pdf'(기본) | 'xlsx'. PDF 는 백엔드가 만든 xlsx 를 서버 Excel 로 인쇄해 변환한다.
  *     그림은 백엔드가 결과 JSON 으로 직접 렌더하므로 Studio 캡처를 보내지 않는다.
  *
  * folderRef 는 host 별 불투명 객체. 호출자는 보존만 하고 다시 host 에 넘긴다.
@@ -189,6 +190,31 @@ class ElectronHost {
       this.generateUnitLiftingReport = async (payload = {}) => {
         try {
           const r = await api.generateUnitLiftingReport(payload)
+          return r ?? { ok: false, error: '응답이 없습니다 (preload 미응답).' }
+        } catch (e) {
+          return { ok: false, error: e?.message ?? String(e) }
+        }
+      }
+    }
+
+    // Analysis 탭 "Wire 포함 BDF 다운로드" — 구조 해석에 들어가는 BDF 를 사용자 PC 에 저장.
+    // 입력: { stabilityPath, safetyFactor, analysisId? } — analysisId 가 있으면 그 해석이 실제로 푼 BDF.
+    // 반환: { ok, savedPath?, canceled?, error? }
+    if (typeof api?.downloadLiftingBdf === 'function') {
+      this.downloadLiftingBdf = async (opts = {}) => {
+        try {
+          const r = await api.downloadLiftingBdf(opts)
+          return r ?? { ok: false, error: '응답이 없습니다 (preload 미응답).' }
+        } catch (e) {
+          return { ok: false, error: e?.message ?? String(e) }
+        }
+      }
+    }
+    // Analysis·Save 탭 "OP2 다운로드" — 구조 해석 결과 OP2 저장. 입력: { analysisId }
+    if (typeof api?.downloadUnitOp2 === 'function') {
+      this.downloadUnitOp2 = async (opts = {}) => {
+        try {
+          const r = await api.downloadUnitOp2(opts)
           return r ?? { ok: false, error: '응답이 없습니다 (preload 미응답).' }
         } catch (e) {
           return { ok: false, error: e?.message ?? String(e) }

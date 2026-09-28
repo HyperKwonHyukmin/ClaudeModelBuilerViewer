@@ -355,8 +355,9 @@ export function countActiveZones(bands, pointsPerZone) {
 
 /**
  * 구역 미니맵용 SVG 뷰모델(순수). 모델 XY(mm)를 viewBox 좌표로 매핑한다.
- * 방향은 앱 3D 뷰어의 평면도('A' 뷰)와 동일: 모델 +X(종) → 화면 위, +Y(횡) → 화면 왼쪽.
- *   → 가로(W)는 Y 범위, 세로(H)는 X 범위에 비례한다. (SVG 는 y 가 아래로 증가)
+ * 방향(사용자 요청, 0.0.156): 모델 +X → 화면 오른쪽(가로=X), +Y → 화면 위(세로=Y).
+ *   → 가로(W)는 X 범위, 세로(H)는 Y 범위에 비례한다. (SVG 는 y 가 아래로 증가)
+ *   ⚠ 3D 평면도('A' 뷰, ↑X·←Y)와는 90° 돌아가 있다 — 구역 지도만 바꿨다. 썸네일은 그대로.
  * nodeEntries 는 배열([id,{x,y,z}])이어야 한다(두 번 순회).
  * @param {{minX,maxX,minY,maxY}} bbox
  * @param {{bandAxis:'x'|'y', bands:number[], pointsPerZone?:number[][]}} config
@@ -371,20 +372,20 @@ export function buildZonePartitionView(bbox, config, nodeEntries, pipeNodes, opt
   const b = bbox ?? { minX: 0, maxX: 1, minY: 0, maxY: 1 }
   const spanX = (b.maxX - b.minX) || 1
   const spanY = (b.maxY - b.minY) || 1
-  // 가로(W)=Y범위, 세로(H)=X범위. 평면도 방향(↑X · ←Y)에 맞춘 종횡비.
-  const aspectWH = spanY / spanX
+  // 가로(W)=X범위, 세로(H)=Y범위 (→X · ↑Y).
+  const aspectWH = spanX / spanY
   let W, H
   if (aspectWH >= 1) { W = maxDim; H = Math.max(120, Math.round(maxDim / aspectWH)) }
   else { H = maxDim; W = Math.max(120, Math.round(maxDim * aspectWH)) }
-  const sh = (my) => ((b.maxY - my) / spanY) * W // 가로: 모델 +Y → 화면 왼쪽
-  const sv = (mx) => ((b.maxX - mx) / spanX) * H // 세로: 모델 +X → 화면 위 (svg y-down)
+  const sh = (mx) => ((mx - b.minX) / spanX) * W // 가로: 모델 +X → 화면 오른쪽
+  const sv = (my) => ((b.maxY - my) / spanY) * H // 세로: 모델 +Y → 화면 위 (svg y-down)
 
   const axis = config?.bandAxis === 'x' ? 'x' : 'y'
   const zones = partitionZones(b, config)
   const byZone = assignNodesToZones(zones, nodeEntries)
   const cells = zones.map(z => {
-    const xa = sh(z.yMax), xb = sh(z.yMin)
-    const ya = sv(z.xMax), yb = sv(z.xMin)
+    const xa = sh(z.xMin), xb = sh(z.xMax)
+    const ya = sv(z.yMax), yb = sv(z.yMin)
     const points = zoneCountFor(config, z.bandIndex, z.subIndex, 2)
     const shape = zoneShapeFor(config, z.bandIndex, z.subIndex)   // 4점 구역 형상('quad'|'line')
     const nodeCount = (byZone.get(z.id) ?? []).length
@@ -408,13 +409,13 @@ export function buildZonePartitionView(bbox, config, nodeEntries, pipeNodes, opt
     const take = (i++ % stride) === 0
     if (!take) continue
     if (!n || !Number.isFinite(n.x) || !Number.isFinite(n.y)) continue
-    dots.push({ x: sh(n.y), y: sv(n.x), pipe: pipeNodes ? pipeNodes.has(id) : false })
+    dots.push({ x: sh(n.x), y: sv(n.y), pipe: pipeNodes ? pipeNodes.has(id) : false })
   }
 
   // COG 마커 — anchor(무게중심) 가 있으면 화면좌표로 변환해 미니맵에 십자 표시.
   const anchor = (config?.anchor && Number.isFinite(config.anchor.x) && Number.isFinite(config.anchor.y))
     ? config.anchor : null
-  const cog = anchor ? { x: sh(anchor.y), y: sv(anchor.x) } : null
+  const cog = anchor ? { x: sh(anchor.x), y: sv(anchor.y) } : null
 
   return { viewBox: { x: 0, y: 0, w: W, h: H }, cells, dots, cog }
 }
